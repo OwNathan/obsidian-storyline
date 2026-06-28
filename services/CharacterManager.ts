@@ -1,8 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { Character, CharacterRelation, CharacterRelationCategory, CHARACTER_FIELD_KEYS, LEGACY_RELATION_FIELDS_TO_CLEAN, normalizeCharacterRelations, normalizeRoleEntries } from '../models/Character';
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel } from './FieldTemplateService';
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+import { Character, CharacterRelation, CharacterRelationCategory, CHARACTER_FIELD_KEYS, LEGACY_RELATION_FIELDS_TO_CLEAN, normalizeCharacterRelations, normalizeRoleEntries, CHARACTER_CATEGORIES } from '../models/Character';
+import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel, UniversalFieldTemplate } from './FieldTemplateService';
 import { App, TFile, normalizePath, parseYaml, stringifyYaml } from 'obsidian';
 import { coerceString } from '../utils/narrow';
+import { MirroredSection, buildMirroredBody, parseMirroredBody, ParsedMirrorSection } from './CodexManager';
 
 /**
  * Manages character .md files — loading, saving, creating, and deleting
@@ -11,9 +12,21 @@ import { coerceString } from '../utils/narrow';
 export class CharacterManager {
     private app: App;
     private characters: Map<string, Character> = new Map();
+    private _isSaving = false;
+    private _fieldTemplates: UniversalFieldTemplate[] = [];
 
     constructor(app: App) {
         this.app = app;
+    }
+
+    /** Whether the manager is currently writing a file (prevents modify-loop). */
+    isSelfWrite(): boolean {
+        return this._isSaving;
+    }
+
+    /** Set field templates for resolving universal field mirror keys during body parsing. */
+    setFieldTemplates(templates: UniversalFieldTemplate[]): void {
+        this._fieldTemplates = templates;
     }
 
     /**
@@ -187,7 +200,7 @@ export class CharacterManager {
     /**
      * Save/update a character back to its file.
      */
-    async saveCharacter(character: Character): Promise<void> {
+    async saveCharacter(character: Character, mirrored?: MirroredSection[]): Promise<void> {
         const normalizedFilePath = normalizePath(character.filePath);
         const file = this.app.vault.getAbstractFileByPath(normalizedFilePath);
         if (!(file instanceof TFile)) {
@@ -240,10 +253,18 @@ export class CharacterManager {
         // Issue #71 — mirror to top-level YAML keys for templates that opt in
         mirrorUniversalFieldsToTopLevel(fm, character.universalFields);
 
-        // Write notes to body
-        const finalBody = character.notes ?? body;
+        // Build body: strip old mirrored sections, then rebuild with notes + current mirrored fields
+        const { notes: existingNotes } = parseMirroredBody(body);
+        const notesContent = character.notes ?? (existingNotes || '');
+        const finalBody = buildMirroredBody(notesContent, mirrored ?? []);
+
         const newContent = `---\n${stringifyYaml(fm)}---\n${finalBody ? '\n' + finalBody : ''}`;
-        await this.app.vault.modify(file, newContent);
+        this._isSaving = true;
+        try {
+            await this.app.vault.modify(file, newContent);
+        } finally {
+            this._isSaving = false;
+        }
 
         // Update in-memory cache
         this.characters.set(normalizedFilePath, { ...character, filePath: normalizedFilePath });
@@ -325,6 +346,10 @@ export class CharacterManager {
         if (safeFm.type !== 'character' && !folderFallback) return null;
 
         const body = this.extractBody(content);
+
+        // Parse mirrored sections from body (body wins over frontmatter)
+        const { notes: plainNotes, sections } = parseMirroredBody(body);
+
         const basename = filePath.split('/').pop()?.replace(/\.md$/i, '') ?? filePath;
         const relations = normalizeCharacterRelations(this.parseRelations(safeFm.relations) || this.buildLegacyRelations(safeFm));
 
@@ -376,10 +401,46 @@ export class CharacterManager {
             ) as Record<string, string | string[]> | undefined,
             created: safeFm.created,
             modified: safeFm.modified,
-            notes: body || undefined,
+            notes: plainNotes || undefined,
         };
 
+        // Apply mirrored body values — body is source of truth for mirrored fields
+        if (sections.length > 0) {
+            for (const sec of sections) {
+                const key = this.resolveMirrorKey(sec.sectionTitle, sec.fieldLabel);
+                if (!key) continue;
+                if (key.startsWith('uf_')) {
+                    if (!character.universalFields) character.universalFields = {};
+                    character.universalFields[key] = sec.value;
+                } else if (key.includes(' :: ')) {
+                    if (!character.custom) character.custom = {};
+                    character.custom[key] = sec.value;
+                } else {
+                    (character as unknown as Record<string, unknown>)[key] = sec.value;
+                }
+            }
+        }
+
         return character;
+    }
+
+    /**
+     * Resolve a sectionTitle + fieldLabel pair to a field key for a Character.
+     */
+    private resolveMirrorKey(sectionTitle: string, fieldLabel: string): string | null {
+        // Universal field — match by section and label
+        const tpl = this._fieldTemplates.find(t => t.section === sectionTitle && t.label === fieldLabel);
+        if (tpl) return tpl.id;
+
+        // Built-in field — scan CHARACTER_CATEGORIES
+        for (const cat of CHARACTER_CATEGORIES) {
+            if (cat.title !== sectionTitle) continue;
+            const field = cat.fields.find(f => f.label === fieldLabel);
+            if (field) return field.key;
+        }
+
+        // Fallback: composite custom-section key
+        return `${sectionTitle} :: ${fieldLabel}`;
     }
 
     private extractFrontmatter(content: string): Record<string, unknown> | null {

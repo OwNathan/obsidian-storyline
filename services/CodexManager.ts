@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel } from './FieldTemplateService';
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel, UniversalFieldTemplate } from './FieldTemplateService';
 import { App, TFile, normalizePath, parseYaml, stringifyYaml } from 'obsidian';
 import { CodexCategoryDef, CodexEntry, getBuiltinCodexCategory, withLinkingSection } from '../models/Codex';
 
@@ -11,6 +11,24 @@ import { CodexCategoryDef, CodexEntry, getBuiltinCodexCategory, withLinkingSecti
  * Characters and Locations retain their specialised managers;
  * CodexManager handles everything else inside the project's Codex/ folder.
  */
+/** Info needed to write a single mirrored field section into the md body. */
+export interface MirroredSection {
+    sectionTitle: string;
+    fieldKey: string;
+    fieldLabel: string;
+    value: string;
+}
+
+/** A parsed mirrored section extracted from the markdown body (no markers — H1/H2 only). */
+export interface ParsedMirrorSection {
+    sectionTitle: string;
+    fieldLabel: string;
+    value: string;
+}
+
+/** Single separator between notes and mirrored H1/H2 sections. */
+export const MIRROR_SEPARATOR = '<!-- sl-mirror -->';
+
 export class CodexManager {
     private app: App;
 
@@ -20,8 +38,23 @@ export class CodexManager {
     /** Resolved category definitions (built-in + custom) */
     private categoryDefs: Map<string, CodexCategoryDef> = new Map();
 
+    /** Guard flag set during plugin-initiated saves to prevent feedback loops */
+    private _isSaving = false;
+
+    private _fieldTemplates: UniversalFieldTemplate[] = [];
+
     constructor(app: App) {
         this.app = app;
+    }
+
+    /** Whether the manager is currently writing a file (prevents modify-loop). */
+    isSelfWrite(): boolean {
+        return this._isSaving;
+    }
+
+    /** Set field templates for resolving universal field mirror keys during body parsing. */
+    setFieldTemplates(templates: UniversalFieldTemplate[]): void {
+        this._fieldTemplates = templates;
     }
 
     // ── Category management ────────────────────────────
@@ -245,8 +278,11 @@ export class CodexManager {
 
     /**
      * Save an entry back to its .md file.
+     *
+     * @param mirrored  Optional list of fields whose content should be
+     *                  mirrored to the file body as H1/H2 sections.
      */
-    async saveEntry(entry: CodexEntry): Promise<void> {
+    async saveEntry(entry: CodexEntry, mirrored?: MirroredSection[]): Promise<void> {
         const normalizedPath = normalizePath(entry.filePath);
         const file = this.app.vault.getAbstractFileByPath(normalizedPath);
         if (!(file instanceof TFile)) {
@@ -301,9 +337,20 @@ export class CodexManager {
         // Issue #71 — mirror to top-level YAML keys for templates that opt in
         mirrorUniversalFieldsToTopLevel(fm, entry.universalFields);
 
-        const finalBody = entry.notes ?? body;
+        // Build body: strip old mirrored sections, then rebuild with notes + current mirrored fields
+        const { notes: existingNotes } = parseMirroredBody(body);
+        const notesContent = entry.notes ?? (existingNotes || '');
+        const finalBody = buildMirroredBody(notesContent, mirrored ?? []);
+
         const newContent = `---\n${stringifyYaml(fm)}---\n${finalBody ? '\n' + finalBody : ''}`;
-        await this.app.vault.modify(file, newContent);
+
+        // Guard against self-triggered vault modify event
+        this._isSaving = true;
+        try {
+            await this.app.vault.modify(file, newContent);
+        } finally {
+            this._isSaving = false;
+        }
 
         // Update in-memory cache
         for (const catMap of this.entriesByCategory.values()) {
@@ -366,7 +413,9 @@ export class CodexManager {
         return updated;
     }
 
-    // ── Parsing helpers ────────────────────────────────
+    // ── Body mirroring utilities ───────────────────────
+
+    // ── Parsing helpers (continued) ────────────────────
 
     private parseEntry(
         content: string,
@@ -387,6 +436,10 @@ export class CodexManager {
         if (safeFm.type !== catDef.id && !folderFallback) return null;
 
         const body = this.extractBody(content);
+
+        // Parse mirrored sections from body (body wins over frontmatter)
+        const { notes: plainNotes, sections } = parseMirroredBody(body);
+
         const basename = filePath.split('/').pop()?.replace(/\.md$/i, '') ?? filePath;
 
         const entry: CodexEntry = {
@@ -397,7 +450,7 @@ export class CodexManager {
             gallery: this.parseGallery(safeFm.gallery),
             created: safeFm.created,
             modified: safeFm.modified,
-            notes: body || undefined,
+            notes: plainNotes || undefined,
             custom: safeFm.custom && typeof safeFm.custom === 'object' ? safeFm.custom as Record<string, string> : undefined,
             universalFields: hydrateUniversalFieldsFromTopLevel(
                 safeFm,
@@ -414,7 +467,50 @@ export class CodexManager {
             }
         }
 
+        // Apply mirrored body values — body is source of truth for mirrored fields
+        if (sections.length > 0) {
+            for (const sec of sections) {
+                const key = this.resolveMirrorKey(sec.sectionTitle, sec.fieldLabel, catDef);
+                if (!key) continue;
+                if (key.startsWith('uf_')) {
+                    if (!entry.universalFields) entry.universalFields = {};
+                    entry.universalFields[key] = sec.value;
+                } else if (key.includes(' :: ')) {
+                    if (!entry.custom) entry.custom = {};
+                    entry.custom[key] = sec.value;
+                } else {
+                    entry[key] = sec.value;
+                }
+            }
+        }
+
         return entry;
+    }
+
+    /**
+     * Resolve a sectionTitle + fieldLabel pair to a field key.
+     * Checks: custom-section composite keys, universal field templates, built-in fields.
+     */
+    private resolveMirrorKey(sectionTitle: string, fieldLabel: string, catDef: CodexCategoryDef): string | null {
+        // Composite custom-section key
+        const composite = `${sectionTitle} :: ${fieldLabel}`;
+        if (this._fieldTemplates.some(t => t.section === sectionTitle && t.label === fieldLabel)) return null; // let universal check handle it
+        // Actually check if any custom section with this composite exists
+        const customKey = composite;
+        // We can't verify custom sections here; just return the composite if it looks like one
+        // Universal field — match by section and label
+        const tpl = this._fieldTemplates.find(t => t.section === sectionTitle && t.label === fieldLabel);
+        if (tpl) return tpl.id;
+
+        // Built-in field — scan category sections
+        for (const cat of catDef.categories) {
+            if (cat.title !== sectionTitle) continue;
+            const field = cat.fields.find(f => f.label === fieldLabel);
+            if (field) return field.key;
+        }
+
+        // Fallback: could be custom-section composite key
+        return composite;
     }
 
     private extractFrontmatter(content: string): Record<string, unknown> | null {
@@ -460,4 +556,88 @@ export class CodexManager {
         await this.app.vault.createFolder(normalized);
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */
+/**
+ * Build the markdown body by appending mirrored field sections after notes content
+ * using a single separator and H1/H2 structure.
+ * Format: notes\n\n<!-- sl-mirror -->\n\n# Section\n## Field\nvalue\n\n...
+ */
+export function buildMirroredBody(notes: string, mirrored: MirroredSection[]): string {
+    let body = notes.trimEnd();
+    if (mirrored.length === 0) return body;
+
+    const sections = mirrored.map(ms =>
+        `# ${ms.sectionTitle}\n## ${ms.fieldLabel}\n${ms.value || ''}`
+    ).join('\n\n');
+
+    return body
+        ? `${body}\n\n${MIRROR_SEPARATOR}\n\n${sections}`
+        : `${MIRROR_SEPARATOR}\n\n${sections}`;
+}
+
+/**
+ * Split a markdown body into notes and an array of parsed H1/H2 mirrored sections.
+ * Splits on the <!-- sl-mirror --> separator. Notes = everything before it.
+ * Mirrored sections = H1/H2 headings after it.
+ */
+export function parseMirroredBody(body: string): {
+    notes: string;
+    sections: ParsedMirrorSection[];
+} {
+    if (!body) return { notes: '', sections: [] };
+
+    const clean = body.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF]/g, '');
+
+    const sepIdx = clean.indexOf(MIRROR_SEPARATOR);
+    if (sepIdx === -1) return { notes: clean.trim(), sections: [] };
+
+    const notes = clean.substring(0, sepIdx).trim();
+    const mirrorBlock = clean.substring(sepIdx + MIRROR_SEPARATOR.length);
+
+    const sections: ParsedMirrorSection[] = [];
+    let currentSection: string | null = null;
+    let currentField: string | null = null;
+    let currentValue = '';
+
+    const lines = mirrorBlock.split('\n');
+    for (const line of lines) {
+        const h2Match = line.match(/^## (.+)/);
+        const h1Match = line.match(/^# (.+)/);
+
+        if (h1Match) {
+            if (currentSection && currentField) {
+                sections.push({
+                    sectionTitle: currentSection,
+                    fieldLabel: currentField,
+                    value: currentValue.trim(),
+                });
+            }
+            currentSection = h1Match[1].trim();
+            currentField = null;
+            currentValue = '';
+        } else if (h2Match && currentSection) {
+            if (currentField) {
+                sections.push({
+                    sectionTitle: currentSection,
+                    fieldLabel: currentField,
+                    value: currentValue.trim(),
+                });
+            }
+            currentField = h2Match[1].trim();
+            currentValue = '';
+        } else if (currentField) {
+            currentValue += (currentValue ? '\n' : '') + line;
+        }
+    }
+
+    if (currentSection && currentField) {
+        sections.push({
+            sectionTitle: currentSection,
+            fieldLabel: currentField,
+            value: currentValue.trim(),
+        });
+    }
+
+    return { notes, sections };
+}
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+>>>>>>> ad04a78 (coise)

@@ -50,7 +50,7 @@ export class DNInspector {
 
         const headerActions = header.createDiv('dn-inspector-header-actions');
         const openBtn = headerActions.createEl('button', {
-            cls: 'clickable-icon',
+            cls: 'codex-detail-action-btn',
             attr: { 'aria-label': 'Open file' },
         });
         setIcon(openBtn.createSpan(), 'file');
@@ -58,7 +58,7 @@ export class DNInspector {
         openBtn.addEventListener('click', () => this.openEntityFile(entity));
 
         const deleteBtn = headerActions.createEl('button', {
-            cls: 'clickable-icon',
+            cls: 'codex-detail-action-btn codex-detail-delete-btn',
             attr: { 'aria-label': 'Delete' },
         });
         setIcon(deleteBtn.createSpan(), 'trash');

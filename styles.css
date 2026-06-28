@@ -10850,6 +10850,71 @@ body /* ── Plain-text mode: hide link/tag decorations ───────�
     color: var(--text-accent);
 }
 
+/* ── Mirror-to-body toggle button ─ */
+
+.field-mirror-btn {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 4px;
+    opacity: 0;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: opacity 0.15s;
+    vertical-align: middle;
+}
+
+.field-mirror-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.character-field-row:hover .field-mirror-btn,
+.codex-field-row:hover .field-mirror-btn,
+.location-field-row:hover .field-mirror-btn {
+    opacity: 0.6;
+}
+
+.field-mirror-btn:hover {
+    opacity: 1;
+    color: var(--text-accent);
+}
+
+.field-mirror-btn-active {
+    opacity: 0.7 !important;
+    color: var(--text-accent);
+}
+
+.field-mirror-btn-active svg {
+    fill: var(--text-accent);
+    stroke: var(--text-accent);
+}
+
+.codex-universal-label-wrap .field-mirror-btn {
+    opacity: 0;
+}
+
+.codex-universal-label-wrap:hover .field-mirror-btn {
+    opacity: 0.6;
+}
+
+.codex-universal-label-wrap .field-mirror-btn:hover {
+    opacity: 1;
+    color: var(--text-accent);
+}
+
+.character-universal-label-wrap .field-mirror-btn {
+    opacity: 0;
+}
+
+.character-universal-label-wrap:hover .field-mirror-btn {
+    opacity: 0.6;
+}
+
+.character-universal-label-wrap .field-mirror-btn:hover {
+    opacity: 1;
+    color: var(--text-accent);
+}
+
 /* ── Move-up / move-down chevrons (built-in field rows) ─ */
 .field-move-btn {
     display: inline-flex;

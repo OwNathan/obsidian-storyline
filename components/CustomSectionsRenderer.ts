@@ -115,6 +115,10 @@ export interface CustomSectionsHost<TDraft extends { custom?: Record<string, str
     persistSections: () => void;
     /** Trigger a full re-render of the host view. */
     requestRerender: () => void;
+    /** Check whether a custom-section textarea field is mirrored to the note body (optional). */
+    isFieldMirrored?: (compositeKey: string) => boolean;
+    /** Toggle mirror state for a custom-section textarea field (optional). */
+    toggleFieldMirror?: (compositeKey: string) => Promise<void>;
 }
 
 /** Effective position for a section (clamped to [0, builtinCount]). */
@@ -494,7 +498,21 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
             const fname = def.name;
             const key = compositeKey(sec.title, fname);
             const row = body.createDiv(`${fieldRowLabel} ${customRowLabel}`);
-            row.createEl('label', { cls: fieldLabelLabel, text: fname });
+            const labelEl = row.createEl('label', { cls: fieldLabelLabel, text: fname });
+
+            // Mirror-to-body toggle for textarea fields (only if host provides callbacks)
+            if (def.type === 'textarea' && host.isFieldMirrored && host.toggleFieldMirror) {
+                const isMirrored = host.isFieldMirrored(key);
+                const mirrorBtn = labelEl.createEl('span', {
+                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
+                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
+                });
+                setIcon(mirrorBtn, 'file-text');
+                mirrorBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await host.toggleFieldMirror!(key);
+                });
+            }
 
             // Render the input element appropriate for the field's type.
             // Mirrors the universal field renderers so users get the same

@@ -4,8 +4,10 @@ import { coerceString } from '../utils/narrow';
 import {
     StoryWorld, StoryLocation, WorldOrLocation,
     WORLD_FIELD_KEYS, LOCATION_FIELD_KEYS,
+    WORLD_CATEGORIES, LOCATION_CATEGORIES,
 } from '../models/Location';
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel } from './FieldTemplateService';
+import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel, UniversalFieldTemplate } from './FieldTemplateService';
+import { MirroredSection, buildMirroredBody, parseMirroredBody, ParsedMirrorSection } from './CodexManager';
 
 /**
  * Manages world & location .md files — loading, saving, creating, deleting.
@@ -18,9 +20,21 @@ export class LocationManager {
     private app: App;
     private worlds: Map<string, StoryWorld> = new Map();
     private locations: Map<string, StoryLocation> = new Map();
+    private _isSaving = false;
+    private _fieldTemplates: UniversalFieldTemplate[] = [];
 
     constructor(app: App) {
         this.app = app;
+    }
+
+    /** Whether the manager is currently writing a file (prevents modify-loop). */
+    isSelfWrite(): boolean {
+        return this._isSaving;
+    }
+
+    /** Set field templates for resolving universal field mirror keys during body parsing. */
+    setFieldTemplates(templates: UniversalFieldTemplate[]): void {
+        this._fieldTemplates = templates;
     }
 
     // ── Loading ────────────────────────────────────────
@@ -89,6 +103,10 @@ export class LocationManager {
         const fmEff = safeFm;
 
         const body = this.extractBody(content);
+
+        // Parse mirrored sections from body (body wins over frontmatter)
+        const { notes: plainNotes, sections } = parseMirroredBody(body);
+
         const basename = filePath.split('/').pop()?.replace(/\.md$/i, '') ?? filePath;
 
         if (effectiveType === 'world') {
@@ -119,8 +137,14 @@ export class LocationManager {
                 ) as Record<string, string | string[]> | undefined,
                 created: fmEff.created,
                 modified: fmEff.modified,
-                notes: body || undefined,
+                notes: plainNotes || undefined,
             };
+
+            // Apply mirrored body values — body is source of truth for mirrored fields
+            if (sections.length > 0) {
+                applySectionsToWorld(sections, world, this._fieldTemplates);
+            }
+
             this.worlds.set(filePath, world);
         } else if (effectiveType === 'location') {
             const loc: StoryLocation = {
@@ -151,8 +175,14 @@ export class LocationManager {
                 ) as Record<string, string | string[]> | undefined,
                 created: fmEff.created,
                 modified: fmEff.modified,
-                notes: body || undefined,
+                notes: plainNotes || undefined,
             };
+
+            // Apply mirrored body values — body is source of truth for mirrored fields
+            if (sections.length > 0) {
+                applySectionsToLocation(sections, loc, this._fieldTemplates);
+            }
+
             this.locations.set(filePath, loc);
         }
     }
@@ -302,19 +332,19 @@ export class LocationManager {
 
     // ── Save ───────────────────────────────────────────
 
-    async saveWorld(world: StoryWorld): Promise<void> {
+    async saveWorld(world: StoryWorld, mirrored?: MirroredSection[]): Promise<void> {
         const normalizedFilePath = normalizePath(world.filePath);
-        await this.saveItem({ ...world, filePath: normalizedFilePath }, WORLD_FIELD_KEYS as string[]);
+        await this.saveItem({ ...world, filePath: normalizedFilePath }, WORLD_FIELD_KEYS as string[], mirrored);
         this.worlds.set(normalizedFilePath, { ...world, filePath: normalizedFilePath });
     }
 
-    async saveLocation(location: StoryLocation): Promise<void> {
+    async saveLocation(location: StoryLocation, mirrored?: MirroredSection[]): Promise<void> {
         const normalizedFilePath = normalizePath(location.filePath);
-        await this.saveItem({ ...location, filePath: normalizedFilePath }, LOCATION_FIELD_KEYS as string[]);
+        await this.saveItem({ ...location, filePath: normalizedFilePath }, LOCATION_FIELD_KEYS as string[], mirrored);
         this.locations.set(normalizedFilePath, { ...location, filePath: normalizedFilePath });
     }
 
-    private async saveItem(item: WorldOrLocation, fieldKeys: string[]): Promise<void> {
+    private async saveItem(item: WorldOrLocation, fieldKeys: string[], mirrored?: MirroredSection[]): Promise<void> {
         const normalizedFilePath = normalizePath(item.filePath);
         const file = this.app.vault.getAbstractFileByPath(normalizedFilePath);
         if (!(file instanceof TFile)) {
@@ -355,9 +385,18 @@ export class LocationManager {
         // Issue #71 — mirror to top-level YAML keys for templates that opt in
         mirrorUniversalFieldsToTopLevel(fm, item.universalFields);
 
-        const finalBody = item.notes ?? body;
+        // Build body: strip old mirrored sections, then rebuild with notes + current mirrored fields
+        const { notes: existingNotes } = parseMirroredBody(body);
+        const notesContent = item.notes ?? (existingNotes || '');
+        const finalBody = buildMirroredBody(notesContent, mirrored ?? []);
+
         const newContent = `---\n${stringifyYaml(fm)}---\n${finalBody ? '\n' + finalBody : ''}`;
-        await this.app.vault.modify(file, newContent);
+        this._isSaving = true;
+        try {
+            await this.app.vault.modify(file, newContent);
+        } finally {
+            this._isSaving = false;
+        }
     }
 
     // ── Delete ─────────────────────────────────────────
@@ -463,4 +502,64 @@ export class LocationManager {
         }
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */
+
+
+function applySectionsToWorld(
+    sections: ParsedMirrorSection[],
+    world: StoryWorld,
+    fieldTemplates: UniversalFieldTemplate[],
+): void {
+    for (const sec of sections) {
+        const key = resolveLocationMirrorKey(sec.sectionTitle, sec.fieldLabel, fieldTemplates, WORLD_CATEGORIES);
+        if (!key) continue;
+        applyMirrorValue(world, key, sec.value);
+    }
+}
+
+function applySectionsToLocation(
+    sections: ParsedMirrorSection[],
+    loc: StoryLocation,
+    fieldTemplates: UniversalFieldTemplate[],
+): void {
+    for (const sec of sections) {
+        const key = resolveLocationMirrorKey(sec.sectionTitle, sec.fieldLabel, fieldTemplates, LOCATION_CATEGORIES);
+        if (!key) continue;
+        applyMirrorValue(loc, key, sec.value);
+    }
+}
+
+function resolveLocationMirrorKey(
+    sectionTitle: string,
+    fieldLabel: string,
+    fieldTemplates: UniversalFieldTemplate[],
+    categories: ReadonlyArray<{ title: string; fields: ReadonlyArray<{ key: string; label: string }> }>,
+): string | null {
+    const tpl = fieldTemplates.find(t => t.section === sectionTitle && t.label === fieldLabel);
+    if (tpl) return tpl.id;
+
+    for (const cat of categories) {
+        if (cat.title !== sectionTitle) continue;
+        const field = cat.fields.find(f => f.label === fieldLabel);
+        if (field) return field.key;
+    }
+
+    return `${sectionTitle} :: ${fieldLabel}`;
+}
+
+function applyMirrorValue<T extends { custom?: Record<string, string>; universalFields?: Record<string, string | string[]> }>(
+    obj: T,
+    key: string,
+    value: string,
+): void {
+    if (key.startsWith('uf_')) {
+        if (!obj.universalFields) obj.universalFields = {};
+        obj.universalFields[key] = value;
+    } else if (key.includes(' :: ')) {
+        if (!obj.custom) obj.custom = {};
+        obj.custom[key] = value;
+    } else {
+        (obj as unknown as Record<string, unknown>)[key] = value;
+    }
+}
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+>>>>>>> ad04a78 (coise)

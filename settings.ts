@@ -789,6 +789,9 @@ export interface SceneCardsSettings {
     /** Hidden built-in field keys per view/category (e.g. { character: ['fears','belief'], items: ['previousOwners'] }) */
     hiddenFields: Record<string, string[]>;
 
+    /** Mirrored textarea field keys per codex category — content synced to md body as H1/H2 sections */
+    mirroredFields: Record<string, string[]>;
+
     /** Show the built-in formatting toolbar in scene editors when Editing Toolbar plugin is not installed */
     showFormattingToolbar: boolean;
 
@@ -988,6 +991,8 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
     extraFolders: [],
 
     hiddenFields: {},
+
+    mirroredFields: {},
 
     showFormattingToolbar: true,
 

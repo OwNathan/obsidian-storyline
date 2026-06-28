@@ -255,6 +255,9 @@ export default class SceneCardsPlugin extends Plugin {
             await this.loadProjectSystemData();
             // Load universal field templates from System/field-templates.json
             await this.fieldTemplates.load();
+            this.codexManager.setFieldTemplates(this.fieldTemplates.getAll());
+            this.characterManager.setFieldTemplates(this.fieldTemplates.getAll());
+            this.locationManager.setFieldTemplates(this.fieldTemplates.getAll());
             // Load corkboard layout from System/board.json
             await this.sceneManager.loadCorkboardPositions();
             // Load active view snapshot state
@@ -639,7 +642,27 @@ export default class SceneCardsPlugin extends Plugin {
                 if (file instanceof TFile && this.isSystemFile(file.path)) return;
                 if (file instanceof TFile) {
                     this.sceneManager.handleFileChange(file).then((processed) => {
-                        if (processed) debouncedRefresh();
+                        if (processed) {
+                            debouncedRefresh();
+                        } else if (file.extension === 'md' && !this.codexManager.isSelfWrite()) {
+                            // Codex file modified externally — parse body-mirrored fields
+                            const codexFolder = this.sceneManager.getCodexFolder();
+                            if (codexFolder && file.path.startsWith(codexFolder)) {
+                                debouncedRefresh();
+                            }
+                        } else if (file.extension === 'md' && !this.characterManager.isSelfWrite()) {
+                            // Character file modified externally — parse body-mirrored fields
+                            const charFolder = this.sceneManager.getCharacterFolder();
+                            if (charFolder && file.path.startsWith(charFolder)) {
+                                debouncedRefresh();
+                            }
+                        } else if (file.extension === 'md' && !this.locationManager.isSelfWrite()) {
+                            // Location/world file modified externally — parse body-mirrored fields
+                            const locFolder = this.sceneManager.getLocationFolder();
+                            if (locFolder && file.path.startsWith(locFolder)) {
+                                debouncedRefresh();
+                            }
+                        }
                     });
                 }
             })

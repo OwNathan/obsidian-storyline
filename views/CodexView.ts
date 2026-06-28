@@ -3,7 +3,7 @@ import { App, ItemView, WorkspaceLeaf, Modal, Setting, Notice, TFile } from 'obs
 import * as obsidian from 'obsidian';
 import type SceneCardsPlugin from '../main';
 import { SceneManager } from '../services/SceneManager';
-import { CodexManager } from '../services/CodexManager';
+import { CodexManager, MirroredSection } from '../services/CodexManager';
 import { CodexEntry, CodexCategoryDef, CodexFieldCategory, CodexFieldDef, BUILTIN_CODEX_CATEGORIES, makeCustomCodexCategory, CODEX_ICON_OPTIONS } from '../models/Codex';
 import { CODEX_VIEW_TYPE, CHARACTER_VIEW_TYPE, LOCATION_VIEW_TYPE } from '../constants';
 import { renderViewSwitcher } from '../components/ViewSwitcher';
@@ -639,7 +639,7 @@ export class CodexView extends ItemView {
                     if (f) this.renderField(body, f, draft, catDef, cat.title, builtInKeys);
                 } else {
                     const t = tplMap.get(entry.key);
-                    if (t) this.renderUniversalField(body, t, draft, builtInKeys);
+                    if (t) this.renderUniversalField(body, t, draft, catDef.id, builtInKeys);
                 }
             }
 
@@ -709,6 +709,46 @@ export class CodexView extends ItemView {
                 await this.plugin.saveSettings();
                 if (this.rootContainer) this.renderView(this.rootContainer);
             });
+
+            // Mirror-to-body toggle (textarea fields only, after hide toggle)
+            if (multiline) {
+                const mirroredKeys = this.plugin.settings.mirroredFields[catDef.id] ?? [];
+                const isMirrored = mirroredKeys.includes(key);
+                const mirrorBtn = labelEl.createEl('span', {
+                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
+                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
+                });
+                obsidian.setIcon(mirrorBtn, 'file-text');
+                mirrorBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const settings = this.plugin.settings;
+                    if (!settings.mirroredFields[catDef.id]) settings.mirroredFields[catDef.id] = [];
+                    const list = settings.mirroredFields[catDef.id];
+                    const idx = list.indexOf(key);
+                    if (idx >= 0) {
+                        list.splice(idx, 1);
+                    } else {
+                        list.push(key);
+                    }
+                    // Force-save entity so body reflects new mirror state immediately
+                    const allKeys = settings.mirroredFields[catDef.id] ?? [];
+                    let mirrored: MirroredSection[] | undefined;
+                    if (allKeys.length > 0) {
+                        const sections: MirroredSection[] = [];
+                        for (const mk of allKeys) {
+                            const si = this.resolveMirroredSectionInfo(mk, draft, catDef);
+                            if (si) sections.push(si);
+                        }
+                        if (sections.length > 0) mirrored = sections;
+                    }
+                    await this.codexManager.saveEntry(draft, mirrored);
+                    this._lastSaveTime = Date.now();
+                    this._pendingDraft = null;
+                    if (this._saveTimer) { window.clearTimeout(this._saveTimer); this._saveTimer = null; }
+                    await this.plugin.saveSettings();
+                    if (this.rootContainer) this.renderView(this.rootContainer);
+                });
+            }
         }
 
         const currentValue = draft[key] != null ? String(draft[key]) : '';
@@ -837,6 +877,7 @@ export class CodexView extends ItemView {
         parent: HTMLElement,
         tpl: UniversalFieldTemplate,
         draft: CodexEntry,
+        categoryId: string,
         builtInKeys?: string[],
     ): void {
         if (!draft.universalFields) draft.universalFields = {};
@@ -1059,6 +1100,47 @@ export class CodexView extends ItemView {
                 this.scheduleSave(draft);
                 autoGrow();
             });
+
+            // Mirror-to-body toggle
+            {
+                const mirroredKeys = this.plugin.settings.mirroredFields[categoryId] ?? [];
+                const isMirrored = mirroredKeys.includes(tpl.id);
+                const mirrorBtn = labelWrap.createEl('span', {
+                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
+                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
+                });
+                obsidian.setIcon(mirrorBtn, 'file-text');
+                mirrorBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const settings = this.plugin.settings;
+                    if (!settings.mirroredFields[categoryId]) settings.mirroredFields[categoryId] = [];
+                    const list = settings.mirroredFields[categoryId];
+                    const idIdx = list.indexOf(tpl.id);
+                    if (idIdx >= 0) {
+                        list.splice(idIdx, 1);
+                    } else {
+                        list.push(tpl.id);
+                    }
+                    // Force-save entity so body reflects new mirror state immediately
+                    const catDef = this.codexManager.getCategoryDef(categoryId);
+                    const allKeys = settings.mirroredFields[categoryId] ?? [];
+                    let mirrored: MirroredSection[] | undefined;
+                    if (catDef && allKeys.length > 0) {
+                        const sections: MirroredSection[] = [];
+                        for (const mk of allKeys) {
+                            const si = this.resolveMirroredSectionInfo(mk, draft, catDef);
+                            if (si) sections.push(si);
+                        }
+                        if (sections.length > 0) mirrored = sections;
+                    }
+                    await this.codexManager.saveEntry(draft, mirrored);
+                    this._lastSaveTime = Date.now();
+                    this._pendingDraft = null;
+                    if (this._saveTimer) { window.clearTimeout(this._saveTimer); this._saveTimer = null; }
+                    await this.plugin.saveSettings();
+                    if (this.rootContainer) this.renderView(this.rootContainer);
+                });
+            }
         } else if (tpl.type === 'checkbox') {
             const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
             const wrap = row.createDiv('codex-field-checkbox-wrap');
@@ -1244,6 +1326,39 @@ export class CodexView extends ItemView {
                 void this.plugin.saveSettings();
             },
             requestRerender: () => {
+                if (this.rootContainer) this.renderView(this.rootContainer);
+            },
+            isFieldMirrored: (compositeKey: string) => {
+                const list = this.plugin.settings.mirroredFields[draft.type] ?? [];
+                return list.includes(compositeKey);
+            },
+            toggleFieldMirror: async (compositeKey: string) => {
+                const settings = this.plugin.settings;
+                if (!settings.mirroredFields[draft.type]) settings.mirroredFields[draft.type] = [];
+                const list = settings.mirroredFields[draft.type];
+                const idx = list.indexOf(compositeKey);
+                if (idx >= 0) {
+                    list.splice(idx, 1);
+                } else {
+                    list.push(compositeKey);
+                }
+                // Force-save entity so body reflects new mirror state immediately
+                const catDef = this.codexManager.getCategoryDef(draft.type);
+                const allKeys = settings.mirroredFields[draft.type] ?? [];
+                let mirrored: MirroredSection[] | undefined;
+                if (catDef && allKeys.length > 0) {
+                    const sections: MirroredSection[] = [];
+                    for (const mk of allKeys) {
+                        const si = this.resolveMirroredSectionInfo(mk, draft, catDef);
+                        if (si) sections.push(si);
+                    }
+                    if (sections.length > 0) mirrored = sections;
+                }
+                await this.codexManager.saveEntry(draft, mirrored);
+                this._lastSaveTime = Date.now();
+                this._pendingDraft = null;
+                if (this._saveTimer) { window.clearTimeout(this._saveTimer); this._saveTimer = null; }
+                await this.plugin.saveSettings();
                 if (this.rootContainer) this.renderView(this.rootContainer);
             },
         };
@@ -1886,6 +2001,60 @@ export class CodexView extends ItemView {
         tab.addEventListener('click', onClick);
     }
 
+    // ── Mirror helper ──────────────────────────────────
+
+    /**
+     * Resolve section title + field label + current value for a mirrored field key.
+     * Supports built-in keys, universal template IDs (uf_*), and composite
+     * custom-section keys (`sectionTitle :: fieldName`).
+     */
+    private resolveMirroredSectionInfo(
+        key: string,
+        draft: CodexEntry,
+        catDef: CodexCategoryDef,
+    ): MirroredSection | null {
+        // Custom-section composite key
+        if (key.includes(CodexView.CUSTOM_SECTION_KEY_SEP)) {
+            const [sectionTitle, fieldName] = key.split(CodexView.CUSTOM_SECTION_KEY_SEP);
+            const value = draft.custom?.[key] ?? '';
+            return {
+                sectionTitle: sectionTitle.trim(),
+                fieldKey: key,
+                fieldLabel: fieldName.trim(),
+                value: String(value),
+            };
+        }
+
+        // Universal field template ID
+        if (key.startsWith('uf_')) {
+            const tpl = this.plugin.fieldTemplates.getById(key);
+            if (!tpl) return null;
+            const value = draft.universalFields?.[key];
+            return {
+                sectionTitle: tpl.section,
+                fieldKey: key,
+                fieldLabel: tpl.label,
+                value: typeof value === 'string' ? value : (value ? String(value) : ''),
+            };
+        }
+
+        // Built-in field — find which category section contains this field
+        for (const cat of catDef.categories) {
+            const field = cat.fields.find(f => f.key === key);
+            if (field) {
+                const value = draft[key] != null ? String(draft[key]) : '';
+                return {
+                    sectionTitle: cat.title,
+                    fieldKey: key,
+                    fieldLabel: field.label,
+                    value,
+                };
+            }
+        }
+
+        return null;
+    }
+
     // ── Auto-save ──────────────────────────────────────
 
     private scheduleSave(draft: CodexEntry): void {
@@ -1899,7 +2068,21 @@ export class CodexView extends ItemView {
 
     private async executeSave(draft: CodexEntry): Promise<void> {
         try {
-            await this.codexManager.saveEntry(draft);
+            const catDef = this.codexManager.getCategoryDef(draft.type);
+            const mirroredKeys = this.plugin.settings.mirroredFields[draft.type] ?? [];
+
+            // Build mirrored section info for saveEntry
+            let mirrored: MirroredSection[] | undefined;
+            if (catDef && mirroredKeys.length > 0) {
+                const sections: MirroredSection[] = [];
+                for (const key of mirroredKeys) {
+                    const sectionInfo = this.resolveMirroredSectionInfo(key, draft, catDef);
+                    if (sectionInfo) sections.push(sectionInfo);
+                }
+                if (sections.length > 0) mirrored = sections;
+            }
+
+            await this.codexManager.saveEntry(draft, mirrored);
             this._lastSaveTime = Date.now();
             this._pendingDraft = null;
         } catch (err) {

@@ -363,7 +363,7 @@ export class DynamicNarrativeManager {
     }
 
     private extractBodySection(body: string, sectionName: string): string {
-        const regex = new RegExp(`# ${sectionName}\\s*\\n([\\s\\S]*?)(?=\\n# |$)`, 'i');
+        const regex = new RegExp(`#{1,6}\\s+${sectionName}\\s*\\n([\\s\\S]*?)(?=\\n#{1,6}\\s|$)`, 'i');
         const match = body.match(regex);
         return match ? match[1].trim() : '';
     }
@@ -545,6 +545,23 @@ export class DynamicNarrativeManager {
         }
     }
 
+    private async doRenameFile(oldPath: string, newTitle: string, typeFolder: string): Promise<string> {
+        const safeName = newTitle.replace(/[\\/:*?"<>|]/g, '-');
+        const folder = normalizePath(`${this.projectFolder}/${typeFolder}`);
+        const newPath = this.getUniquePath(folder, `${safeName}.md`);
+
+        const file = this.app.vault.getAbstractFileByPath(oldPath);
+        if (file && file instanceof TFile) {
+            try {
+                await this.app.vault.rename(file, newPath);
+            } catch (e) {
+                console.error('[StoryLine] Failed to rename entity file:', oldPath, '->', newPath, e);
+            }
+        }
+
+        return newPath;
+    }
+
     // ─── CRUD: Scenarios ─────────────────────────────────────────
 
     async createScenario(data: Partial<Scenario>): Promise<Scenario> {
@@ -569,18 +586,28 @@ export class DynamicNarrativeManager {
         if (!entity) return;
 
         const oldSnap = deepClone(entity);
+
+        let currentPath = filePath;
+        if (updates.title !== undefined && updates.title !== entity.title) {
+            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Scenarios`);
+            entity.filePath = currentPath;
+            this.scenarios.delete(filePath);
+            this.scenarios.set(currentPath, entity);
+            await this.cascadeRename(filePath, currentPath);
+        }
+
         Object.assign(entity, updates);
         entity.modified = new Date().toISOString();
 
         this.plugin.sceneManager.undoManager.recordUpdate(
-            filePath,
+            currentPath,
             oldSnap as unknown as Record<string, unknown>,
             updates,
             `Update scenario "${entity.title}"`
         );
 
         await this.writeEntityFile(entity);
-        this.scenarios.set(filePath, entity);
+        this.scenarios.set(currentPath, entity);
         await this.saveSystemJson();
     }
 
@@ -627,18 +654,28 @@ export class DynamicNarrativeManager {
         if (!entity) return;
 
         const oldSnap = deepClone(entity);
+
+        let currentPath = filePath;
+        if (updates.title !== undefined && updates.title !== entity.title) {
+            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Objectives`);
+            entity.filePath = currentPath;
+            this.objectives.delete(filePath);
+            this.objectives.set(currentPath, entity);
+            await this.cascadeRename(filePath, currentPath);
+        }
+
         Object.assign(entity, updates);
         entity.modified = new Date().toISOString();
 
         this.plugin.sceneManager.undoManager.recordUpdate(
-            filePath,
+            currentPath,
             oldSnap as unknown as Record<string, unknown>,
             updates,
             `Update objective "${entity.title}"`
         );
 
         await this.writeEntityFile(entity);
-        this.objectives.set(filePath, entity);
+        this.objectives.set(currentPath, entity);
         await this.saveSystemJson();
     }
 
@@ -685,18 +722,28 @@ export class DynamicNarrativeManager {
         if (!entity) return;
 
         const oldSnap = deepClone(entity);
+
+        let currentPath = filePath;
+        if (updates.title !== undefined && updates.title !== entity.title) {
+            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Arcs`);
+            entity.filePath = currentPath;
+            this.arcs.delete(filePath);
+            this.arcs.set(currentPath, entity);
+            await this.cascadeRename(filePath, currentPath);
+        }
+
         Object.assign(entity, updates);
         entity.modified = new Date().toISOString();
 
         this.plugin.sceneManager.undoManager.recordUpdate(
-            filePath,
+            currentPath,
             oldSnap as unknown as Record<string, unknown>,
             updates,
             `Update arc "${entity.title}"`
         );
 
         await this.writeEntityFile(entity);
-        this.arcs.set(filePath, entity);
+        this.arcs.set(currentPath, entity);
         await this.saveSystemJson();
     }
 
@@ -743,18 +790,28 @@ export class DynamicNarrativeManager {
         if (!entity) return;
 
         const oldSnap = deepClone(entity);
+
+        let currentPath = filePath;
+        if (updates.title !== undefined && updates.title !== entity.title) {
+            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Quests`);
+            entity.filePath = currentPath;
+            this.quests.delete(filePath);
+            this.quests.set(currentPath, entity);
+            await this.cascadeRename(filePath, currentPath);
+        }
+
         Object.assign(entity, updates);
         entity.modified = new Date().toISOString();
 
         this.plugin.sceneManager.undoManager.recordUpdate(
-            filePath,
+            currentPath,
             oldSnap as unknown as Record<string, unknown>,
             updates,
             `Update quest "${entity.title}"`
         );
 
         await this.writeEntityFile(entity);
-        this.quests.set(filePath, entity);
+        this.quests.set(currentPath, entity);
         await this.saveSystemJson();
     }
 
