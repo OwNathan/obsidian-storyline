@@ -137,10 +137,10 @@ All entity data (scenes, characters, locations, codex entries, research posts) i
 Runtime state that doesn't belong in user-facing Markdown (tag colors, aliases, filter presets, writing stats, corkboard positions, view snapshots) is stored as JSON files in a `System/` subfolder per project. This was migrated from Obsidian's `data.json` to support multi-project and series workflows.
 
 ### Debounced File Watchers
-Vault file events (`modify`, `delete`, `rename`) trigger a debounced `refreshOpenViews()` (500ms) to batch rapid edits into a single re-render. The DynamicNarrativeManager also hooks into `delete` and `rename` events to keep its in-memory maps and wikilinks synchronized.
+Vault file events (`modify`, `delete`, `rename`) trigger a debounced `refreshOpenViews()` (500ms) to batch rapid edits into a single re-render. The file watchers in `main.ts` filter out writes to the project's `System/` folder to prevent feedback loops from the plugin's own JSON writes. The DynamicNarrativeManager also hooks into `delete` and `rename` events to keep its in-memory maps and wikilinks synchronized.
 
 ### Dynamic Narrative Isolation
-All Dynamic Narrative code lives in the `dynamic-narrative/` directory. Only 4 shared files are modified (`constants.ts`, `main.ts`, `settings.ts`, `styles.css`). Entity data is stored as Markdown files with YAML frontmatter in `DynamicNarrative/{Scenarios,Objectives,Arcs,Quests}/` and in-memory state is persisted to `System/dynamic-narrative.json`. The manager uses a promise-chain mutex for serialized writes to prevent race conditions.
+All Dynamic Narrative code lives in the `dynamic-narrative/` directory. Only 6 shared files are modified (`constants.ts`, `main.ts`, `settings.ts`, `styles.css`, `components/ViewSwitcher.ts`, `services/SceneManager.ts`). Entity data is stored as Markdown files with YAML frontmatter in `DynamicNarrative/{Scenarios,Objectives,Arcs,Quests}/` and in-memory state is persisted to `System/dynamic-narrative.json`. The manager uses a promise-chain mutex for serialized writes to prevent race conditions.
 
 ### ESLint Suppression Pattern
 Every `.ts` file starts with a file-wide `eslint-disable` block. This is intentional and documented in AGENTS.md. The Obsidian API surface and several untyped third-party libraries require dynamic dispatch patterns that trigger TypeScript safety rules.

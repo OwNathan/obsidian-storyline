@@ -284,7 +284,7 @@ Leaf quest. 5 default phases. Fields: `type`, `category`, `questType`, `phases` 
 
 ### System JSON (`System/dynamic-narrative.json`)
 
-In-memory cache persisted to disk. Shape: `{ scenarios, objectives, arcs, quests: Record<path, entity>; layout: { inspectorWidth }; version }`.
+In-memory cache persisted to disk. Shape: `{ scenarios, objectives, arcs, quests: Record<path, entity>; layout: { inspectorWidth: number }; version }`. The `inspectorWidth` value is stored for backward compatibility but no longer actively used (inspector width is now session-only).
 
 ---
 

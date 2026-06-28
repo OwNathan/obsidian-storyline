@@ -886,7 +886,6 @@ export interface SceneCardsSettings {
     dnObjectiveCategories: string[];
     dnArcCategories: string[];
     dnQuestCategories: string[];
-    dnInspectorWidth: number;
     dnKanbanShowFullHeader: boolean;
 }
 
@@ -1014,7 +1013,6 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
     dnObjectiveCategories: ['Structured', 'Dynamic', 'Procedural'],
     dnArcCategories: ['Primary', 'Secondary'],
     dnQuestCategories: ['Goal', 'Limit', 'Event', 'Modifier'],
-    dnInspectorWidth: 350,
     dnKanbanShowFullHeader: true,
 };
 
@@ -2474,17 +2472,6 @@ export class SceneCardsSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName('Dynamic Narrative').setHeading();
 
         new Setting(containerEl)
-            .setName('Inspector width')
-            .setDesc('Default width of the inspector panel in the Dynamic Narrative view (pixels)')
-            .addText(text => text
-                .setPlaceholder('350')
-                .setValue(String(this.plugin.settings.dnInspectorWidth))
-                .onChange(async (value) => {
-                    const n = Number(value);
-                    this.plugin.settings.dnInspectorWidth = (n > 0 && n < 2000) ? n : 350;
-                    await this.plugin.saveSettings();
-                }));
-
         new Setting(containerEl)
             .setName('Show full kanban header')
             .setDesc('Show entity name, description, and category in the kanban header. Disable to show only the name.')

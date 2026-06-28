@@ -175,7 +175,7 @@ export class DynamicNarrativeManager {
             arcs: Object.fromEntries(this.arcs),
             quests: Object.fromEntries(this.quests),
             layout: {
-                inspectorWidth: this.plugin.settings.dnInspectorWidth || 350,
+                inspectorWidth: 350,
             },
             version: 1,
         };
@@ -1272,14 +1272,6 @@ export class DynamicNarrativeManager {
         return null;
     }
 
-    getInspectorWidth(): number {
-        return this.plugin.settings.dnInspectorWidth || 350;
-    }
-
-    setInspectorWidth(width: number): void {
-        this.plugin.settings.dnInspectorWidth = width;
-        this.plugin.saveSettings();
-    }
 
     // ─── Vault Event Handlers ────────────────────────────────────
 

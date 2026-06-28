@@ -108,7 +108,7 @@ Displays the bundled `HELP.md` documentation in a dedicated pane.
 
 ### DynamicNarrativeView
 
-Single view with 5 internal tabs for game narrative entities. Includes a resizable inspector sidebar (mouse + touch support), kanban boards for Scenarios/Objectives/Arcs, a quest grid for Quests, and a unified Overview. Uses `DNKanban`, `DNQuestGrid`, `DNInspector`, and `DNOverview` components. Resize handle width is persisted to settings.
+Single view with 5 internal tabs for game narrative entities. Includes a resizable inspector sidebar (mouse + touch support, session-only width), kanban boards for Scenarios/Objectives/Arcs, a quest grid for Quests, and a unified Overview. Uses `DNKanban`, `DNQuestGrid`, `DNInspector`, and `DNOverview` components. Features the standard plugin header toolbar with view switcher for cross-view navigation. The inspector panel is hidden when viewing the Quests tab.
 
 **Tabs:**
 | Tab | Component | Description |
@@ -122,15 +122,15 @@ Single view with 5 internal tabs for game narrative entities. Includes a resizab
 **Constructor:** `DynamicNarrativeView(leaf: WorkspaceLeaf, plugin: SceneCardsPlugin)`
 
 **Key methods:**
-- `openInInspector(path)` -- single-click opens entity in inspector
+- `openInInspector(path)` -- single-click opens entity in inspector (skipped for quests)
 - `navigateToKanban(path, entityType)` -- double-click navigates to kanban tab
-- `refresh()` -- reload data and refresh current tab
+- `refresh()` -- reload data and refresh current tab, hides inspector on quests tab
 
 **Components used:**
 - `DNOverview` -- debounced search (200ms), sort, category filter, DNCreateModal for entity creation
 - `DNKanban` -- phase columns, sidebar with search, drag-and-drop cards, right-click context menu (Edit/Unlink), create child entities from column header
 - `DNQuestGrid` -- list panel, editor panel (category, type, description, phases), usage panel (transitive connection counts)
-- `DNInspector` -- entity fields, category selector, phase accordions with DNPhaseModal for custom phases, auto-save (600ms debounce)
+- `DNInspector` -- entity fields, category selector, phase accordions with DNPhaseModal for custom phases, auto-save (600ms debounce). Features suggestor-based tag-pill inputs for Linked Locations, Linked Characters, and arc phase quest links (Goals/Limits/Events/Modifiers). Header includes file-open and delete buttons with confirmation dialog. Custom phase names use single-line inputs.
 
 **Mobile:** Inspector resize supports touch events. Touchstart/touchmove/touchend handlers registered alongside mouse events, properly cleaned up on view close.
 

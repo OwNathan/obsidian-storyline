@@ -126,11 +126,14 @@ The Dynamic Narrative feature is isolated in `dynamic-narrative/` and adds a new
 - **Cascade rename**: Wired into `main.ts` vault rename events via `DynamicNarrativeManager.cascadeRename()`.
 - **Vault events**: `delete` and `rename` events are handled by `DynamicNarrativeManager.handleFileDeleted()` and cascade rename.
 - **Debounced search**: Overview, Kanban, and QuestGrid use a 200ms debounce on search input.
-- **Resize handle**: Inspector resize supports both mouse and touch events with proper cleanup on close.
+- **Resize handle**: Inspector resize supports both mouse and touch events with proper cleanup on close. Width is session-only (stored in-memory on the view).
 - **Phase management**: 5 hardcoded default phases (QuestSleeping, QuestAvailable, QuestStarted, QuestCompleted, QuestFailed) plus user-defined custom phases.
+- **Linked entity suggestors**: Linked Locations, Linked Characters, and Arc phase quest links (Goals/Limits/Events/Modifiers) use `renderTagPillInput` with autocomplete suggestions from `LocationManager`, `CharacterManager`, and `DynamicNarrativeManager.getAllQuests()` respectively.
+- **Open/delete actions**: Inspector header includes file-open (opens `.md` file in new tab) and delete (confirmation modal via `openConfirmModal`) buttons.
+- **Quest tab**: The inspector panel is hidden when the Quests tab is active.
 - **Scenarios have no default phases**; Objectives, Arcs, and Quests each start with the 5 defaults.
 
-When modifying DN code, keep files isolated within `dynamic-narrative/` and only touch the 4 shared files when absolutely necessary for upstream merge safety.
+When modifying DN code, keep files isolated within `dynamic-narrative/` and only touch the 6 shared files when absolutely necessary for upstream merge safety.
 
 ## Adding a New Service
 

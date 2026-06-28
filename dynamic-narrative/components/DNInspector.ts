@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { setIcon } from 'obsidian';
+import { setIcon, Notice, TFile } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
 import type { DNEntity, DNPhase } from '../models/types';
@@ -9,6 +9,16 @@ import type { Objective, ObjectivePhase } from '../models/Objective';
 import type { Arc, ArcPhase } from '../models/Arc';
 import type { Quest, QuestPhase } from '../models/Quest';
 import { DNPhaseModal } from './DNPhaseModal';
+import { renderTagPillInput } from '../../components/InlineSuggest';
+import { openConfirmModal } from '../../components/ConfirmModal';
+import { attachTooltip } from '../../components/Tooltip';
+
+function unwrapWikilink(v: string): string {
+    return v.replace(/^\[\[/, '').replace(/\]\]$/, '');
+}
+function wrapWikilink(v: string): string {
+    return v.startsWith('[[') ? v : `[[${v}]]`;
+}
 
 export class DNInspector {
     private containerEl: HTMLElement;
@@ -33,9 +43,27 @@ export class DNInspector {
         this.containerEl.empty();
 
         const header = this.containerEl.createDiv('dn-inspector-header');
-        const typeBadge = header.createSpan('dn-inspector-type');
+        const headerLeft = header.createDiv('dn-inspector-header-left');
+        const typeBadge = headerLeft.createSpan('dn-inspector-type');
         typeBadge.setText(entity.type);
-        header.createDiv('dn-inspector-title').setText(entity.title);
+        headerLeft.createDiv('dn-inspector-title').setText(entity.title);
+
+        const headerActions = header.createDiv('dn-inspector-header-actions');
+        const openBtn = headerActions.createEl('button', {
+            cls: 'clickable-icon',
+            attr: { 'aria-label': 'Open file' },
+        });
+        setIcon(openBtn.createSpan(), 'file');
+        attachTooltip(openBtn, 'Open file');
+        openBtn.addEventListener('click', () => this.openEntityFile(entity));
+
+        const deleteBtn = headerActions.createEl('button', {
+            cls: 'clickable-icon',
+            attr: { 'aria-label': 'Delete' },
+        });
+        setIcon(deleteBtn.createSpan(), 'trash');
+        attachTooltip(deleteBtn, 'Delete');
+        deleteBtn.addEventListener('click', () => this.confirmDeleteEntity(entity));
 
         const form = this.containerEl.createDiv('dn-inspector-form');
 
@@ -66,12 +94,16 @@ export class DNInspector {
         });
 
         if (entity.type !== 'quest') {
-            this.renderWikilinkListField(form, 'Linked Locations', this.getLinkedLocations(entity), async (val) => {
-                await this.updateEntity({ linkedLocations: val });
-            });
-            this.renderWikilinkListField(form, 'Linked Characters', this.getLinkedCharacters(entity), async (val) => {
-                await this.updateEntity({ linkedCharacters: val });
-            });
+            this.renderLinkedEntitiesField(form, 'Linked Locations', this.getLinkedLocations(entity),
+                () => this.plugin.locationManager?.getAllLocations().map(l => l.name) ?? [],
+                async (val) => { await this.updateEntity({ linkedLocations: val }); },
+                'Add location...',
+            );
+            this.renderLinkedEntitiesField(form, 'Linked Characters', this.getLinkedCharacters(entity),
+                () => this.plugin.characterManager?.getAllCharacters().map(c => c.name) ?? [],
+                async (val) => { await this.updateEntity({ linkedCharacters: val }); },
+                'Add character...',
+            );
         }
 
         this.renderPhasesSection(form, entity);
@@ -181,9 +213,15 @@ export class DNInspector {
         const body = accordion.createDiv('dn-phase-body');
 
         if (!phase.isDefault) {
-            this.renderPhaseField(body, 'Name', phase.name, async (val) => {
-                this.manager.renameCustomPhase(entity, phase.name, val);
-                await this.persistEntity();
+            const nameField = body.createDiv('dn-phase-field');
+            nameField.createEl('label', { text: 'Name', cls: 'dn-phase-field-label' });
+            const nameInput = nameField.createEl('input', { type: 'text', cls: 'dn-phase-field-input' });
+            nameInput.value = phase.name;
+            nameInput.addEventListener('change', () => {
+                this.scheduleSave(async () => {
+                    this.manager.renameCustomPhase(entity, phase.name, nameInput.value);
+                    await this.persistEntity();
+                });
             });
         }
 
@@ -211,6 +249,42 @@ export class DNInspector {
             this.manager.updatePhaseFields(entity, phase.name, { endCommands: val });
             await this.persistEntity();
         });
+
+        if (entity.type === 'arc') {
+            const arcPhase = phase as ArcPhase;
+            this.renderLinkedEntitiesField(body, 'Linked Goals', arcPhase.linkedGoals,
+                () => this.manager.getAllQuests().filter(q => q.category === 'Goal').map(q => q.title),
+                async (val) => {
+                    this.manager.updatePhaseFields(entity, phase.name, { linkedGoals: val } as any);
+                    await this.persistEntity();
+                },
+                'Add goal quest...',
+            );
+            this.renderLinkedEntitiesField(body, 'Linked Limits', arcPhase.linkedLimits,
+                () => this.manager.getAllQuests().filter(q => q.category === 'Limit').map(q => q.title),
+                async (val) => {
+                    this.manager.updatePhaseFields(entity, phase.name, { linkedLimits: val } as any);
+                    await this.persistEntity();
+                },
+                'Add limit quest...',
+            );
+            this.renderLinkedEntitiesField(body, 'Linked Events', arcPhase.linkedEvents,
+                () => this.manager.getAllQuests().filter(q => q.category === 'Event').map(q => q.title),
+                async (val) => {
+                    this.manager.updatePhaseFields(entity, phase.name, { linkedEvents: val } as any);
+                    await this.persistEntity();
+                },
+                'Add event quest...',
+            );
+            this.renderLinkedEntitiesField(body, 'Linked Modifiers', arcPhase.linkedModifiers,
+                () => this.manager.getAllQuests().filter(q => q.category === 'Modifier').map(q => q.title),
+                async (val) => {
+                    this.manager.updatePhaseFields(entity, phase.name, { linkedModifiers: val } as any);
+                    await this.persistEntity();
+                },
+                'Add modifier quest...',
+            );
+        }
 
         let collapsed = false;
         header.addEventListener('click', (e: MouseEvent) => {
@@ -271,20 +345,28 @@ export class DNInspector {
         });
     }
 
-    private renderWikilinkListField(container: HTMLElement, label: string, values: string[], onChange: (val: string[]) => Promise<void>): void {
+    private renderLinkedEntitiesField(
+        container: HTMLElement,
+        label: string,
+        values: string[],
+        getSuggestions: () => string[],
+        onChange: (val: string[]) => Promise<void>,
+        placeholder?: string,
+    ): void {
         const field = container.createDiv('dn-field');
         field.createEl('label', { text: label, cls: 'dn-field-label' });
-        const input = field.createEl('input', {
-            type: 'text',
-            cls: 'dn-field-input',
-            placeholder: 'Comma-separated [[wikilinks]]',
-        });
-        input.value = values.join(', ');
-        input.addEventListener('change', () => {
-            this.scheduleSave(async () => {
-                const parsed = input.value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-                await onChange(parsed);
-            });
+        const pillContainer = field.createDiv('dn-pill-container');
+
+        renderTagPillInput({
+            container: pillContainer,
+            values: values.map(unwrapWikilink),
+            getSuggestions,
+            onChange: (newValues) => {
+                this.scheduleSave(async () => {
+                    await onChange(newValues.map(wrapWikilink));
+                });
+            },
+            placeholder: placeholder ?? 'Add...',
         });
     }
 
@@ -336,6 +418,34 @@ export class DNInspector {
             fn();
             this.saveTimer = null;
         }, 600);
+    }
+
+    private openEntityFile(entity: DNEntity): void {
+        const file = this.plugin.app.vault.getAbstractFileByPath(entity.filePath);
+        if (file instanceof TFile) {
+            const leaf = this.plugin.app.workspace.getLeaf('tab');
+            leaf.openFile(file, { state: { mode: 'source', source: false } });
+        } else {
+            new Notice(`Could not find file: ${entity.filePath}`);
+        }
+    }
+
+    private confirmDeleteEntity(entity: DNEntity): void {
+        openConfirmModal(this.plugin.app, {
+            title: `Delete ${entity.type}`,
+            message: `Are you sure you want to delete "${entity.title}"? The file will be moved to trash.`,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                switch (entity.type) {
+                    case 'scenario': await this.manager.deleteScenario(entity.filePath); break;
+                    case 'objective': await this.manager.deleteObjective(entity.filePath); break;
+                    case 'arc': await this.manager.deleteArc(entity.filePath); break;
+                    case 'quest': await this.manager.deleteQuest(entity.filePath); break;
+                }
+                this.clear();
+                new Notice(`"${entity.title}" deleted`);
+            },
+        });
     }
 }
 

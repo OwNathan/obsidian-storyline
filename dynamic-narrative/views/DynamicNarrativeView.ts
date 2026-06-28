@@ -2,6 +2,7 @@
 import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import { DYNAMIC_NARRATIVE_VIEW_TYPE } from '../../constants';
+import { renderViewSwitcher } from '../../components/ViewSwitcher';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
 import type { DNEntity, DNEntityType } from '../models/types';
 import { DN_INSPECTOR_MIN_WIDTH, DN_INSPECTOR_MAX_WIDTH } from '../models/types';
@@ -33,6 +34,7 @@ export class DynamicNarrativeView extends ItemView {
     private _onMouseUp: (() => void) | null = null;
     private _onTouchMove: ((e: TouchEvent) => void) | null = null;
     private _onTouchEnd: (() => void) | null = null;
+    private _inspectorWidth = 350;
 
     constructor(leaf: WorkspaceLeaf, plugin: SceneCardsPlugin) {
         super(leaf);
@@ -57,13 +59,19 @@ export class DynamicNarrativeView extends ItemView {
         container.empty();
         container.addClass('dn-view');
 
+        // Toolbar
+        const toolbar = container.createDiv('story-line-toolbar');
+        const titleRow = toolbar.createDiv('story-line-title-row');
+        titleRow.createEl('h3', { cls: 'story-line-view-title', text: 'StoryLine' });
+        renderViewSwitcher(toolbar, DYNAMIC_NARRATIVE_VIEW_TYPE, this.plugin, this.leaf);
+
         this.tabContainerEl = container.createDiv('dn-tabs');
         this.renderTabs();
 
         const mainLayout = container.createDiv('dn-main-layout');
         this._contentEl = mainLayout.createDiv('dn-content');
         this.inspectorEl = mainLayout.createDiv('dn-inspector');
-        this.inspectorEl.style.width = `${this.manager.getInspectorWidth()}px`;
+        this.inspectorEl.style.width = `${this._inspectorWidth}px`;
         this.inspectorEl.addClass('dn-inspector-hidden');
 
         this.resizeHandleEl = mainLayout.createDiv('dn-resize-handle');
@@ -84,6 +92,10 @@ export class DynamicNarrativeView extends ItemView {
 
     async refresh(): Promise<void> {
         this.switchTab(this.activeTab);
+        if (this.activeTab === 'quests') {
+            this.inspectorEntityPath = '';
+            return;
+        }
         if (this.inspectorEntityPath) {
             const entity = this.manager.getEntity(this.inspectorEntityPath);
             if (entity) {
@@ -179,6 +191,7 @@ export class DynamicNarrativeView extends ItemView {
                 this.kanban.render(this.selectedEntityPath);
                 break;
             case 'quests':
+                this.inspectorEl?.addClass('dn-inspector-hidden');
                 this.questGrid = new DNQuestGrid(
                     this._contentEl,
                     this.manager,
@@ -193,7 +206,8 @@ export class DynamicNarrativeView extends ItemView {
     openInInspector(path: string): void {
         this.inspectorEntityPath = path;
         const entity = this.manager.getEntity(path);
-        if (entity && this.inspector) {
+        if (!entity || entity.type === 'quest') return;
+        if (this.inspector) {
             this.inspector.render(entity);
             this.inspectorEl?.removeClass('dn-inspector-hidden');
         }
@@ -242,8 +256,7 @@ export class DynamicNarrativeView extends ItemView {
             if (!isResizing) return;
             isResizing = false;
             document.body.removeClass('dn-resizing');
-            const width = this.inspectorEl!.offsetWidth;
-            this.manager.setInspectorWidth(width);
+            this._inspectorWidth = this.inspectorEl!.offsetWidth;
         };
 
         this.resizeHandleEl.addEventListener('mousedown', (e: MouseEvent) => {

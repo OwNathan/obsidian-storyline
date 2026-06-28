@@ -15,6 +15,7 @@ import {
     LOCATION_VIEW_TYPE,
     CODEX_VIEW_TYPE,
     MANUSCRIPT_VIEW_TYPE,
+    DYNAMIC_NARRATIVE_VIEW_TYPE,
 } from '../constants';
 import { getBuiltinCodexCategory, makeCustomCodexCategory } from '../models/Codex';
 
@@ -29,6 +30,7 @@ export const VIEW_ENTRIES: ViewSwitcherEntry[] = [
     { type: PLOTGRID_VIEW_TYPE, label: 'Plotgrid', icon: 'table' },
     { type: TIMELINE_VIEW_TYPE, label: 'Timeline', icon: 'clock' },
     { type: STORYLINE_VIEW_TYPE, label: 'Plotlines', icon: 'git-branch' },
+    { type: DYNAMIC_NARRATIVE_VIEW_TYPE, label: 'Dynamic Narrative', icon: 'map' },
     { type: MANUSCRIPT_VIEW_TYPE, label: 'Manuscript', icon: 'book-open-text' },
     { type: CODEX_VIEW_TYPE, label: 'Codex', icon: 'book-open' },
     { type: STATS_VIEW_TYPE, label: 'Stats', icon: 'bar-chart-2' },

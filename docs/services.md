@@ -339,7 +339,7 @@ interface DynamicNarrativeSystemData {
     objectives: Record<string, Objective>;
     arcs: Record<string, Arc>;
     quests: Record<string, Quest>;
-    layout: { inspectorWidth: number };
+    layout: { inspectorWidth: number }; // stored for backward compat, no longer actively used (inspector width is session-only)
     version: number;
 }
 ```
