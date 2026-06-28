@@ -192,6 +192,7 @@ export class SceneInspectorView extends ItemView {
         // Refresh scene data when files are modified.
         this.registerEvent(
             this.app.vault.on('modify', (file) => {
+                if (this.plugin.isSystemFile(file.path)) return;
                 if (!this.hasSceneShown()) return;
                 if (this.notesPanel?.isNotesFilePath(file.path)) {
                     void this.notesPanel.refreshNotesFromDisk();

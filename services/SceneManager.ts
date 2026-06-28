@@ -1466,12 +1466,13 @@ export class SceneManager implements ISceneStore {
 
     /**
      * Handle file changes (for watching file modifications)
+     * Returns true if the file was processed, false if it was filtered out.
      */
-    async handleFileChange(file: TFile): Promise<void> {
-        if (file.extension !== 'md') return;
+    async handleFileChange(file: TFile): Promise<boolean> {
+        if (file.extension !== 'md') return false;
 
         // Check if file is in scene folder or notes folder
-        if (!file.path.startsWith(this.getSceneFolder()) && !file.path.startsWith(this.getNotesFolder())) return;
+        if (!file.path.startsWith(this.getSceneFolder()) && !file.path.startsWith(this.getNotesFolder())) return false;
 
         const scene = await MetadataParser.parseFile(this.app, file);
         if (scene) {
@@ -1480,6 +1481,7 @@ export class SceneManager implements ISceneStore {
             this.scenes.delete(file.path);
         }
         this.bumpVersion(file.path);
+        return true;
     }
 
     /**

@@ -85,6 +85,7 @@ export class NotesView extends ItemView {
         // Refresh when the focused scene file changes externally.
         this.registerEvent(
             this.app.vault.on('modify', (file) => {
+                if (this.plugin.isSystemFile(file.path)) return;
                 if (!this.currentScenePath) return;
                 if (file.path === this.currentNotesPath) return;
                 window.setTimeout(() => this.refreshCurrentScene(), 600);

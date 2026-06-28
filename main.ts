@@ -636,14 +636,18 @@ export default class SceneCardsPlugin extends Plugin {
 
         this.registerEvent(
             this.app.vault.on('modify', (file) => {
+                if (file instanceof TFile && this.isSystemFile(file.path)) return;
                 if (file instanceof TFile) {
-                    this.sceneManager.handleFileChange(file).then(() => debouncedRefresh());
+                    this.sceneManager.handleFileChange(file).then((processed) => {
+                        if (processed) debouncedRefresh();
+                    });
                 }
             })
         );
 
         this.registerEvent(
             this.app.vault.on('delete', (file) => {
+                if (file instanceof TFile && this.isSystemFile(file.path)) return;
                 if (file instanceof TFile) {
                     this.sceneManager.handleFileDelete(file.path);
                     debouncedRefresh();
@@ -653,6 +657,7 @@ export default class SceneCardsPlugin extends Plugin {
 
         this.registerEvent(
             this.app.vault.on('rename', (file, oldPath) => {
+                if (file instanceof TFile && (this.isSystemFile(file.path) || this.isSystemFile(oldPath))) return;
                 if (file instanceof TFile) {
                     this.sceneManager.handleFileRename(file, oldPath).then(async () => {
                         await this.updatePlotGridLinkedSceneIds(oldPath, file.path);
@@ -1355,6 +1360,15 @@ export default class SceneCardsPlugin extends Plugin {
      */
     getProjectSystemFolder(): string {
         return `${this.getProjectBaseFolder()}/System`;
+    }
+
+    /**
+     * Check if a file path is within the project's System/ folder.
+     * Used to prevent feedback loops from our own file writes.
+     */
+    isSystemFile(filePath: string): boolean {
+        const systemFolder = this.getProjectSystemFolder();
+        return filePath.startsWith(systemFolder);
     }
 
     // ────────────────────────────────────

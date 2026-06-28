@@ -60,7 +60,8 @@ export class SynopsisView extends ItemView {
         );
 
         this.registerEvent(
-            this.app.vault.on('modify', () => {
+            this.app.vault.on('modify', (file) => {
+                if (this.plugin.isSystemFile(file.path)) return;
                 if (!this.synopsisPanel?.getCurrentScene()) return;
                 if (Date.now() - this.lastEditTime < 2000) return;
                 window.setTimeout(() => this.refreshCurrentScene(), 600);
