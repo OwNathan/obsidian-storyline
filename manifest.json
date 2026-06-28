@@ -7,5 +7,6 @@
   "author": "Jan Sandström",
   "authorUrl": "https://github.com/PixeroJan",
   "fundingUrl": "https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A",
-  "isDesktopOnly": false
+  "isDesktopOnly": false,
+  "style": "styles.css"
 }

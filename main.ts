@@ -25,10 +25,12 @@ import {
     NOTES_VIEW_TYPE,
     SYNOPSIS_VIEW_TYPE,
     DETAILS_VIEW_TYPE,
+    DYNAMIC_NARRATIVE_VIEW_TYPE,
 } from './constants';
 import { PlotgridView } from './views/PlotgridView';
 import type { PlotGridData } from './models/PlotGridData';
 import type { SeriesMetadata, StoryLineProject } from './models/StoryLineProject';
+import { deriveProjectFoldersFromFilePath } from './models/StoryLineProject';
 import { BoardView } from './views/BoardView';
 import { TimelineView } from './views/TimelineView';
 import { StorylineView } from './views/StorylineView';
@@ -61,6 +63,8 @@ import { FieldTemplateService } from './services/FieldTemplateService';
 import { SeriesManager } from './services/SeriesManager';
 import { buildFormattingToolbar } from './components/FormattingToolbar';
 import { setupMobileKeyboardHandling } from './components/MobileAdapter';
+import { DynamicNarrativeManager } from './dynamic-narrative/services/DynamicNarrativeManager';
+import { DynamicNarrativeView } from './dynamic-narrative/views/DynamicNarrativeView';
 
 /**
  * StoryLine Plugin for Obsidian
@@ -85,6 +89,7 @@ export default class SceneCardsPlugin extends Plugin {
     fieldTemplates!: FieldTemplateService;
     seriesManager!: SeriesManager;
     researchManager!: ResearchManager;
+    dynamicNarrativeManager!: DynamicNarrativeManager;
     /** The leaf currently hosting a StoryLine view */
     storyLeaf: WorkspaceLeaf | null = null;
     /** Removes native browser tooltips (`title`) inside StoryLine UI */
@@ -137,6 +142,7 @@ export default class SceneCardsPlugin extends Plugin {
         });
         this.seriesManager = new SeriesManager(this.app, this);
         this.researchManager = new ResearchManager(this.app, this);
+        this.dynamicNarrativeManager = new DynamicNarrativeManager(this.app, this);
 
         // Wire up undo/redo to refresh views + re-index
         this.sceneManager.undoManager.onAfterUndoRedo = async () => {
@@ -222,6 +228,9 @@ export default class SceneCardsPlugin extends Plugin {
         );
         this.registerView(RESEARCH_VIEW_TYPE, (leaf) =>
             new ResearchView(leaf, this, this.researchManager)
+        );
+        this.registerView(DYNAMIC_NARRATIVE_VIEW_TYPE, (leaf) =>
+            new DynamicNarrativeView(leaf, this)
         );
 
 
@@ -326,6 +335,12 @@ export default class SceneCardsPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: 'open-dynamic-narrative',
+            name: 'Open dynamic narrative',
+            callback: () => this.activateView(DYNAMIC_NARRATIVE_VIEW_TYPE),
+        });
+
+        this.addCommand({
             id: 'create-new-scene',
             name: 'Create new scene',            callback: () => this.openQuickAdd(),
         });
@@ -410,7 +425,7 @@ export default class SceneCardsPlugin extends Plugin {
                 LOCATION_VIEW_TYPE, CODEX_VIEW_TYPE, SCENE_INSPECTOR_VIEW_TYPE,
                 NOTES_VIEW_TYPE, SYNOPSIS_VIEW_TYPE, DETAILS_VIEW_TYPE,
                 MANUSCRIPT_VIEW_TYPE, RESEARCH_VIEW_TYPE, HELP_VIEW_TYPE,
-                NAVIGATOR_VIEW_TYPE,
+                NAVIGATOR_VIEW_TYPE, DYNAMIC_NARRATIVE_VIEW_TYPE,
             ];
             if (!slViewTypes.includes(viewType)) return;
 
@@ -640,10 +655,20 @@ export default class SceneCardsPlugin extends Plugin {
             this.app.vault.on('rename', (file, oldPath) => {
                 if (file instanceof TFile) {
                     this.sceneManager.handleFileRename(file, oldPath).then(async () => {
-                        // Update any PlotGrid cells that reference the old path
                         await this.updatePlotGridLinkedSceneIds(oldPath, file.path);
+                        if (this.dynamicNarrativeManager.isDNEntityPath(file.path)) {
+                            await this.dynamicNarrativeManager.cascadeRename(oldPath, file.path);
+                        }
                         debouncedRefresh();
                     });
+                }
+            })
+        );
+
+        this.registerEvent(
+            this.app.vault.on('delete', (file) => {
+                if (file instanceof TFile && this.dynamicNarrativeManager.isDNEntityPath(file.path)) {
+                    this.dynamicNarrativeManager.handleFileDeleted(file.path);
                 }
             })
         );
@@ -929,6 +954,8 @@ export default class SceneCardsPlugin extends Plugin {
 
         // Clean up any floating lightbox windows left on activeDocument.body
         activeDocument.querySelectorAll('.gallery-lightbox-window').forEach(el => el.remove());
+
+        this.dynamicNarrativeManager.destroy();
     }
 
     /**
@@ -2157,6 +2184,14 @@ export default class SceneCardsPlugin extends Plugin {
             }
         } catch { /* project may not be set yet */ }
 
+        try {
+            const activeProject = this.sceneManager.activeProject;
+            if (activeProject) {
+                const { baseFolder } = deriveProjectFoldersFromFilePath(activeProject.filePath);
+                await this.dynamicNarrativeManager.initialize(baseFolder);
+            }
+        } catch { /* project may not be set yet */ }
+
         // Re-scan wikilinks after entity data is loaded
         this.linkScanner.invalidateAll();
         this.linkScanner.rebuildLookups(this.settings.characterAliases);
@@ -2183,6 +2218,7 @@ export default class SceneCardsPlugin extends Plugin {
             NAVIGATOR_VIEW_TYPE,
             MANUSCRIPT_VIEW_TYPE,
             RESEARCH_VIEW_TYPE,
+            DYNAMIC_NARRATIVE_VIEW_TYPE,
         ];
 
         for (const viewType of viewTypes) {

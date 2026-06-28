@@ -71,6 +71,19 @@ Settings are stored in Obsidian's `data.json` via `Plugin.loadData()` / `Plugin.
 | `universalFieldsMirrorTopLevel` | `boolean` | `true` | Mirror universal fields to top-level YAML |
 | `customLocationTypes` | `string[]` | `[]` | User-defined location types |
 
+### Dynamic Narrative Settings
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `dnScenarioCategories` | `string[]` | `['Main Plot', 'Core', 'Minor', 'Dynamic']` | Available categories for Scenarios |
+| `dnObjectiveCategories` | `string[]` | `['Structured', 'Dynamic', 'Procedural']` | Available categories for Objectives |
+| `dnArcCategories` | `string[]` | `['Primary', 'Secondary']` | Available categories for Arcs |
+| `dnQuestCategories` | `string[]` | `['Goal', 'Limit', 'Event', 'Modifier']` | Available categories for Quests |
+| `dnInspectorWidth` | `number` | `350` | Default inspector panel width in pixels (clamped 250-800) |
+| `dnKanbanShowFullHeader` | `boolean` | `true` | Show name + description + category in kanban header (name only when disabled) |
+
+Categories can be managed via the settings tab or per-project through the `DNCategoryModal` in the Dynamic Narrative view.
+
 ## Per-Project System Data
 
 Stored as JSON files in `{project}/System/`, not in `data.json`:
@@ -85,6 +98,7 @@ Stored as JSON files in `{project}/System/`, not in `data.json`:
 | `field-templates.json` | Universal field template definitions |
 | `codex-digests.json` | Content digests for codex change detection |
 | `plotgrid.json` | Plot grid data (rows, columns, cells) |
+| `dynamic-narrative.json` | Dynamic Narrative entity cache (scenarios, objectives, arcs, quests, layout) |
 | `Snapshots/` | View snapshot files |
 
 ## Constants (`constants.ts`)
@@ -108,6 +122,7 @@ RESEARCH_VIEW_TYPE        = 'story-line-research'
 NOTES_VIEW_TYPE           = 'story-line-notes'
 SYNOPSIS_VIEW_TYPE        = 'story-line-synopsis'
 DETAILS_VIEW_TYPE         = 'story-line-scene-details'
+DYNAMIC_NARRATIVE_VIEW_TYPE = 'story-line-dynamic-narrative'
 ```
 
 ## Manifest (`manifest.json`)

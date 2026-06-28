@@ -101,6 +101,37 @@ Every `.ts` file has a file-wide `eslint-disable` block at the top suppressing `
 
 5. Optionally add a command in `onload()` to activate the view.
 
+## Dynamic Narrative Feature
+
+The Dynamic Narrative feature is isolated in `dynamic-narrative/` and adds a new entity hierarchy (Scenarios → Objectives → Arcs → Quests) separate from the main scene/character/location system.
+
+### Directory layout
+
+| Directory | Purpose |
+|---|---|
+| `dynamic-narrative/models/` | Data types: Scenario, Objective, Arc, Quest + shared types, type guards, utilities |
+| `dynamic-narrative/services/` | `DynamicNarrativeManager` — CRUD, file I/O, phase management, cascade rename, categories |
+| `dynamic-narrative/views/` | `DynamicNarrativeView` — Single ItemView with 5 tabs + resizable inspector |
+| `dynamic-narrative/components/` | UI components: overview, kanban, quest grid, inspector, modals (create, phase, category) |
+
+### Key patterns
+
+- **Model files** define entity interfaces extending `DNBase` from `types.ts`.
+- **Empty creators** (`createEmptyScenario`, etc.) provide defaults including default phases where applicable.
+- **Factory pattern** for phases: `types.ts` exports `createDefaultPhase()` and `createDefaultPhases()`.
+- **Type guards** (`isScenario`, `isObjective`, `isArc`, `isQuest`) for narrowing union types.
+- **Shared utilities** in `types.ts`: `resolveWikilinkPath`, `deepClone`, `debounce`, `deriveShortDesc`, `getOrderedPhases`, `isDefaultPhase`.
+- **Save mutex**: `DynamicNarrativeManager.saveSystemJson()` uses a promise-chain queue to serialize writes.
+- **Undo integration**: All update methods pass deep-cloned snapshots to the existing `UndoManager`.
+- **Cascade rename**: Wired into `main.ts` vault rename events via `DynamicNarrativeManager.cascadeRename()`.
+- **Vault events**: `delete` and `rename` events are handled by `DynamicNarrativeManager.handleFileDeleted()` and cascade rename.
+- **Debounced search**: Overview, Kanban, and QuestGrid use a 200ms debounce on search input.
+- **Resize handle**: Inspector resize supports both mouse and touch events with proper cleanup on close.
+- **Phase management**: 5 hardcoded default phases (QuestSleeping, QuestAvailable, QuestStarted, QuestCompleted, QuestFailed) plus user-defined custom phases.
+- **Scenarios have no default phases**; Objectives, Arcs, and Quests each start with the 5 defaults.
+
+When modifying DN code, keep files isolated within `dynamic-narrative/` and only touch the 4 shared files when absolutely necessary for upstream merge safety.
+
 ## Adding a New Service
 
 1. Create the service class in `services/MyService.ts`.

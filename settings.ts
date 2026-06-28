@@ -880,6 +880,14 @@ export interface SceneCardsSettings {
      * when `exportSceneSeparatorType` is set to 'custom'.
      */
     exportSceneSeparatorCustom?: string;
+
+    // ── Dynamic Narrative settings ─────────────────────
+    dnScenarioCategories: string[];
+    dnObjectiveCategories: string[];
+    dnArcCategories: string[];
+    dnQuestCategories: string[];
+    dnInspectorWidth: number;
+    dnKanbanShowFullHeader: boolean;
 }
 
 /**
@@ -1001,6 +1009,13 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
     defaultSceneFrontmatter: '',
     exportSceneSeparatorType: 'blank',
     exportSceneSeparatorCustom: '',
+
+    dnScenarioCategories: ['Main Plot', 'Core', 'Minor', 'Dynamic'],
+    dnObjectiveCategories: ['Structured', 'Dynamic', 'Procedural'],
+    dnArcCategories: ['Primary', 'Secondary'],
+    dnQuestCategories: ['Goal', 'Limit', 'Event', 'Modifier'],
+    dnInspectorWidth: 350,
+    dnKanbanShowFullHeader: true,
 };
 
 /**
@@ -2452,6 +2467,77 @@ export class SceneCardsSettingTab extends PluginSettingTab {
             folderInput.value = '';
             renderFolderList();
         });
+
+        // ═══════════════════════════════════════════
+        //  Dynamic Narrative
+        // ═══════════════════════════════════════════
+        new Setting(containerEl).setName('Dynamic Narrative').setHeading();
+
+        new Setting(containerEl)
+            .setName('Inspector width')
+            .setDesc('Default width of the inspector panel in the Dynamic Narrative view (pixels)')
+            .addText(text => text
+                .setPlaceholder('350')
+                .setValue(String(this.plugin.settings.dnInspectorWidth))
+                .onChange(async (value) => {
+                    const n = Number(value);
+                    this.plugin.settings.dnInspectorWidth = (n > 0 && n < 2000) ? n : 350;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Show full kanban header')
+            .setDesc('Show entity name, description, and category in the kanban header. Disable to show only the name.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.dnKanbanShowFullHeader !== false)
+                .onChange(async (value) => {
+                    this.plugin.settings.dnKanbanShowFullHeader = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Scenario categories')
+            .setDesc('Comma-separated list of categories for Scenarios')
+            .addText(text => text
+                .setPlaceholder('Main Plot, Core, Minor, Dynamic')
+                .setValue((this.plugin.settings.dnScenarioCategories || []).join(', '))
+                .onChange(async (value) => {
+                    this.plugin.settings.dnScenarioCategories = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Objective categories')
+            .setDesc('Comma-separated list of categories for Objectives')
+            .addText(text => text
+                .setPlaceholder('Structured, Dynamic, Procedural')
+                .setValue((this.plugin.settings.dnObjectiveCategories || []).join(', '))
+                .onChange(async (value) => {
+                    this.plugin.settings.dnObjectiveCategories = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Arc categories')
+            .setDesc('Comma-separated list of categories for Arcs')
+            .addText(text => text
+                .setPlaceholder('Primary, Secondary')
+                .setValue((this.plugin.settings.dnArcCategories || []).join(', '))
+                .onChange(async (value) => {
+                    this.plugin.settings.dnArcCategories = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Quest categories')
+            .setDesc('Comma-separated list of categories for Quests')
+            .addText(text => text
+                .setPlaceholder('Goal, Limit, Event, Modifier')
+                .setValue((this.plugin.settings.dnQuestCategories || []).join(', '))
+                .onChange(async (value) => {
+                    this.plugin.settings.dnQuestCategories = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    await this.plugin.saveSettings();
+                }));
     }
 
     /** Render the tag-color assignment list with color pickers */

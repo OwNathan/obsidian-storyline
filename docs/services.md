@@ -278,7 +278,82 @@ Static validation for story consistency and plot hole detection.
 
 ---
 
-## MetadataParser (`services/MetadataParser.ts`)
+## DynamicNarrativeManager (`dynamic-narrative/services/DynamicNarrativeManager.ts`)
+
+Manages the Dynamic Narrative entity hierarchy (Scenarios, Objectives, Arcs, Quests). Operates on per-project data stored in `System/dynamic-narrative.json` and `DynamicNarrative/` folder.
+
+**Constructor:** `DynamicNarrativeManager(app: App, plugin: SceneCardsPlugin)`
+
+**Key methods:**
+
+*Initialization*
+- `initialize(projectFolder: string): Promise<void>` -- ensure folders, load system JSON, scan entity files
+- `loadAll(): Promise<void>` -- reload all entities from markdown files and system JSON
+- `saveSystemJson(): Promise<void>` -- persist in-memory maps (promise-chain mutex for serialized writes)
+
+*CRUD*
+- `createScenario/Objective/Arc/Quest(data): Promise<entity>` -- create file + system JSON entry
+- `updateScenario/Objective/Arc/Quest(filePath, updates): Promise<void>` -- update with undo recording (deep-cloned snapshots)
+- `deleteScenario/Objective/Arc/Quest(filePath): Promise<void>` -- delete file + remove from maps
+
+*Hierarchy & Linking*
+- `createAndLinkObjective(scenarioPath, phaseName, data): Promise<Objective>` -- create objective and link to scenario phase
+- `createAndLinkArc(objectivePath, phaseName, data): Promise<Arc>` -- create arc and link to objective phase
+- `createAndLinkQuest(arcPath, phaseName, category, data): Promise<Quest>` -- create quest and link to arc phase by category
+- `getLinkedObjectives(scenarioPath, phaseName?): DNLinkedChild[]`
+- `getLinkedArcs(objectivePath, phaseName?): DNLinkedChild[]`
+- `getLinkedQuests(arcPath, phaseName?): string[]`
+- `getConnectionsForQuest(questPath): { scenarios, objectives, arcs }` -- transitive usage count
+
+*Phase Management*
+- `addCustomPhase(entity, phase): void`
+- `removeCustomPhase(entity, phaseName): void`
+- `renameCustomPhase(entity, oldName, newName): void`
+- `reorderCustomPhases(entity, fromIndex, toIndex): void`
+- `updatePhaseFields(entity, phaseName, updates): void`
+- `getOrderedPhasesForEntity(entity): DNPhase[]` -- ordered columns (default → custom → completed/failed)
+- `reassignPhase(parentPath, childPath, fromPhase, toPhase): Promise<void>` -- drag between columns
+
+*Category Management*
+- `getCategories(entityType): string[]` -- settings or defaults
+- `addCategory(entityType, name): void`
+- `removeCategory(entityType, name): void`
+
+*Vault Events*
+- `cascadeRename(oldPath, newPath): Promise<void>` -- update all wikilinks when a DN file is renamed
+- `handleFileDeleted(filePath): void` -- remove entity from maps on vault delete
+- `isDNEntityPath(filePath): boolean` -- check if a vault path belongs to the DN folder
+
+*Utility*
+- `getAllScenarios/Objectives/Arcs/Quests(): entity[]`
+- `getEntity(filePath): DNEntity | undefined`
+- `getEntityType(filePath): DNEntityType | null`
+- `getInspectorWidth(): number` / `setInspectorWidth(width): void`
+- `getInitialized(): boolean`
+- `destroy(): void` -- clear all maps and state
+
+**System JSON format:**
+```typescript
+interface DynamicNarrativeSystemData {
+    scenarios: Record<string, Scenario>;
+    objectives: Record<string, Objective>;
+    arcs: Record<string, Arc>;
+    quests: Record<string, Quest>;
+    layout: { inspectorWidth: number };
+    version: number;
+}
+```
+
+**File structure:**
+```
+{project}/DynamicNarrative/
+    Scenarios/    <- .md files, frontmatter tag: storyline-scenario
+    Objectives/   <- .md files, frontmatter tag: storyline-objective
+    Arcs/         <- .md files, frontmatter tag: storyline-arc
+    Quests/       <- .md files, frontmatter tag: storyline-quest
+```
+
+---
 
 Utility module for parsing and serializing scene YAML frontmatter. Handles wikilink conversion and word count settings.
 

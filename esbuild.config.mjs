@@ -32,6 +32,25 @@ const context = await esbuild.context({
   loader: {
     ".md": "text",
   },
+  plugins: [
+    {
+      name: "copy-static-files",
+      setup(build) {
+        build.onEnd(async () => {
+          const staticFiles = ["styles.css"];
+          for (const file of staticFiles) {
+            try {
+              const fs = await import("fs/promises");
+              const source = await fs.readFile(file, "utf8");
+              await fs.writeFile(file, source);
+            } catch (e) {
+              console.warn(`[esbuild] Failed to copy ${file}:`, e);
+            }
+          }
+        });
+      },
+    },
+  ],
 });
 
 if (prod) {

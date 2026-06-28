@@ -1,6 +1,6 @@
 # Views Reference
 
-All 16 views extend Obsidian's `ItemView` class and are registered in `main.ts` `onload()`. View type constants are defined in `constants.ts`.
+All 17 views extend Obsidian's `ItemView` class and are registered in `main.ts` `onload()`. View type constants are defined in `constants.ts`.
 
 ## View Registry
 
@@ -22,6 +22,7 @@ All 16 views extend Obsidian's `ItemView` class and are registered in `main.ts` 
 | `SYNOPSIS_VIEW_TYPE` | `story-line-synopsis` | `SynopsisView` | `views/SynopsisView.ts` |
 | `DETAILS_VIEW_TYPE` | `story-line-scene-details` | `DetailsView` | `views/DetailsView.ts` |
 | `HELP_VIEW_TYPE` | `story-line-help` | `HelpView` | `views/HelpView.ts` |
+| `DYNAMIC_NARRATIVE_VIEW_TYPE` | `story-line-dynamic-narrative` | `DynamicNarrativeView` | `dynamic-narrative/views/DynamicNarrativeView.ts` |
 
 ## View Details
 
@@ -105,6 +106,36 @@ Displays the bundled `HELP.md` documentation in a dedicated pane.
 
 **Constructor:** `HelpView(leaf, plugin)`
 
+### DynamicNarrativeView
+
+Single view with 5 internal tabs for game narrative entities. Includes a resizable inspector sidebar (mouse + touch support), kanban boards for Scenarios/Objectives/Arcs, a quest grid for Quests, and a unified Overview. Uses `DNKanban`, `DNQuestGrid`, `DNInspector`, and `DNOverview` components. Resize handle width is persisted to settings.
+
+**Tabs:**
+| Tab | Component | Description |
+|---|---|---|
+| Overview | `DNOverview` | Collapsible lists for all 4 entity types with search, sort, and filter |
+| Scenarios | `DNKanban` | Kanban view for Scenarios with sidebar entity selector, phase columns, drag-and-drop |
+| Objectives | `DNKanban` | Kanban view for Objectives |
+| Arcs | `DNKanban` | Kanban view for Arcs |
+| Quests | `DNQuestGrid` | Quest list + editor + usage stats sidebar |
+
+**Constructor:** `DynamicNarrativeView(leaf: WorkspaceLeaf, plugin: SceneCardsPlugin)`
+
+**Key methods:**
+- `openInInspector(path)` -- single-click opens entity in inspector
+- `navigateToKanban(path, entityType)` -- double-click navigates to kanban tab
+- `refresh()` -- reload data and refresh current tab
+
+**Components used:**
+- `DNOverview` -- debounced search (200ms), sort, category filter, DNCreateModal for entity creation
+- `DNKanban` -- phase columns, sidebar with search, drag-and-drop cards, right-click context menu (Edit/Unlink), create child entities from column header
+- `DNQuestGrid` -- list panel, editor panel (category, type, description, phases), usage panel (transitive connection counts)
+- `DNInspector` -- entity fields, category selector, phase accordions with DNPhaseModal for custom phases, auto-save (600ms debounce)
+
+**Mobile:** Inspector resize supports touch events. Touchstart/touchmove/touchend handlers registered alongside mouse events, properly cleaned up on view close.
+
+---
+
 ## Shared Patterns
 
 ### View Lifecycle
@@ -142,3 +173,9 @@ All views use a shared tab-based toolbar for switching between views. Tab labels
 | `Ctrl+Shift+E` | Export project |
 | `Ctrl+Z` | Undo (when StoryLine view is active and not in text input) |
 | `Ctrl+Shift+Z` | Redo |
+
+### Command Palette
+
+| Command | Action |
+|---|---|
+| `StoryLine: Open Dynamic Narrative` | Opens the Dynamic Narrative view |

@@ -244,6 +244,50 @@ Research posts stored in `{project}/Research/`.
 
 ---
 
+## Dynamic Narrative (`dynamic-narrative/models/`)
+
+Game narrative entities for branching quest systems. Stored as Markdown files with YAML frontmatter in `{project}/DynamicNarrative/`.
+
+### Shared Types (`dynamic-narrative/models/types.ts`)
+
+| Type | Description |
+|---|---|
+| `DNEntityType` | `'scenario' \| 'objective' \| 'arc' \| 'quest'` |
+| `DNEntity` | Union type: `Scenario \| Objective \| Arc \| Quest` |
+| `DNBase` | `filePath`, `title`, `description`, `created`, `modified` |
+| `DNPhase` | `name`, `description`, `startConditions`, `endConditions`, `startCommands`, `endCommands`, `isDefault` |
+| `DNLinkedChild` | `id` (wikilink), `isPrimary`, `mandatory` |
+
+**Constants:** `DEFAULT_DN_PHASES` (5 phases), per-type category defaults.
+
+**Utilities:** `createDefaultPhase`, `createDefaultPhases`, `getOrderedPhases`, `deriveShortDesc`, `isDefaultPhase`, `resolveWikilinkPath`, `deepClone`, `debounce`, type guards (`isScenario`, `isObjective`, `isArc`, `isQuest`).
+
+### Scenario (`dynamic-narrative/models/Scenario.ts`)
+
+Top-level container. No default phases. Fields: `type`, `category`, `linkedActs`, `linkedLocations`, `linkedCharacters`, `phases` (`ScenarioPhase[]`). Creator: `createEmptyScenario(title)`.
+
+### Objective (`dynamic-narrative/models/Objective.ts`)
+
+Mid-level goal. 5 default phases. Fields: `type`, `category`, `linkedLocations`, `linkedCharacters`, `phases` (`ObjectivePhase[]`). Creator: `createEmptyObjective(title)`.
+
+### Arc (`dynamic-narrative/models/Arc.ts`)
+
+Quest thread. 5 default phases. Fields: `type`, `category`, `linkedLocations`, `dynamicLocations`, `phases` (`ArcPhase[]`). ArcPhase adds `linkedGoals/limitations/events/modifiers`. Creator: `createEmptyArc(title)`.
+
+### Quest (`dynamic-narrative/models/Quest.ts`)
+
+Leaf quest. 5 default phases. Fields: `type`, `category`, `questType`, `phases` (`QuestPhase[]` -- alias for `DNPhase`). Creator: `createEmptyQuest(title)`.
+
+### Hierarchy
+
+`Scenario → Objective → Arc → Quest`. Linked via phase arrays: `ScenarioPhase.linkedObjectives`, `ObjectivePhase.linkedArcs`, `ArcPhase.linkedGoals/Limits/Events/Modifiers`.
+
+### System JSON (`System/dynamic-narrative.json`)
+
+In-memory cache persisted to disk. Shape: `{ scenarios, objectives, arcs, quests: Record<path, entity>; layout: { inspectorWidth }; version }`.
+
+---
+
 ## StoryLineProject (`models/StoryLineProject.ts`)
 
 Project manifest stored as a `.md` file in the StoryLine root folder.
