@@ -23,6 +23,10 @@ import { compareActChapter, parseActChapterInput, getActDisplayLabel } from '../
 
 type BoardMode = 'kanban' | 'corkboard';
 
+const BOARD_INSPECTOR_MIN_WIDTH = 250;
+const BOARD_INSPECTOR_MAX_WIDTH = 800;
+let _boardInspectorWidth = 340;
+
 /**
  * Board View - Kanban-style scene card board
  */
@@ -73,6 +77,12 @@ export class BoardView extends ItemView {
      * focus out and hid the text being typed).
      */
     private editingNotePath: string | null = null;
+    private inspectorWrapperEl: HTMLElement | null = null;
+    private inspectorResizeHandleEl: HTMLElement | null = null;
+    private _onInspectorMouseMove: ((e: MouseEvent) => void) | null = null;
+    private _onInspectorMouseUp: (() => void) | null = null;
+    private _onInspectorTouchMove: ((e: TouchEvent) => void) | null = null;
+    private _onInspectorTouchEnd: (() => void) | null = null;
 
     constructor(leaf: WorkspaceLeaf, plugin: SceneCardsPlugin, sceneManager: SceneManager) {
         super(leaf);
@@ -123,6 +133,7 @@ export class BoardView extends ItemView {
             window.clearTimeout(this.corkboardPersistTimer);
             this.corkboardPersistTimer = null;
         }
+        this.removeInspectorResizeListeners();
         await this.persistCorkboardLayout();
     }
 
@@ -131,6 +142,7 @@ export class BoardView extends ItemView {
      */
     private renderView(container: HTMLElement): void {
         this.ensureCorkboardLayoutLoaded();
+        this.removeInspectorResizeListeners();
         container.empty();
 
         // Toolbar
@@ -208,23 +220,138 @@ export class BoardView extends ItemView {
 
         this.refreshBoard();
 
-        // Inspector sidebar
-        const inspectorEl = mainArea.createDiv('story-line-inspector-panel');
-        inspectorEl.setCssStyles({ display: 'none' });
-        this.inspectorComponent = new InspectorComponent(
-            inspectorEl,
-            this.plugin,
-            this.sceneManager,
-            {
-                onEdit: (scene) => this.openScene(scene),
-                onDelete: (scene) => this.deleteScene(scene),
-                onRefresh: () => this.refreshBoard(),
-                onStatusChange: async (scene, status) => {
-                    await this.sceneManager.updateScene(scene.filePath, { status });
-                    this.refreshBoard();
-                },
-            }
-        );
+        // Inspector sidebar — on desktop use a wrapper with resize handle,
+        // on mobile use the original bottom-sheet approach without resize.
+        if (isMobile) {
+            const inspectorEl = mainArea.createDiv('story-line-inspector-panel');
+            inspectorEl.setCssStyles({ display: 'none' });
+            this.inspectorComponent = new InspectorComponent(
+                inspectorEl,
+                this.plugin,
+                this.sceneManager,
+                {
+                    onEdit: (scene) => this.openScene(scene),
+                    onDelete: (scene) => this.deleteScene(scene),
+                    onRefresh: () => this.refreshBoard(),
+                    onStatusChange: async (scene, status) => {
+                        await this.sceneManager.updateScene(scene.filePath, { status });
+                        this.refreshBoard();
+                    },
+                }
+            );
+        } else {
+            this.inspectorWrapperEl = mainArea.createDiv('sl-inspector-wrapper');
+            this.inspectorWrapperEl.setCssStyles({ display: 'none' });
+
+            this.inspectorResizeHandleEl = this.inspectorWrapperEl.createDiv('sl-inspector-resize-handle');
+
+            const inspectorEl = this.inspectorWrapperEl.createDiv('story-line-inspector-panel');
+            inspectorEl.setCssStyles({
+                position: 'static',
+                width: '100%',
+                height: '100%',
+                right: 'auto',
+                top: 'auto',
+                bottom: 'auto',
+            });
+            this.inspectorComponent = new InspectorComponent(
+                inspectorEl,
+                this.plugin,
+                this.sceneManager,
+                {
+                    onEdit: (scene) => this.openScene(scene),
+                    onDelete: (scene) => this.deleteScene(scene),
+                    onRefresh: () => this.refreshBoard(),
+                    onStatusChange: async (scene, status) => {
+                        await this.sceneManager.updateScene(scene.filePath, { status });
+                        this.refreshBoard();
+                    },
+                    onShow: () => {
+                        const w = this.inspectorWrapperEl;
+                        if (w) w.setCssStyles({
+                            display: 'block',
+                            width: `${_boardInspectorWidth}px`,
+                        });
+                    },
+                    onHide: () => {
+                        const w = this.inspectorWrapperEl;
+                        if (w) w.setCssStyles({ display: 'none' });
+                    },
+                }
+            );
+
+            this.setupInspectorResize();
+        }
+    }
+
+    private setupInspectorResize(): void {
+        if (!this.inspectorResizeHandleEl || !this.inspectorWrapperEl) return;
+
+        let isResizing = false;
+        let startX = 0;
+        let startWidth = 0;
+
+        const onStart = (clientX: number): void => {
+            isResizing = true;
+            startX = clientX;
+            startWidth = this.inspectorWrapperEl!.offsetWidth;
+            document.body.addClass('sl-inspector-resizing');
+        };
+
+        const onMove = (clientX: number): void => {
+            if (!isResizing) return;
+            const diff = startX - clientX;
+            const newWidth = startWidth + diff;
+            const clampedWidth = Math.max(BOARD_INSPECTOR_MIN_WIDTH, Math.min(BOARD_INSPECTOR_MAX_WIDTH, newWidth));
+            this.inspectorWrapperEl!.style.width = `${clampedWidth}px`;
+            _boardInspectorWidth = clampedWidth;
+        };
+
+        const onEnd = (): void => {
+            if (!isResizing) return;
+            isResizing = false;
+            document.body.removeClass('sl-inspector-resizing');
+            _boardInspectorWidth = this.inspectorWrapperEl!.offsetWidth;
+        };
+
+        this.inspectorResizeHandleEl.addEventListener('mousedown', (e: MouseEvent) => {
+            onStart(e.clientX);
+            e.preventDefault();
+        });
+
+        this.inspectorResizeHandleEl.addEventListener('touchstart', (e: TouchEvent) => {
+            onStart(e.touches[0].clientX);
+            e.preventDefault();
+        });
+
+        this._onInspectorMouseMove = (e: MouseEvent) => onMove(e.clientX);
+        this._onInspectorMouseUp = () => onEnd();
+        this._onInspectorTouchMove = (e: TouchEvent) => onMove(e.touches[0].clientX);
+        this._onInspectorTouchEnd = () => onEnd();
+
+        document.addEventListener('mousemove', this._onInspectorMouseMove);
+        document.addEventListener('mouseup', this._onInspectorMouseUp);
+        document.addEventListener('touchmove', this._onInspectorTouchMove);
+        document.addEventListener('touchend', this._onInspectorTouchEnd);
+    }
+
+    private removeInspectorResizeListeners(): void {
+        if (this._onInspectorMouseMove) {
+            document.removeEventListener('mousemove', this._onInspectorMouseMove);
+            this._onInspectorMouseMove = null;
+        }
+        if (this._onInspectorMouseUp) {
+            document.removeEventListener('mouseup', this._onInspectorMouseUp);
+            this._onInspectorMouseUp = null;
+        }
+        if (this._onInspectorTouchMove) {
+            document.removeEventListener('touchmove', this._onInspectorTouchMove);
+            this._onInspectorTouchMove = null;
+        }
+        if (this._onInspectorTouchEnd) {
+            document.removeEventListener('touchend', this._onInspectorTouchEnd);
+            this._onInspectorTouchEnd = null;
+        }
     }
 
     /**

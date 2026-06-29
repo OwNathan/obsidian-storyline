@@ -13,6 +13,8 @@ import { DNInspector } from '../components/DNInspector';
 
 type DNTab = 'overview' | 'scenarios' | 'objectives' | 'arcs' | 'quests';
 
+let _dnInspectorWidth = 350;
+
 export class DynamicNarrativeView extends ItemView {
     plugin: SceneCardsPlugin;
     private manager: DynamicNarrativeManager;
@@ -34,7 +36,6 @@ export class DynamicNarrativeView extends ItemView {
     private _onMouseUp: (() => void) | null = null;
     private _onTouchMove: ((e: TouchEvent) => void) | null = null;
     private _onTouchEnd: (() => void) | null = null;
-    private _inspectorWidth = 350;
 
     constructor(leaf: WorkspaceLeaf, plugin: SceneCardsPlugin) {
         super(leaf);
@@ -70,11 +71,13 @@ export class DynamicNarrativeView extends ItemView {
 
         const mainLayout = container.createDiv('dn-main-layout');
         this._contentEl = mainLayout.createDiv('dn-content');
-        this.inspectorEl = mainLayout.createDiv('dn-inspector');
-        this.inspectorEl.style.width = `${this._inspectorWidth}px`;
-        this.inspectorEl.addClass('dn-inspector-hidden');
 
         this.resizeHandleEl = mainLayout.createDiv('dn-resize-handle');
+
+        this.inspectorEl = mainLayout.createDiv('dn-inspector');
+        this.inspectorEl.style.width = `${_dnInspectorWidth}px`;
+        this.inspectorEl.addClass('dn-inspector-hidden');
+
         this.setupResizeHandle();
 
         this.inspector = new DNInspector(this.inspectorEl, this.manager, this.plugin);
@@ -256,7 +259,7 @@ export class DynamicNarrativeView extends ItemView {
             if (!isResizing) return;
             isResizing = false;
             document.body.removeClass('dn-resizing');
-            this._inspectorWidth = this.inspectorEl!.offsetWidth;
+            _dnInspectorWidth = this.inspectorEl!.offsetWidth;
         };
 
         this.resizeHandleEl.addEventListener('mousedown', (e: MouseEvent) => {

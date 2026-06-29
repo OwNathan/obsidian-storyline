@@ -25,6 +25,8 @@ export class InspectorComponent {
     private onDelete: (scene: Scene) => void;
     private onRefresh: () => void;
     private onStatusChange: (scene: Scene, newStatus: SceneStatus) => void;
+    private onShow: (() => void) | undefined;
+    private onHide: (() => void) | undefined;
 
     /**
      * Format intensity value for display (-10 to +10)
@@ -44,6 +46,8 @@ export class InspectorComponent {
             onDelete: (scene: Scene) => void;
             onRefresh: () => void;
             onStatusChange: (scene: Scene, newStatus: SceneStatus) => void;
+            onShow?: () => void;
+            onHide?: () => void;
         }
     ) {
         this.container = container;
@@ -53,6 +57,8 @@ export class InspectorComponent {
         this.onDelete = callbacks.onDelete;
         this.onRefresh = callbacks.onRefresh;
         this.onStatusChange = callbacks.onStatusChange;
+        this.onShow = callbacks.onShow;
+        this.onHide = callbacks.onHide;
     }
 
     /**
@@ -70,6 +76,7 @@ export class InspectorComponent {
         this.currentScene = scene;
         this.render();
         this.container.setCssStyles({ display: 'block' });
+        this.onShow?.();
     }
 
     /**
@@ -92,6 +99,7 @@ export class InspectorComponent {
     hide(): void {
         this.currentScene = null;
         this.container.setCssStyles({ display: 'none' });
+        this.onHide?.();
     }
 
     /**

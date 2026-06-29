@@ -44,10 +44,12 @@ export class DNOverview {
         this.containerEl.addClass('dn-overview');
 
         this.renderToolbar();
-        this.renderSection('Scenarios', this.manager.getAllScenarios(), 'scenario');
-        this.renderSection('Objectives', this.manager.getAllObjectives(), 'objective');
-        this.renderSection('Arcs', this.manager.getAllArcs(), 'arc');
-        this.renderSection('Quests', this.manager.getAllQuests(), 'quest');
+
+        const grid = this.containerEl.createDiv('dn-overview-grid');
+        this.renderSection(grid, 'Scenarios', this.manager.getAllScenarios(), 'scenario');
+        this.renderSection(grid, 'Objectives', this.manager.getAllObjectives(), 'objective');
+        this.renderSection(grid, 'Arcs', this.manager.getAllArcs(), 'arc');
+        this.renderSection(grid, 'Quests', this.manager.getAllQuests(), 'quest');
     }
 
     destroy(): void {
@@ -94,8 +96,8 @@ export class DNOverview {
         });
     }
 
-    private renderSection(title: string, entities: Array<Scenario | Objective | Arc | Quest>, entityType: DNEntityType): void {
-        const section = this.containerEl.createDiv('dn-overview-section');
+    private renderSection(parent: HTMLElement, title: string, entities: Array<Scenario | Objective | Arc | Quest>, entityType: DNEntityType): void {
+        const section = parent.createDiv('dn-overview-section');
         const header = section.createDiv('dn-section-header');
 
         const toggle = header.createSpan('dn-section-toggle');
