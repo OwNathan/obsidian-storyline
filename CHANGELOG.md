@@ -6,6 +6,16 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.39
+
+### Bug Fixes
+
+- **iPad/iPhone scroll position no longer jumps to the top on refocus** — switching back to an editor pane on iPad (e.g. after opening a sidebar and tapping back) caused the scroll position to jump to the first line, and a quick tap would accidentally select a large block of text. The root cause was StoryLine's formatting toolbar being removed from the DOM and re-inserted at the top of the editor container on every `active-leaf-change`, which WebKit interprets as new content appearing at the top of the scroll view. The toolbar is now only injected once per leaf; re-focusing the same leaf is a no-op and causes no DOM reflow. *(Issue #215)*
+
+- **Beat sheet template list is now visible on phone / scrolls correctly on iPad** — the "Manage Story Structure" modal placed the "Create placeholder scenes" toggle above the template list, pushing the list below the fold on small screens where users might not realise they need to scroll. The list is now rendered first, immediately below the section heading, with the toggle below it. The modal also gains `-webkit-overflow-scrolling: touch` so it scrolls correctly on iOS/iPadOS. *(Issue #214)*
+
+- **Setup/Payoff links no longer create blank Obsidian graph nodes** — when the *Store links as wikilinks* setting is on, setup/payoff (and character) values were written as `[[Scene Title]]`. Because scene files are named with a sequence prefix (`01-01 Opening Image.md`), Obsidian's graph could not resolve `[[Opening Image]]` to any file and created a blank orphan node for each entry. Values are now written as aliased wikilinks — `[[01-01 Opening Image|Opening Image]]` — so Obsidian's link resolver follows the file stem to the real file, while StoryLine's internal title-based lookup reads the alias and continues to work as before. Existing plain-text or plain-wikilink values are backward-compatible. *(Discussion #212)*
+
 ## Version 1.10.38
 
 ### New Features

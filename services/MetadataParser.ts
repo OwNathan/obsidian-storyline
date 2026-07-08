@@ -33,6 +33,18 @@ export function setWriteSceneFieldsAsWikilinks(on: boolean): void {
 }
 
 /**
+ * Issue #212 — Map from scene title to file-stem (filename without path/extension)
+ * used by `wrapArray` to emit `[[stem|title]]` aliased wikilinks for setup/payoff
+ * fields. Obsidian resolves the link by file stem; StoryLine reads back the alias
+ * (title) via `cleanWikilink`, so both link resolution and internal matching work.
+ * Set by SceneManager before writing setup/payoff updates.
+ */
+let _sceneTitleToStem: Map<string, string> = new Map();
+export function setSceneTitleToStemMap(map: Map<string, string>): void {
+    _sceneTitleToStem = map;
+}
+
+/**
  * Issue #78 — module-level toggles controlling what countWords skips:
  *  - %%…%% Obsidian comment blocks (default on)
  *  - markdown task lines like `- [ ]` / `- [x]` (default off)
@@ -68,7 +80,16 @@ function wrapArray(arr: unknown): unknown {
     if (!_writeSceneFieldsAsWikilinks) return arr;
     if (!Array.isArray(arr)) return arr;
     return arr
-        .map((s: unknown) => toWikilink(coerceString(s)))
+        .map((s: unknown) => {
+            const title = coerceString(s);
+            if (!title) return undefined;
+            const stem = _sceneTitleToStem.get(title);
+            // If the file stem differs from the title (e.g. "01-01 Opening Image" vs
+            // "Opening Image"), emit `[[stem|title]]` so Obsidian's graph resolves
+            // the link to the real file while `cleanWikilink` still reads the title.
+            if (stem && stem !== title) return `[[${stem}|${title}]]`;
+            return toWikilink(title);
+        })
         .filter((s): s is string => !!s);
 }
 

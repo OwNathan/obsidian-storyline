@@ -2901,6 +2901,9 @@ export class BoardView extends ItemView {
     private openStructureModal(): void {
         const modal = new Modal(this.app);
         modal.titleEl.setText('Manage Story Structure');
+        // Issue #214 — add a CSS hook so mobile styles can make this modal
+        // properly scrollable on iPad / iPhone.
+        modal.containerEl.addClass('sl-structure-modal');
 
         const { contentEl } = modal;
 
@@ -2911,7 +2914,10 @@ export class BoardView extends ItemView {
             text: 'Apply a template to pre-populate your act/chapter structure with named beats.'
         });
 
-        // Global toggle: create placeholder scenes from beats
+        // Template list first, so it is visible without scrolling on small screens.
+        const templateGrid = contentEl.createDiv('beat-sheet-list');
+
+        // Global toggle: create placeholder scenes from beats (below the list)
         let createPlaceholderScenes = false;
         new Setting(contentEl)
             .setName('Create placeholder scenes from beats')
@@ -2920,8 +2926,6 @@ export class BoardView extends ItemView {
                 toggle.setValue(false);
                 toggle.onChange(v => { createPlaceholderScenes = v; });
             });
-
-        const templateGrid = contentEl.createDiv('beat-sheet-list');
         for (const template of BUILTIN_BEAT_SHEETS) {
             const row = templateGrid.createDiv('beat-sheet-row');
 

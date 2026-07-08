@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { StoryLineProject, deriveProjectFolders, deriveProjectFoldersFromFilePath } from '../models/StoryLineProject';
-import { MetadataParser, setWordcountLocale } from './MetadataParser';
+import { MetadataParser, setWordcountLocale, setSceneTitleToStemMap } from './MetadataParser';
 import { normalizeStoryLineLocale, resolveLocale, DEFAULT_STORYLINE_LOCALE, AUTO_DETECT_LOCALE, type StoryLineLocale } from '../utils/locale';
 import { UndoManager } from './UndoManager';
 import { SceneQueryService, ISceneStore } from './SceneQueryService';
@@ -970,6 +970,20 @@ export class SceneManager implements ISceneStore {
         if (oldSnap) {
             const label = `Update "${oldSnap.title}"`;
             this.undoManager.recordUpdate(filePath, oldSnap as unknown as Record<string, unknown>, updates, label);
+        }
+
+        // Issue #212 — populate the title→fileStem map so setup/payoff wikilinks
+        // are written as `[[stem|title]]`, letting Obsidian’s graph resolve the
+        // link to the real file while StoryLine still matches by title.
+        if (updates.setup_scenes !== undefined || updates.payoff_scenes !== undefined) {
+            const stemMap = new Map<string, string>();
+            for (const [p, s] of this.scenes) {
+                if (s.title) {
+                    const stem = p.split('/').pop()?.replace(/\.md$/, '') ?? s.title;
+                    stemMap.set(s.title, stem);
+                }
+            }
+            setSceneTitleToStemMap(stemMap);
         }
 
         await MetadataParser.updateFrontmatter(this.app, file, updates);

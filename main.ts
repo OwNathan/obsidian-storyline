@@ -885,15 +885,15 @@ export default class SceneCardsPlugin extends Plugin {
      * plugin is not installed, and (3) the file belongs to the active project.
      */
     private injectFormattingToolbar(leaf: WorkspaceLeaf | null): void {
-        // Remove any previously injected toolbar in other leaves
-        activeDocument.querySelectorAll('.sl-injected-fmt-toolbar').forEach(el => el.remove());
+        // Helper: remove all injected toolbars everywhere (used when no leaf is eligible).
+        const removeAll = () =>
+            activeDocument.querySelectorAll('.sl-injected-fmt-toolbar').forEach(el => el.remove());
 
-        if (!leaf) return;
-        if (!this.settings.showFormattingToolbar) return;
+        if (!leaf || !this.settings.showFormattingToolbar) { removeAll(); return; }
 
         // Skip if Editing Toolbar plugin is installed
         const plugins = (this.app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } }).plugins;
-        if (plugins?.getPlugin?.('editing-toolbar')) return;
+        if (plugins?.getPlugin?.('editing-toolbar')) { removeAll(); return; }
 
         // Only inject into markdown views in source/live-preview mode
         const view = leaf.view as unknown as {
@@ -901,22 +901,32 @@ export default class SceneCardsPlugin extends Plugin {
             file?: TFile | null;
             editor?: { cm?: import('@codemirror/view').EditorView | null };
         };
-        if (view?.getViewType?.() !== 'markdown') return;
+        if (view?.getViewType?.() !== 'markdown') { removeAll(); return; }
 
         // Only inject for files that belong to the active project
         const file = view.file ?? null;
-        if (!file) return;
         const sf = this.sceneManager?.activeProject?.sceneFolder;
         const projectRoot = sf ? sf.replace(/\/Scenes$/, '') : undefined;
-        if (!projectRoot || !file.path.startsWith(projectRoot)) return;
+        if (!file || !projectRoot || !file.path.startsWith(projectRoot)) { removeAll(); return; }
 
         // Get the CM6 EditorView
         const cm: import('@codemirror/view').EditorView | null = view.editor?.cm ?? null;
-        if (!cm) return;
+        if (!cm) { removeAll(); return; }
 
         // Find the view-content container to insert the toolbar
         const viewContent = (leaf as unknown as { containerEl?: HTMLElement }).containerEl?.querySelector('.view-content');
-        if (!viewContent) return;
+        if (!viewContent) { removeAll(); return; }
+
+        // This leaf is eligible. Remove toolbars from OTHER leaves only — avoids DOM
+        // mutations inside the current editor that cause WebKit (iPad/iPhone) to jump
+        // the scroll position to the top on every active-leaf-change (issue #215).
+        activeDocument.querySelectorAll('.sl-injected-fmt-toolbar').forEach(el => {
+            if (!viewContent.contains(el)) el.remove();
+        });
+
+        // Skip re-injection if the toolbar is already present in this viewContent.
+        // Re-inserting on every focus event is what triggered the iPad scroll jump.
+        if (viewContent.querySelector('.sl-injected-fmt-toolbar')) return;
 
         // Create and inject the toolbar at the top of view-content
         const toolbar = createDiv({ cls: 'sl-fmt-toolbar sl-injected-fmt-toolbar' });
