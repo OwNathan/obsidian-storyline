@@ -6354,13 +6354,26 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
    Beat Sheet Template Cards
    ============================================ */
 
-/* ── Structure modal: ensure scrollable content on iOS/iPadOS (issue #214) ── */
-.sl-structure-modal .modal-content {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+/* ── Beat Sheet Template items (rendered as Setting items — issue #214) ── */
+
+/* Expandable beat list inside the Setting description */
+.beat-sheet-details {
+    margin-top: 4px;
 }
 
-/* ── Beat Sheet List (compact rows) ── */
+.beat-sheet-details-summary {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.beat-sheet-details[open] .beat-sheet-details-summary {
+    color: var(--text-normal);
+}
+
+/* ── Beat Sheet List (compact rows) — kept for any external references ── */
 .beat-sheet-list {
     display: flex;
     flex-direction: column;
@@ -6368,7 +6381,12 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
     margin-bottom: 16px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
-    overflow: hidden;
+    /* Issue #214: use overflow-y:auto instead of overflow:hidden so the list
+       never collapses to zero height on mobile (overflow:hidden with no explicit
+       height causes the flex container to be invisible in some WebKit layouts). */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    max-height: 45vh;
 }
 
 .beat-sheet-row {

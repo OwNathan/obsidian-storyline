@@ -2901,8 +2901,6 @@ export class BoardView extends ItemView {
     private openStructureModal(): void {
         const modal = new Modal(this.app);
         modal.titleEl.setText('Manage Story Structure');
-        // Issue #214 — add a CSS hook so mobile styles can make this modal
-        // properly scrollable on iPad / iPhone.
         modal.containerEl.addClass('sl-structure-modal');
 
         const { contentEl } = modal;
@@ -2914,10 +2912,7 @@ export class BoardView extends ItemView {
             text: 'Apply a template to pre-populate your act/chapter structure with named beats.'
         });
 
-        // Template list first, so it is visible without scrolling on small screens.
-        const templateGrid = contentEl.createDiv('beat-sheet-list');
-
-        // Global toggle: create placeholder scenes from beats (below the list)
+        // Global toggle: create placeholder scenes from beats
         let createPlaceholderScenes = false;
         new Setting(contentEl)
             .setName('Create placeholder scenes from beats')
@@ -2926,87 +2921,59 @@ export class BoardView extends ItemView {
                 toggle.setValue(false);
                 toggle.onChange(v => { createPlaceholderScenes = v; });
             });
-        for (const template of BUILTIN_BEAT_SHEETS) {
-            const row = templateGrid.createDiv('beat-sheet-row');
 
-            const textWrap = row.createDiv('beat-sheet-row-text');
-            const headerLine = textWrap.createDiv('beat-sheet-row-header');
-            headerLine.createSpan({ cls: 'beat-sheet-row-name', text: template.name });
-            const info = headerLine.createSpan({ cls: 'beat-sheet-row-info' });
+        // Render each template as a standard Setting item — avoids the custom
+        // flex container that collapsed to zero height on mobile (issue #214).
+        for (const template of BUILTIN_BEAT_SHEETS) {
             const parts = [`${template.beats.length} beats`, `${template.acts.length} acts`];
             if (template.chapters.length > 0) parts.push(`${template.chapters.length} chapters`);
-            info.textContent = parts.join(' · ');
-            textWrap.createDiv({ cls: 'beat-sheet-row-summary', text: template.summary });
 
-            // Expandable beat preview
-            const beatList = row.createDiv('beat-sheet-beats-preview');
-            for (const beat of template.beats) {
-                const beatItem = beatList.createDiv('beat-sheet-beat-item');
-                beatItem.createSpan({ cls: 'beat-sheet-beat-act', text: `A${beat.act}` });
-                beatItem.createSpan({ cls: 'beat-sheet-beat-label', text: beat.label });
-                beatItem.createSpan({ cls: 'beat-sheet-beat-desc', text: beat.description });
-            }
-
-            const expandBtn = row.createEl('button', { cls: 'beat-sheet-expand-btn clickable-icon', attr: { 'aria-label': 'Show beats' } });
-            expandBtn.textContent = '▸';
-            expandBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = row.hasClass('is-expanded');
-                // Close all others
-                templateGrid.querySelectorAll('.beat-sheet-row.is-expanded').forEach(r => {
-                    r.removeClass('is-expanded');
-                    (r.querySelector('.beat-sheet-expand-btn') as HTMLElement).textContent = '▸';
-                });
-                if (!isOpen) {
-                    row.addClass('is-expanded');
-                    expandBtn.textContent = '▾';
-                }
-            });
-
-            const applyBtn = row.createEl('button', { text: 'Apply', cls: 'mod-cta beat-sheet-apply-btn' });
-            applyBtn.addEventListener('click', async () => {
-                // Confirmation dialog if project already has structure
-                const existingActs = this.sceneManager.getDefinedActs();
-                const existingChapters = this.sceneManager.getDefinedChapters();
-                if (existingActs.length > 0 || existingChapters.length > 0) {
-                    openConfirmModal(this.app, {
-                        title: 'Apply Beat Sheet',
-                        message: `Applying "${template.name}" will merge its acts, chapters, and labels into your existing structure. Existing scenes are not modified. Continue?`,
-                        confirmLabel: 'Apply',
-                        confirmClass: 'mod-cta',
-                        onConfirm: async () => {
+            const s = new Setting(contentEl)
+                .setName(template.name)
+                .addButton(btn => {
+                    btn.setButtonText('Apply').setCta().onClick(async () => {
+                        const doApply = async () => {
                             await this.sceneManager.applyBeatSheet(template);
-                            // Optionally create placeholder scenes
                             if (createPlaceholderScenes) {
                                 const count = await this.sceneManager.createScenesFromBeats(template);
-                                if (count > 0) {
-                                    new Notice(`Applied "${template.name}" — created ${count} placeholder scene(s)`);
-                                } else {
-                                    new Notice(`Applied "${template.name}" template`);
-                                }
+                                new Notice(count > 0
+                                    ? `Applied "${template.name}" \u2014 created ${count} placeholder scene(s)`
+                                    : `Applied "${template.name}" template`);
                             } else {
                                 new Notice(`Applied "${template.name}" template`);
                             }
                             renderActsList();
                             renderChaptersList();
-                        },
-                    });
-                } else {
-                    await this.sceneManager.applyBeatSheet(template);
-                    if (createPlaceholderScenes) {
-                        const count = await this.sceneManager.createScenesFromBeats(template);
-                        if (count > 0) {
-                            new Notice(`Applied "${template.name}" — created ${count} placeholder scene(s)`);
+                        };
+                        const existingActs = this.sceneManager.getDefinedActs();
+                        const existingChapters = this.sceneManager.getDefinedChapters();
+                        if (existingActs.length > 0 || existingChapters.length > 0) {
+                            openConfirmModal(this.app, {
+                                title: 'Apply Beat Sheet',
+                                message: `Applying "${template.name}" will merge its acts, chapters, and labels into your existing structure. Existing scenes are not modified. Continue?`,
+                                confirmLabel: 'Apply',
+                                confirmClass: 'mod-cta',
+                                onConfirm: doApply,
+                            });
                         } else {
-                            new Notice(`Applied "${template.name}" template`);
+                            await doApply();
                         }
-                    } else {
-                        new Notice(`Applied "${template.name}" template`);
-                    }
-                    renderActsList();
-                    renderChaptersList();
-                }
-            });
+                    });
+                });
+
+            // Summary line + expandable beat list under the Setting description
+            const descFrag = document.createDocumentFragment();
+            const summaryLine = descFrag.createEl('div', { cls: 'beat-sheet-row-summary', text: `${template.summary} \u00b7 ${parts.join(' \u00b7 ')}` });
+            const details = descFrag.createEl('details', { cls: 'beat-sheet-details' });
+            details.createEl('summary', { cls: 'beat-sheet-details-summary', text: 'Show beats' });
+            for (const beat of template.beats) {
+                const item = details.createDiv({ cls: 'beat-sheet-beat-item' });
+                item.createSpan({ cls: 'beat-sheet-beat-act', text: `A${beat.act}` });
+                item.createSpan({ cls: 'beat-sheet-beat-label', text: beat.label });
+                item.createSpan({ cls: 'beat-sheet-beat-desc', text: beat.description });
+            }
+            s.descEl.appendChild(summaryLine);
+            s.descEl.appendChild(details);
         }
 
         // ── Acts section ──
@@ -3266,6 +3233,15 @@ export class BoardView extends ItemView {
         });
 
         modal.open();
+
+        // Issue #214 — on mobile the modal can open scrolled past the top,
+        // hiding the Beat Sheet Templates section. Force the scroll position
+        // back to the top after the modal lays out.
+        window.setTimeout(() => {
+            contentEl.scrollTop = 0;
+            const scroller = modal.containerEl.querySelector('.modal-content') as HTMLElement | null;
+            if (scroller) scroller.scrollTop = 0;
+        }, 0);
     }
 
     /**

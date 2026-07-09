@@ -6,6 +6,12 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.40
+
+### Bug Fixes
+
+- **Beat sheet template list now visible on iPhone/Android** — further fix for issue #214. The custom flex-list container that rendered the beat sheet rows continued to collapse to zero height on mobile WebKit regardless of overflow settings, because it relied on an Obsidian modal layout that doesn't guarantee a computed height for its direct children. The list is now rendered as standard Obsidian `Setting` items (the same component used throughout the plugin's settings page), which are guaranteed to render at their natural height on all platforms. The expandable beat preview uses a native `<details>`/`<summary>` element. The "Create placeholder scenes" toggle moved below the template list so templates are immediately visible on small screens. Previous scroll-override hacks that caused the modal to open scrolled past the Beat Sheet section have been removed; a `scrollTop = 0` reset after `modal.open()` ensures the modal always opens at the top. *(Issue #214)*
+
 ## Version 1.10.39
 
 ### Bug Fixes
