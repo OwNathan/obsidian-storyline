@@ -3234,14 +3234,34 @@ export class BoardView extends ItemView {
 
         modal.open();
 
-        // Issue #214 — on mobile the modal can open scrolled past the top,
-        // hiding the Beat Sheet Templates section. Force the scroll position
-        // back to the top after the modal lays out.
-        window.setTimeout(() => {
-            contentEl.scrollTop = 0;
-            const scroller = modal.containerEl.querySelector('.modal-content') as HTMLElement | null;
-            if (scroller) scroller.scrollTop = 0;
-        }, 0);
+        // Issue #214 — on iOS/iPadOS the modal opens scrolled past the top,
+        // hiding the Beat Sheet Templates section, because Obsidian auto-focuses
+        // the first text input (in the Acts section) and iOS scrolls that field
+        // into view. Blur the focused field and reset scroll on every scroll
+        // ancestor of the content, repeated across a few frames to beat the
+        // browser's own scroll-into-view timing.
+        const resetScroll = () => {
+            const active = activeDocument.activeElement as HTMLElement | null;
+            if (active && modal.contentEl.contains(active) && typeof active.blur === 'function') {
+                active.blur();
+            }
+            let node: HTMLElement | null = contentEl;
+            while (node) {
+                if (node.scrollTop) node.scrollTop = 0;
+                node = node.parentElement;
+            }
+            // Also explicitly zero the known Obsidian modal scroll containers.
+            modal.containerEl.querySelectorAll('.modal-content, .modal, .modal-container').forEach(el => {
+                (el as HTMLElement).scrollTop = 0;
+            });
+        };
+        // Run immediately, then on the next few frames to override iOS's
+        // deferred scroll-into-view after autofocus.
+        resetScroll();
+        window.requestAnimationFrame(() => { resetScroll(); window.requestAnimationFrame(resetScroll); });
+        window.setTimeout(resetScroll, 50);
+        window.setTimeout(resetScroll, 150);
+        window.setTimeout(resetScroll, 300);
     }
 
     /**
