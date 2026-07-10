@@ -243,15 +243,22 @@ export class CharacterView extends ItemView {
             attr: { type: 'text', placeholder: 'Search characters…' },
         });
         searchInput.value = this.searchText;
+        // Track whether the search field (or any element inside this view)
+        // had focus before the re-render. Only re-focus the search input in
+        // that case — otherwise external refreshes steal focus from the
+        // manuscript editor in split view (issue #221).
+        const hadFocus = activeDocument.activeElement?.closest('.story-line-character-container') != null;
         searchInput.addEventListener('input', () => {
             this.searchText = searchInput.value;
             this.renderCharacterOverview(container);
         });
-        // Auto-focus the search field and restore cursor position
-        window.setTimeout(() => {
-            searchInput.focus();
-            searchInput.selectionStart = searchInput.selectionEnd = searchInput.value.length;
-        }, 0);
+        if (hadFocus) {
+            // Re-focus the search field and restore cursor position
+            window.setTimeout(() => {
+                searchInput.focus();
+                searchInput.selectionStart = searchInput.selectionEnd = searchInput.value.length;
+            }, 0);
+        }
 
         searchRow.createSpan({ cls: 'codex-sort-label', text: 'Sort by' });
         const sortSelect = searchRow.createEl('select', { cls: 'codex-sort-select' });

@@ -2962,7 +2962,7 @@ export class BoardView extends ItemView {
                 });
 
             // Summary line + expandable beat list under the Setting description
-            const descFrag = document.createDocumentFragment();
+            const descFrag = activeDocument.createDocumentFragment();
             const summaryLine = descFrag.createEl('div', { cls: 'beat-sheet-row-summary', text: `${template.summary} \u00b7 ${parts.join(' \u00b7 ')}` });
             const details = descFrag.createEl('details', { cls: 'beat-sheet-details' });
             details.createEl('summary', { cls: 'beat-sheet-details-summary', text: 'Show beats' });

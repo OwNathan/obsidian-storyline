@@ -6,6 +6,18 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.41
+
+### Bug Fixes
+
+- **Codex details no longer deletes content of notes moved to a custom category** — when a note with body content but no (or mismatched) frontmatter was moved into a custom Codex category folder, opening its details panel and then navigating back to "All [category]" wiped the note's body. The root cause was `extractBody()` returning an empty string for files without a frontmatter delimiter, so the body was treated as empty and overwritten on save. `extractBody()` now returns the full content when no frontmatter is present. *(Issue #221)*
+
+- **Characters/Locations views no longer steal focus from the editor in split view** — in a split layout, typing in the manuscript editor triggered a file-modify refresh that re-rendered the Characters or Locations overview and auto-focused its search bar, yanking the cursor out of the editor mid-keystroke. The search input is now only re-focused when that view already had focus. *(Issue #221)*
+
+- **Kanban board no longer auto-scrolls to the bottom with large columns** — columns with 40+ scene cards used a fixed estimated row height for the virtual scroller's spacer calculations. Because real cards vary in height (conflict snippets, POV, tags, etc.), the spacers drifted from the actual content height, so scrolling past ~10 cards caused the viewport to snap to the bottom (and vice versa). The virtual scroller now measures each rendered card's real height and uses the measured values for spacer and window calculations, keeping the scroll position stable. *(Issue #218)*
+
+- **iPad/iPhone scroll no longer jumps when switching tabs or opening settings** — the previous fix (1.10.39) stopped the formatting toolbar from being re-inserted on refocus, but the toolbar was still torn down whenever a non-markdown leaf (Settings, a sidebar, another plugin's view) became active, and re-inserted on return — which WebKit treats as new content at the top and resets the scroll position. The toolbar is now left in place when the active leaf is not a markdown editor, so returning to the scene causes no DOM mutation. *(Issue #215 follow-up)*
+
 ## Version 1.10.40
 
 ### Bug Fixes

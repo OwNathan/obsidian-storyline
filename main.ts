@@ -901,7 +901,15 @@ export default class SceneCardsPlugin extends Plugin {
             file?: TFile | null;
             editor?: { cm?: import('@codemirror/view').EditorView | null };
         };
-        if (view?.getViewType?.() !== 'markdown') { removeAll(); return; }
+        if (view?.getViewType?.() !== 'markdown') {
+            // The active leaf is not a markdown editor (e.g. settings, a
+            // sidebar, or another plugin's view). Do NOT tear down toolbars
+            // that are already attached to other markdown leaves — removing
+            // and re-inserting them when the user returns triggers a WebKit
+            // scroll/cursor reset on iPad/iPhone (issue #215 follow-up:
+            // switching tabs or opening/closing settings still jumped).
+            return;
+        }
 
         // Only inject for files that belong to the active project
         const file = view.file ?? null;

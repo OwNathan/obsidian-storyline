@@ -167,14 +167,20 @@ export class LocationView extends ItemView {
             attr: { type: 'text', placeholder: 'Search locations…' },
         });
         searchInput.value = this.searchText;
+        // Only re-focus the search input if this view already had focus —
+        // otherwise external refreshes steal focus from the manuscript
+        // editor in split view (issue #221).
+        const hadFocus = activeDocument.activeElement?.closest('.story-line-location-container') != null;
         searchInput.addEventListener('input', () => {
             this.searchText = searchInput.value;
             this.renderOverview(container);
         });
-        window.setTimeout(() => {
-            searchInput.focus();
-            searchInput.selectionStart = searchInput.selectionEnd = searchInput.value.length;
-        }, 0);
+        if (hadFocus) {
+            window.setTimeout(() => {
+                searchInput.focus();
+                searchInput.selectionStart = searchInput.selectionEnd = searchInput.value.length;
+            }, 0);
+        }
 
         searchRow.createSpan({ cls: 'codex-sort-label', text: 'Sort by' });
         const sortSelect = searchRow.createEl('select', { cls: 'codex-sort-select' });

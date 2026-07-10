@@ -49,6 +49,10 @@ export class VirtualScroller<T> {
     private scrollHandler: (() => void) | null = null;
     private lastStart = -1;
     private lastEnd = -1;
+    /** Measured heights per item index (px). Filled in as items render. */
+    private measuredHeights: Map<number, number> = new Map();
+    /** Running cumulative offset for each rendered item, rebuilt on scroll. */
+    private offsets: number[] = [];
 
     constructor(opts: VirtualScrollerOptions<T>) {
         this.container = opts.container;
@@ -86,6 +90,8 @@ export class VirtualScroller<T> {
         this.items = items;
         this.lastStart = -1;
         this.lastEnd = -1;
+        this.measuredHeights.clear();
+        this.offsets = [];
         if (this.innerEl) {
             this.onScroll();
         }
@@ -99,16 +105,63 @@ export class VirtualScroller<T> {
         }
     }
 
+    /**
+     * Compute the cumulative pixel offset of item `index` using measured
+     * heights where available, falling back to the estimate for unmeasured
+     * items. This keeps spacer heights accurate even when cards have
+     * variable heights (issue #218 — Kanban auto-scrolling).
+     */
+    private heightAt(index: number): number {
+        return this.measuredHeights.get(index) ?? this.itemHeight;
+    }
+
+    private cumulativeOffset(index: number): number {
+        let total = 0;
+        for (let i = 0; i < index; i++) total += this.heightAt(i);
+        return total;
+    }
+
+    /**
+     * Find the item index whose cumulative offset contains `pixelOffset`.
+     * Used to translate scrollTop into a starting item index accurately.
+     */
+    private indexOfPixelOffset(pixelOffset: number): number {
+        let acc = 0;
+        for (let i = 0; i < this.items.length; i++) {
+            const h = this.heightAt(i);
+            if (acc + h > pixelOffset) return i;
+            acc += h;
+        }
+        return this.items.length;
+    }
+
     private onScroll(): void {
         if (!this.contentEl || !this.topSpacer || !this.bottomSpacer) return;
 
         const scrollTop = this.container.scrollTop;
         const viewHeight = this.container.clientHeight;
 
-        let start = Math.floor(scrollTop / this.itemHeight) - this.overscan;
-        let end = Math.ceil((scrollTop + viewHeight) / this.itemHeight) + this.overscan;
-        start = Math.max(0, start);
-        end = Math.min(this.items.length, end);
+        // Compute the visible window using measured heights where
+        // available so variable-height cards don't cause the scroll to
+        // jump (issue #218). We walk the cumulative offsets to find the
+        // first item at or above the scroll position, then count forward
+        // until we've covered the viewport (plus overscan).
+        let start = this.indexOfPixelOffset(scrollTop) - this.overscan;
+        if (start < 0) start = 0;
+
+        let end = start;
+        let covered = 0;
+        // Start from the top of the `start` item (subtract the partial
+        // offset so we don't under-count the first visible item).
+        const startOffset = this.cumulativeOffset(start);
+        const partial = scrollTop - startOffset;
+        covered = partial > 0 ? this.heightAt(start) - partial : 0;
+        while (end < this.items.length && covered < viewHeight) {
+            covered += this.heightAt(end);
+            end++;
+        }
+        end += this.overscan;
+        if (end > this.items.length) end = this.items.length;
 
         // Skip re-render if window hasn't actually changed
         if (start === this.lastStart && end === this.lastEnd) return;
@@ -139,9 +192,12 @@ export class VirtualScroller<T> {
         this.lastStart = start;
         this.lastEnd = end;
 
-        // Update spacers
-        this.topSpacer.setCssStyles({ height: `${start * this.itemHeight}px` });
-        this.bottomSpacer.setCssStyles({ height: `${(this.items.length - end) * this.itemHeight}px` });
+        // Update spacers using measured heights for accurate scroll height.
+        const topPx = this.cumulativeOffset(start);
+        let bottomPx = 0;
+        for (let i = end; i < this.items.length; i++) bottomPx += this.heightAt(i);
+        this.topSpacer.setCssStyles({ height: `${topPx}px` });
+        this.bottomSpacer.setCssStyles({ height: `${bottomPx}px` });
 
         // Render visible items
         this.contentEl.empty();
@@ -150,7 +206,14 @@ export class VirtualScroller<T> {
             // Tag each rendered item with its index so we can detect when
             // the focused element is still in view (see focus-preservation
             // guard above).
-            if (el) el.setAttribute('data-vs-index', String(i));
+            if (el) {
+                el.setAttribute('data-vs-index', String(i));
+                // Measure the actual height and cache it so subsequent
+                // scroll calculations use the real value instead of the
+                // fixed estimate (issue #218).
+                const measured = el.getBoundingClientRect().height;
+                if (measured > 0) this.measuredHeights.set(i, measured);
+            }
         }
     }
 }

@@ -429,7 +429,11 @@ export class CodexManager {
     private extractBody(content: string): string {
         const clean = content.replace(/[\u200B-\u200F\u2028-\u202F\uFEFF]/g, '');
         const match = clean.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
-        return match ? match[1].trim() : '';
+        if (match) return match[1].trim();
+        // No frontmatter delimiter — the entire file is body content.
+        // Returning '' here would wipe notes when saving entries that were
+        // moved into a category folder without frontmatter (issue #221).
+        return clean.trim();
     }
 
     private parseGallery(

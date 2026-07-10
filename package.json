@@ -1,6 +1,6 @@
 {
   "name": "obsidian-storyline",
-  "version": "1.10.40",
+  "version": "1.10.41",
   "description": "Transform your vault into a powerful book planning and writingtool with StoryLine",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.11.0",
     "@typescript-eslint/parser": "^8.60.1",
-    "esbuild": "^0.20.0",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",
     "obsidian": "latest",
