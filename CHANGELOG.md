@@ -6,6 +6,24 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.42
+
+### New Features
+
+- **Insert Chapter anywhere in Kanban** — needing to insert a chapter between two others used to require moving every scene individually. You can now right-click a chapter column header in the Kanban view and choose **Insert Chapter Before** or **Insert Chapter After**; existing chapters (and their scenes, labels, and descriptions) are renumbered automatically to make room. A **+ New Chapter** button also appears in the Kanban toolbar when grouping by Chapter, which appends a new chapter at the end. *(Issue #220)*
+
+- **Toggle relationship types in the Relationship Map** — the colour-coded legend at the top of the relationship map is now interactive. Click any legend item (Ally, Enemy, Family, Romantic, Mentor, Other) to show or hide that relationship type, so you can focus on the connections that matter. Hidden types are dimmed in the legend and their edges are removed from the graph until you toggle them back on. *(Issue #222)*
+
+- **Aliases, Type, and matching rules for all Codex categories** — every Codex category (Items, Creatures, Lore, Organizations, Culture, Systems, and custom categories) now has a shared **Linking & Matching** section with four fields: **Type** (a free-form sub-type label shown as a badge in the list), **Aliases** (comma-separated alternative names that also link to the entry), **Case-sensitive matching** (an on/off toggle), and **Exclude terms** (comma-separated phrases that should NOT be linked to the entry even if they contain its name). Previously only Characters had aliases; now any codex entry can use them. *(Issues #209, #223)*
+
+- **Case-sensitive Codex entries and term exclusion** — coming from apps like NovelCrafter, writers with complex name-play (e.g. a character called "Saint" who should not match the common word "saint", or "Dawnguard Saint") can now toggle **Case-sensitive matching** on a per-entry basis so only the exact casing links, and list phrases in **Exclude terms** that suppress a match when they appear in the surrounding text. The Link Scanner respects both rules when scanning scene bodies for plain-text mentions. *(Issue #223)*
+
+### Bug Fixes
+
+- **Clicking an already-opened scene in the Navigator no longer opens a duplicate tab** — clicking a scene in the Navigator panel that was already open in a tab used to open a second tab for the same file, cluttering the workspace. The Navigator now checks for an existing open tab for that file and focuses it instead of opening a new one; it only opens a new tab when the file isn't already open. *(Issue #224)*
+
+- **French (and other) non-breaking spaces no longer show as literal "&nbsp;" text** — French guillemets « » use a non-breaking space (U+00A0) that markdown-it HTML-encodes as the entity string `&nbsp;`. When that entity survived into a text node (in the mobile read-only manuscript preview and the corkboard note preview), it rendered as visible `&nbsp;` text instead of a space, producing output like `« Je ne sais pas… »bout`. The rendered DOM is now walked and any literal `&nbsp;` / `&#160;` / `&#xA0;` text is decoded back to a real non-breaking space. The DOCX export preprocessor also no longer collapses U+00A0 to a regular space, preserving French typography in exported documents. *(Issue #226)*
+
 ## Version 1.10.41
 
 ### Bug Fixes

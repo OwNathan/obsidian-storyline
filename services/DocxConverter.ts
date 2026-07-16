@@ -308,10 +308,13 @@ export class SLMarkdownToDocxConverter {
             }
         }
 
-        // Clean up invisible/problematic characters
+        // Clean up invisible/problematic characters.
+        // Issue #226 — do NOT collapse U+00A0 (non-breaking space) to a
+        // regular space. French guillemets « » and other locale typography
+        // rely on it; destroying it produces " »bout" run-together text in
+        // the exported document. Only strip true zero-width characters.
         cleaned = cleaned
             .replace(/^\uFEFF/, '')
-            .replace(/\u00A0/g, ' ')
             .replace(/\u200B/g, '')
             .replace(/[\u201C\u201D]/g, '"')
             .replace(/[\u2018\u2019]/g, "'");

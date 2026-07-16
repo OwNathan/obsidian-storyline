@@ -84,6 +84,8 @@ export class RelationshipMap {
     private zoom = 1;
     private onSelectCharacter?: (name: string) => void;
     private resizeObserver: ResizeObserver | null = null;
+    /** Issue #222 — relationship types currently hidden by the user. */
+    private hiddenTypes: Set<RelationshipType> = new Set();
 
     constructor(
         container: HTMLElement,
@@ -107,16 +109,28 @@ export class RelationshipMap {
             return;
         }
 
-        // Legend
+        // Legend — Issue #222: each item is a toggle that shows/hides that
+        // relationship type. Clicking re-renders the SVG immediately.
         const legend = this.container.createDiv('relationship-map-legend');
         const edgeColors = getEdgeColors();
-        for (const [type, color] of Object.entries(edgeColors)) {
+        for (const [type, color] of Object.entries(edgeColors) as Array<[RelationshipType, string]>) {
             const item = legend.createDiv('relationship-map-legend-item');
+            item.classList.add('relationship-map-legend-toggle');
+            const isHidden = this.hiddenTypes.has(type);
+            if (isHidden) item.classList.add('is-off');
             const swatch = item.createEl('span', { cls: 'relationship-map-legend-swatch' });
             swatch.setCssStyles({ backgroundColor: color });
             if (type === 'enemy') swatch.setCssStyles({ borderStyle: 'dashed' });
             if (type === 'romantic') swatch.setCssStyles({ borderRadius: '50%' });
             item.createEl('span', { text: type.charAt(0).toUpperCase() + type.slice(1) });
+            item.addEventListener('click', () => {
+                if (this.hiddenTypes.has(type)) {
+                    this.hiddenTypes.delete(type);
+                } else {
+                    this.hiddenTypes.add(type);
+                }
+                this.render();
+            });
         }
 
         // SVG container
@@ -384,6 +398,8 @@ export class RelationshipMap {
 
         // Draw edges
         for (const edge of this.edges) {
+            // Issue #222 — skip edges whose type the user has toggled off.
+            if (this.hiddenTypes.has(edge.type)) continue;
             const a = this.nodes.find(n => n.id === edge.source);
             const b = this.nodes.find(n => n.id === edge.target);
             if (!a || !b) continue;

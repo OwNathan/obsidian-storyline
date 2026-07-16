@@ -310,6 +310,21 @@ export class BoardView extends ItemView {
             }
         });
 
+        // Issue #220 — "New Chapter" button, shown in Kanban mode when
+        // grouping by chapter, so inserting a chapter is one click away.
+        if (!isCorkboardMode && this.groupBy === 'chapter') {
+            const addChBtn = controls.createEl('button', {
+                cls: 'mod-cta story-line-add-btn',
+                text: '+ New Chapter'
+            });
+            addChBtn.addEventListener('click', async () => {
+                const newNum = await this.sceneManager.insertChapter();
+                await this.sceneManager.initialize();
+                this.refreshBoard();
+                new Notice(`Added Chapter ${newNum}. Group by Chapter to see it.`);
+            });
+        }
+
         // Add image note button (corkboard only)
         if (this.boardMode === 'corkboard') {
             const imgBtn = controls.createEl('button', {
@@ -672,6 +687,9 @@ export class BoardView extends ItemView {
                 return;
             }
             await MarkdownRenderer.render(this.app, source, preview, scene.filePath, this);
+            // Issue #226 — decode literal "&nbsp;" entities left in text nodes
+            // by markdown-it's HTML encoding of U+00A0 (French guillemets).
+            this.decodeNbspEntities(preview);
         };
 
         const placeCaretFromClick = (clientX: number, clientY: number) => {
@@ -2663,6 +2681,32 @@ export class BoardView extends ItemView {
             const chNum = parseInt(chMatch[1], 10);
             const currentLabel = this.sceneManager.getChapterLabel(chNum) || '';
 
+            // Issue #220 — insert a new chapter before or after this column,
+            // renumbering existing chapters (and their scenes) to make room.
+            menu.addItem(item => {
+                item.setTitle('Insert Chapter Before')
+                    .setIcon('arrow-up-from-line')
+                    .onClick(async () => {
+                        await this.sceneManager.insertChapter(chNum);
+                        await this.sceneManager.initialize();
+                        this.refreshBoard();
+                        new Notice(`Inserted new Chapter ${chNum}`);
+                    });
+            });
+
+            menu.addItem(item => {
+                item.setTitle('Insert Chapter After')
+                    .setIcon('arrow-down-from-line')
+                    .onClick(async () => {
+                        await this.sceneManager.insertChapter(chNum + 1);
+                        await this.sceneManager.initialize();
+                        this.refreshBoard();
+                        new Notice(`Inserted new Chapter ${chNum + 1}`);
+                    });
+            });
+
+            menu.addSeparator();
+
             menu.addItem(item => {
                 item.setTitle('Rename Chapter')
                     .setIcon('pencil')
@@ -2893,6 +2937,30 @@ export class BoardView extends ItemView {
         cancelBtn.addEventListener('click', () => modal.close());
 
         modal.open();
+    }
+
+    /**
+     * Issue #226 — replace literal "&nbsp;" / "&#160;" / "&#xA0;" strings
+     * that appear in text nodes with an actual non-breaking space (U+00A0).
+     * markdown-it encodes U+00A0 as an HTML entity; if the entity survives
+     * into a text node it renders as visible text instead of a space.
+     */
+    private decodeNbspEntities(root: HTMLElement): void {
+        const walker = activeDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const targets: Text[] = [];
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+            const t = node as Text;
+            if (t.nodeValue && /&(nbsp|#160|#xA0);/i.test(t.nodeValue)) {
+                targets.push(t);
+            }
+        }
+        for (const t of targets) {
+            t.nodeValue = t.nodeValue!
+                .replace(/&nbsp;/gi, '\u00A0')
+                .replace(/&#160;/gi, '\u00A0')
+                .replace(/&#xA0;/gi, '\u00A0');
+        }
     }
 
     /**

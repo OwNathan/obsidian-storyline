@@ -1687,6 +1687,66 @@ export class SceneManager implements ISceneStore {
         await this.saveProjectFrontmatter(this._activeProject);
     }
 
+    /**
+     * Issue #220 — Insert a new chapter at a specific position, renumbering
+     * existing chapters (and their scenes) to make room.
+     *
+     * @param beforeChapter  The chapter number the new one should appear
+     *                       *before*. Chapters >= this value are shifted up
+     *                       by 1. Use `undefined` (or a number larger than
+     *                       any existing chapter) to append at the end.
+     * @returns The chapter number that was assigned to the new chapter.
+     */
+    async insertChapter(beforeChapter?: number): Promise<number> {
+        if (!this._activeProject) throw new Error('No active project');
+
+        const existing = this.getDefinedChapters();
+        if (existing.length === 0 || beforeChapter === undefined ||
+            beforeChapter > Math.max(...existing)) {
+            // Append at the end
+            const nextNum = existing.length > 0 ? Math.max(...existing) + 1 : 1;
+            await this.addChapters([nextNum]);
+            return nextNum;
+        }
+
+        // Shift every chapter >= beforeChapter up by one: both the defined
+        // list, the labels, the descriptions, and every scene's `chapter`
+        // field. Process in descending order so we never overwrite a value
+        // we still need to read.
+        const sorted = [...existing].sort((a, b) => b - a);
+        for (const ch of sorted) {
+            if (ch < beforeChapter) break;
+            const newCh = ch + 1;
+
+            // Move label
+            const label = this._activeProject.chapterLabels?.[ch];
+            if (label) {
+                this._activeProject.chapterLabels[newCh] = label;
+                delete this._activeProject.chapterLabels[ch];
+            }
+
+            // Move description
+            const desc = this._activeProject.chapterDescriptions?.[ch];
+            if (desc) {
+                this._activeProject.chapterDescriptions[newCh] = desc;
+                delete this._activeProject.chapterDescriptions[ch];
+            }
+
+            // Move scenes
+            for (const scene of this.scenes.values()) {
+                if (Number(scene.chapter) === ch) {
+                    await this.updateScene(scene.filePath, { chapter: newCh });
+                }
+            }
+        }
+
+        // Register the new (now-free) chapter number and persist
+        this._activeProject.definedChapters =
+            [...this._activeProject.definedChapters, beforeChapter].sort((a, b) => a - b);
+        await this.saveProjectFrontmatter(this._activeProject);
+        return beforeChapter;
+    }
+
     // ────────────────────────────────────
     //  Act labels (beat names)
     // ────────────────────────────────────

@@ -37,6 +37,18 @@ export interface CodexEntry {
     /** Which books (project titles) this entry appears in — for future series sharing */
     books?: string[];
 
+    // ── Linking / matching rules (Issues #209, #223) ──
+    /** Comma- or newline-separated alternative names that should also link to this entry. */
+    aliases?: string;
+    /** Free-form sub-type label (e.g. "Sword", "Potion") shown in the editor and list. */
+    entryType?: string;
+    /** When true, name + aliases only match on exact case (default: case-insensitive). */
+    caseSensitive?: boolean;
+    /** Comma- or newline-separated terms that should NOT be linked to this entry,
+     *  even if they contain the entry's name (e.g. "Dawnguard Saint" excluded
+     *  from a "Saint" entry). */
+    excludeTerms?: string;
+
     /** All standard fields are stored as string values keyed by field key */
     [key: string]: unknown;
 }
@@ -54,6 +66,8 @@ export interface CodexFieldDef {
     multiline?: boolean;
     /** If true, render a character dropdown (populated from CharacterManager) */
     characterRef?: boolean;
+    /** If true, render an on/off toggle (value stored as boolean) */
+    toggle?: boolean;
 }
 
 export interface CodexFieldCategory {
@@ -332,6 +346,60 @@ export const SYSTEMS_FIELD_KEYS: string[] = [
     'rules', 'limitations', 'practitioners', 'impact',
 ];
 
+// ── Shared "Linking & Matching" section (Issues #209, #223) ───────
+//
+// Appended to every built-in and custom category so that aliases, an
+// optional sub-type, case-sensitivity, and exclusion terms are available
+// on ALL codex entries — not just characters.
+
+export const LINKING_CATEGORIES: CodexFieldCategory = {
+    title: 'Linking & Matching',
+    icon: 'link',
+    fields: [
+        {
+            key: 'entryType',
+            label: 'Type',
+            placeholder: 'Sub-type (e.g. Sword, Potion, Legend…)',
+        },
+        {
+            key: 'aliases',
+            label: 'Aliases',
+            placeholder: 'Comma-separated alternative names that link to this entry',
+            multiline: true,
+        },
+        {
+            key: 'caseSensitive',
+            label: 'Case-sensitive matching',
+            placeholder: 'Off — match regardless of case',
+            toggle: true,
+        },
+        {
+            key: 'excludeTerms',
+            label: 'Exclude terms',
+            placeholder: 'Comma-separated phrases that should NOT link here (e.g. "Dawnguard Saint")',
+            multiline: true,
+        },
+    ],
+};
+
+/** Field keys added by the Linking & Matching section. */
+export const LINKING_FIELD_KEYS: string[] = ['entryType', 'aliases', 'caseSensitive', 'excludeTerms'];
+
+/**
+ * Append the shared Linking & Matching section to a category definition,
+ * returning a new definition (the original is not mutated). Also merges
+ * the linking field keys into `fieldKeys` so they are persisted.
+ */
+export function withLinkingSection(cat: CodexCategoryDef): CodexCategoryDef {
+    const hasLinking = cat.categories.some(c => c.title === LINKING_CATEGORIES.title);
+    if (hasLinking) return cat;
+    return {
+        ...cat,
+        categories: [...cat.categories, LINKING_CATEGORIES],
+        fieldKeys: [...cat.fieldKeys, ...LINKING_FIELD_KEYS.filter(k => !cat.fieldKeys.includes(k))],
+    };
+}
+
 // ── Registry of all built-in category templates ────
 
 export const BUILTIN_CODEX_CATEGORIES: CodexCategoryDef[] = [
@@ -404,7 +472,7 @@ export function getBuiltinCodexCategory(id: string): CodexCategoryDef | undefine
  * add more fields via the Codex UI.
  */
 export function makeCustomCodexCategory(id: string, label: string, icon: string = 'file-text'): CodexCategoryDef {
-    return {
+    return withLinkingSection({
         id,
         label,
         icon,
@@ -421,7 +489,7 @@ export function makeCustomCodexCategory(id: string, label: string, icon: string 
         ],
         fieldKeys: ['name', 'image', 'gallery', 'description'],
         builtIn: false,
-    };
+    });
 }
 
 /**

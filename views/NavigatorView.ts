@@ -436,7 +436,15 @@ export class NavigatorView extends ItemView {
             }
             const file = this.app.vault.getAbstractFileByPath(scene.filePath);
             if (file instanceof TFile) {
-                await this.app.workspace.getLeaf('tab').openFile(file, { state: { mode: 'source', source: false } });
+                // Issue #224 — focus an already-open tab for this file instead
+                // of opening a duplicate. Falls back to a new tab when none exists.
+                const existingLeaf = this.app.workspace.getLeavesOfType('markdown')
+                    .find(leaf => leaf.getViewState()?.state?.file === scene.filePath);
+                if (existingLeaf) {
+                    this.app.workspace.setActiveLeaf(existingLeaf, { focus: true });
+                } else {
+                    await this.app.workspace.getLeaf('tab').openFile(file, { state: { mode: 'source', source: false } });
+                }
             }
         });
 

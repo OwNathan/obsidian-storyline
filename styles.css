@@ -3528,6 +3528,29 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
     color: var(--sc-text-muted);
 }
 
+/* Issue #222 — legend items are clickable toggles that show/hide a type */
+.relationship-map-legend-toggle {
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: var(--sc-radius);
+    border: 1px solid transparent;
+    transition: background 0.15s, opacity 0.15s;
+    user-select: none;
+}
+
+.relationship-map-legend-toggle:hover {
+    background: var(--background-modifier-hover);
+}
+
+.relationship-map-legend-toggle.is-off {
+    opacity: 0.4;
+}
+
+.relationship-map-legend-toggle.is-off .relationship-map-legend-swatch {
+    background: transparent !important;
+    border: 1px dashed var(--sc-text-muted);
+}
+
 .relationship-map-legend-swatch {
     display: inline-block;
     width: 16px;
@@ -9283,6 +9306,18 @@ body /* Clamp title on mobile too, in case it's very long */
 .codex-field-textarea:focus {
     border-color: var(--interactive-accent);
     outline: none;
+}
+
+/* Issue #223 — toggle field for boolean codex options (case-sensitive) */
+.codex-field-toggle-wrap {
+    display: flex;
+    align-items: center;
+    padding: 4px 0;
+}
+.codex-field-toggle-wrap input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
 }
 
 /* Codex universal field rows */

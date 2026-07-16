@@ -692,8 +692,39 @@ export class ManuscriptView extends ItemView {
         if (text) {
             const previewEl = container.createDiv('sl-manuscript-preview');
             await MarkdownRenderer.render(this.app, text, previewEl, filePath, this);
+            // Issue #226 — French (and other) typography uses non-breaking
+            // spaces (U+00A0) inside guillemets « ». markdown-it HTML-encodes
+            // U+00A0 as the literal entity string "&nbsp;". When that string
+            // ends up in a text node (rather than being parsed as HTML), it
+            // shows as visible "&nbsp;" text. Walk the rendered DOM and
+            // replace any literal "&nbsp;" / "&#160;" text back to U+00A0.
+            this.decodeNbspEntities(previewEl);
         } else {
             container.createDiv({ cls: 'sl-manuscript-scene-empty', text: 'Empty scene' });
+        }
+    }
+
+    /**
+     * Issue #226 — replace literal "&nbsp;" / "&#160;" / "&#xA0;" strings
+     * that appear in text nodes with an actual non-breaking space (U+00A0).
+     * markdown-it encodes U+00A0 as an HTML entity; if the entity survives
+     * into a text node it renders as visible text instead of a space.
+     */
+    private decodeNbspEntities(root: HTMLElement): void {
+        const walker = activeDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const targets: Text[] = [];
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+            const t = node as Text;
+            if (t.nodeValue && /&(nbsp|#160|#xA0);/i.test(t.nodeValue)) {
+                targets.push(t);
+            }
+        }
+        for (const t of targets) {
+            t.nodeValue = t.nodeValue!
+                .replace(/&nbsp;/gi, '\u00A0')
+                .replace(/&#160;/gi, '\u00A0')
+                .replace(/&#xA0;/gi, '\u00A0');
         }
     }
 

@@ -674,7 +674,7 @@ export class CodexView extends ItemView {
         sectionTitle?: string,
         builtInKeys?: string[],
     ): void {
-        const { key, label, placeholder, multiline, characterRef } = field;
+        const { key, label, placeholder, multiline, characterRef, toggle } = field;
         const row = container.createDiv('codex-field-row');
         const labelEl = row.createEl('label', { cls: 'codex-field-label', text: label });
 
@@ -711,6 +711,19 @@ export class CodexView extends ItemView {
         }
 
         const currentValue = draft[key] != null ? String(draft[key]) : '';
+
+        if (toggle) {
+            // Issue #223 — render an on/off toggle for boolean fields
+            // (e.g. case-sensitive matching). Stored as a boolean in frontmatter.
+            const toggleWrap = row.createDiv({ cls: 'codex-field-toggle-wrap' });
+            const cb = toggleWrap.createEl('input', { type: 'checkbox' });
+            cb.checked = draft[key] === true || currentValue === 'true';
+            cb.addEventListener('change', () => {
+                draft[key] = cb.checked;
+                this.scheduleSave(draft);
+            });
+            return;
+        }
 
         if (characterRef) {
             // Render a character dropdown
@@ -1824,6 +1837,12 @@ export class CodexView extends ItemView {
     }
 
     private getTypeField(entry: CodexEntry, catDef: CodexCategoryDef): string {
+        // Issue #209 — prefer the shared `entryType` field (available on all
+        // categories via the Linking & Matching section) so custom categories
+        // and entries without a category-specific Type field still show a badge.
+        if (entry.entryType && typeof entry.entryType === 'string') {
+            return entry.entryType;
+        }
         // Look for fields ending in 'Type' (itemType, creatureType, etc.)
         for (const key of catDef.fieldKeys) {
             if (key.endsWith('Type') && entry[key]) return String(entry[key]);

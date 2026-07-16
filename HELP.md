@@ -152,6 +152,7 @@ The main workspace — a Kanban-style board that displays your scenes as cards.
 - **Color-coded cards** based on status, POV, emotion, act, or tag (configurable in settings).
 - **Quick actions:** right-click any card for a context menu with edit, duplicate, delete, and open options.
 - **Add acts/chapters** using the Structure and Chapters buttons in the toolbar.
+- **Insert Chapter** — when grouping by Chapter, a **+ New Chapter** button appears in the toolbar to append a new chapter. To insert a chapter between existing ones, right-click a chapter column header and choose **Insert Chapter Before** or **Insert Chapter After**; existing chapters (and their scenes, labels, and descriptions) are renumbered automatically to make room.
 - **Resequence** — click the resequence button to auto-number all scenes based on their current board order.
 - **Search** — type in the search bar to filter scenes by title, content, characters, or tags.
 - **Beat Sheet Templates** — apply a beat sheet template (Save the Cat, 3-Act, Hero's Journey, Seven-Point, Story Circle, Romancing the Beat, 27 Chapter Method) from the Structure modal.
@@ -329,6 +330,19 @@ The Codex is a unified hub that brings Characters, Locations, and custom categor
 - **Back navigation** — From any detail page, click the back arrow to return to the Codex hub.
 - **Change detection** — When a codex entry's content has been modified since it was last reviewed, an amber warning banner appears on the detail page listing all scenes that reference the entry. Click any scene name to open it. Click **"Mark as reviewed"** to clear the warning and update the stored digest. Digests are stored per-project in `System/codex-digests.json`.
 - **Backward compatible** — Existing projects that have Characters and Locations folders at the top level (outside Codex/) continue to work without any changes.
+
+#### Linking & Matching
+
+Every Codex category (Items, Creatures, Lore, Organizations, Culture, Systems, and custom categories) includes a shared **Linking & Matching** section at the bottom of each entry's detail page:
+
+| Field | Description |
+|-------|-------------|
+| **Type** | A free-form sub-type label (e.g. "Sword", "Potion", "Legend") shown as a badge next to the entry name in the list. |
+| **Aliases** | Comma- or newline-separated alternative names that should also link to this entry when found in scene text. |
+| **Case-sensitive matching** | An on/off toggle. When on, the entry's name and aliases only match text with the exact same capitalisation (e.g. "Saint" won't match "saint"). Off by default. |
+| **Exclude terms** | Comma- or newline-separated phrases that suppress a match when they appear in the surrounding text (e.g. listing "Dawnguard Saint" on a "Saint" entry prevents "Dawnguard Saint" from linking to that character). |
+
+These rules are applied by the Link Scanner when it scans scene bodies for plain-text mentions, so you have fine-grained control over which words get linked — useful for complex name-play in speculative fiction.
 
 ### Stats View
 
@@ -1172,6 +1186,7 @@ The **Characters View** includes a visual relationship map:
 | Other | Grey | Dashed |
 
 - Click a character node to navigate to their profile.
+- **Toggle relationship types** — click any item in the colour-coded legend at the top of the map to show or hide that relationship type. Hidden types are dimmed in the legend and their edges are removed from the graph; click again to bring them back. Useful for focusing on one kind of connection (e.g. only family ties) at a time.
 - **Zoom** — scroll the mouse wheel to zoom in/out (cursor-centered).
 - **Pan** — click and drag the background to pan the view.
 - Helps visualize complex webs of character relationships at a glance.

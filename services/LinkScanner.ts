@@ -79,6 +79,16 @@ export class LinkScanner {
      */
     private plainTextNames: string[] = [];
 
+    /**
+     * Issue #223 — per-codex-entry matching rules.
+     * `codexEntryRules` maps a lowercased name (or alias) to the entry's
+     * matching configuration: whether it's case-sensitive and which terms
+     * should suppress a match. `codexCaseSensitiveNames` lists the names
+     * that must be matched with exact case (kept in original casing).
+     */
+    private codexEntryRules: Map<string, { caseSensitive: boolean; excludeTerms: string[] }> = new Map();
+    private codexCaseSensitiveNames: string[] = [];
+
     /** Last-used manual aliases (stored so internal calls can reuse them) */
     private lastManualAliases?: Record<string, string>;
 
@@ -230,12 +240,40 @@ export class LinkScanner {
 
         // Codex entry names
         this.codexNames.clear();
+        // Issue #223 — reset per-entry matching rules
+        this.codexEntryRules.clear();
+        this.codexCaseSensitiveNames = [];
         if (this.codexManager) {
             for (const entry of this.codexManager.getAllEntries()) {
                 const lower = entry.name.toLowerCase();
+                // Read per-entry matching configuration (Issues #209, #223).
+                const caseSensitive = entry.caseSensitive === true;
+                const excludeRaw = typeof entry.excludeTerms === 'string' ? entry.excludeTerms : '';
+                const excludeTerms = excludeRaw
+                    .split(/[,\n]/)
+                    .map(t => t.trim().toLowerCase())
+                    .filter(Boolean);
+                const rules = { caseSensitive, excludeTerms };
+
                 // Don't add if already a character or location name
                 if (!this.charNames.has(lower) && !this.locNames.has(lower)) {
                     this.codexNames.add(lower);
+                    this.codexEntryRules.set(lower, rules);
+                    if (caseSensitive) this.codexCaseSensitiveNames.push(entry.name);
+                }
+                // Issue #209 — aliases (shared across all codex categories)
+                const aliasesRaw = typeof entry.aliases === 'string' ? entry.aliases : '';
+                const aliasList = aliasesRaw
+                    .split(/[,\n]/)
+                    .map(a => a.trim())
+                    .filter(Boolean);
+                for (const alias of aliasList) {
+                    const aLower = alias.toLowerCase();
+                    if (!this.charNames.has(aLower) && !this.locNames.has(aLower)) {
+                        this.codexNames.add(aLower);
+                        this.codexEntryRules.set(aLower, rules);
+                        if (caseSensitive) this.codexCaseSensitiveNames.push(alias);
+                    }
                 }
                 // Support comma-separated nicknames for codex entries
                 const nick = (entry as unknown as Record<string, unknown>).nickname;
@@ -245,6 +283,8 @@ export class LinkScanner {
                         const nLower = n.toLowerCase();
                         if (!this.charNames.has(nLower) && !this.locNames.has(nLower)) {
                             this.codexNames.add(nLower);
+                            this.codexEntryRules.set(nLower, rules);
+                            if (caseSensitive) this.codexCaseSensitiveNames.push(n);
                         }
                     }
                 }
@@ -293,6 +333,23 @@ export class LinkScanner {
 
         for (const [key, name] of seen) {
             let type: DetectedLink['type'] = 'other';
+            // Issue #223 — case-sensitive codex entries only match when the
+            // original text casing equals the registered name's casing.
+            if (this.codexNames.has(key)) {
+                const rules = this.codexEntryRules.get(key);
+                if (rules?.caseSensitive) {
+                    // The registered case-sensitive names are stored in
+                    // `codexCaseSensitiveNames` in their original casing. The
+                    // current `name` preserves the first-seen casing from the
+                    // text. Only keep the match if that casing is registered.
+                    if (!this.codexCaseSensitiveNames.some(cs => cs.toLowerCase() === key && cs === name)) {
+                        // Casing mismatch — treat as a non-match for this entry.
+                        other.push(name);
+                        links.push({ name, type: 'other' });
+                        continue;
+                    }
+                }
+            }
             if (this.charNames.has(key)) {
                 type = 'character';
                 characters.push(name);
@@ -325,17 +382,42 @@ export class LinkScanner {
 
         for (const nameLower of this.plainTextNames) {
             if (foundKeys.has(nameLower)) continue;
+
+            // Issue #223 — per-entry matching rules for codex entries.
+            const rules = this.codexEntryRules.get(nameLower);
+            const isCaseSensitive = rules?.caseSensitive === true;
+            const excludeTerms = rules?.excludeTerms ?? [];
+
             let matched = false;
             // Multi-language support — \b word boundaries don't exist in CJK
             // (no whitespace between tokens). Fall back to a case-insensitive
             // substring search whenever the name itself contains CJK glyphs.
             if (/[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/.test(nameLower)) {
-                matched = stripped.toLowerCase().includes(nameLower);
+                matched = isCaseSensitive
+                    ? stripped.includes(nameLower)
+                    : stripped.toLowerCase().includes(nameLower);
             } else {
                 const escaped = nameLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const re = new RegExp(`\\b${escaped}\\b`, 'i');
+                // Case-sensitive codex entries match exact case only.
+                const flags = isCaseSensitive ? '' : 'i';
+                const re = new RegExp(`\\b${escaped}\\b`, flags);
                 matched = re.test(stripped);
             }
+
+            // Issue #223 — suppress the match if any exclude term appears in
+            // the surrounding text. We check the whole stripped text for any
+            // of the entry's exclude terms (lowercased), so "Saint" won't link
+            // when "Dawnguard Saint" is present.
+            if (matched && excludeTerms.length > 0) {
+                const lowered = stripped.toLowerCase();
+                for (const term of excludeTerms) {
+                    if (lowered.includes(term)) {
+                        matched = false;
+                        break;
+                    }
+                }
+            }
+
             if (matched) {
                 foundKeys.add(nameLower);
                 results.push(nameLower);
