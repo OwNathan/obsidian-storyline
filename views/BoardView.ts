@@ -473,10 +473,17 @@ export class BoardView extends ItemView {
         for (const vs of this.scrollers) vs.destroy();
         this.scrollers = [];
 
+        // Pass defined acts/chapters so empty containers still render as
+        // drop targets (issue #220 — newly inserted chapters were invisible
+        // until a scene was dragged into them).
+        const definedActs = this.sceneManager.getDefinedActs();
+        const definedChapters = this.sceneManager.getDefinedChapters();
         const groups = this.sceneManager.queryService.getScenesGroupedByWithEmpty(
             this.groupBy,
             this.currentFilter,
-            this.currentSort
+            this.currentSort,
+            definedActs,
+            definedChapters
         );
 
         // Sort group keys

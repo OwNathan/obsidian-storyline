@@ -10,7 +10,7 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 ### New Features
 
-- **Insert Chapter anywhere in Kanban** — needing to insert a chapter between two others used to require moving every scene individually. You can now right-click a chapter column header in the Kanban view and choose **Insert Chapter Before** or **Insert Chapter After**; existing chapters (and their scenes, labels, and descriptions) are renumbered automatically to make room. A **+ New Chapter** button also appears in the Kanban toolbar when grouping by Chapter, which appends a new chapter at the end. *(Issue #220)*
+- **Insert Chapter anywhere in Kanban** — needing to insert a chapter between two others used to require moving every scene individually. You can now right-click a chapter column header in the Kanban view and choose **Insert Chapter Before** or **Insert Chapter After**; existing chapters (and their scenes, labels, and descriptions) are renumbered automatically to make room. A **+ New Chapter** button also appears in the Kanban toolbar when grouping by Chapter, which appends a new chapter at the end. Empty act and chapter containers now render as visible columns (with a drop zone and "+ Add Scene" button) even when they have no scenes, so you can drag scenes into them immediately. *(Issue #220)*
 
 - **Toggle relationship types in the Relationship Map** — the colour-coded legend at the top of the relationship map is now interactive. Click any legend item (Ally, Enemy, Family, Romantic, Mentor, Other) to show or hide that relationship type, so you can focus on the connections that matter. Hidden types are dimmed in the legend and their edges are removed from the graph until you toggle them back on. *(Issue #222)*
 
