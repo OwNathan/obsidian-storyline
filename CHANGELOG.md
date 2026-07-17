@@ -6,6 +6,20 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.43
+
+### Bug Fixes
+
+- **Timeline drag-and-drop no longer scrolls to the top** — reordering scenes by drag-and-drop in the Timeline view used to reset the scroll position to the top of the list, making it nearly impossible to work with projects that have 100+ scenes. The root cause was a race condition: `handleDrop` saved the scroll position and called `refresh()`, but both tried to restore scroll in competing `requestAnimationFrame` callbacks — the restore ran before the rebuilt DOM had been laid out, so it had no effect. The fix removes the redundant scroll-restore from `handleDrop` and moves `refresh()`'s scroll restore into a *second* `requestAnimationFrame`, giving the browser time to lay out the new DOM before the scroll position is applied.
+
+- **Echo Finder now shows all scenes instead of only the first 10** — the Echo Finder and Scene-specific Favourite Words sections were hard-capped at 10 scenes via `slice(0, 10)`, so users with 42+ chapters only saw a fraction of their results. Both sections now render all scenes inside a scrollable container (`max-height: 600px`) so every chapter is visible.
+
+- **Most used words now includes all chapters and offers an "include all words" toggle** — the Prose Analysis word frequency was computed across all scenes, but stop-word filtering removed character names that happen to be common words (e.g. "Will", "May", "Rose", "Dawn"). A new **Exclude common words** checkbox (on by default) lets you toggle between the filtered view and a complete view that includes every word — character names and all — with accurate counts across all chapters.
+
+- **iPad/iPhone scroll and cursor no longer jump when opening settings or switching tabs** — the `active-leaf-change` handler now skips all DOM work (toolbar injection, frontmatter visibility toggles) when the new active leaf is not a StoryLine scene file. Previously, opening settings, switching to a non-StoryLine tab, or opening/closing a sidebar triggered DOM mutations inside scroll containers that WebKit interprets as "new content at the top," resetting the scroll position and cursor to the first line. This also eliminates the conflict with the Typewriter plugin, which fought the scroll reset by re-centering the cursor. Additionally, `updateFrontmatterVisibility()` now caches its last-applied state and skips redundant DOM class toggles when nothing has changed. *(Issue #215)*
+
+- Removed uses of raw `document.createElement` / `activeDocument.createElement` where an Obsidian `createEl`/`createDiv`/`createSvg` helper was appropriate (satisfies `obsidianmd/prefer-create-el`). Detached elements that must live outside their eventual parent (file inputs, floating menus, in-line inputs inserted via `insertBefore`, the Electron-only `<webview>` used by the PDF exporter) still use the DOM API with a scoped `eslint-disable-next-line` comment — standalone `createEl` is only a runtime export on Obsidian 1.13.0+ and StoryLine still supports 1.12.7.
+
 ## Version 1.10.42
 
 ### New Features

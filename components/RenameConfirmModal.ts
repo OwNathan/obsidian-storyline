@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+ 
 import { Modal, App, Setting } from 'obsidian';
 import { RenamePreview } from '../services/CascadeRenameService';
 
@@ -45,7 +45,7 @@ export class RenameConfirmModal extends Modal {
         });
 
         // Detail breakdown
-        const details = contentEl.createEl('div');
+        const details = contentEl.createDiv();
         details.setCssStyles({
             marginBottom: '12px',
             fontSize: '13px',
@@ -53,16 +53,16 @@ export class RenameConfirmModal extends Modal {
         });
 
         if (this.preview.sceneCount > 0) {
-            details.createEl('div', { text: `• ${this.preview.sceneCount} scene${this.preview.sceneCount !== 1 ? 's' : ''} (pov, characters, location fields)` });
+            details.createDiv({ text: `• ${this.preview.sceneCount} scene${this.preview.sceneCount !== 1 ? 's' : ''} (pov, characters, location fields)` });
         }
         if (this.preview.relationCount > 0) {
-            details.createEl('div', { text: `• ${this.preview.relationCount} character relationship${this.preview.relationCount !== 1 ? 's' : ''}` });
+            details.createDiv({ text: `• ${this.preview.relationCount} character relationship${this.preview.relationCount !== 1 ? 's' : ''}` });
         }
         if (this.preview.locationCount > 0) {
-            details.createEl('div', { text: `• ${this.preview.locationCount} child location${this.preview.locationCount !== 1 ? 's' : ''} (world/parent fields)` });
+            details.createDiv({ text: `• ${this.preview.locationCount} child location${this.preview.locationCount !== 1 ? 's' : ''} (world/parent fields)` });
         }
         if (this.preview.characterLocationCount > 0) {
-            details.createEl('div', { text: `• ${this.preview.characterLocationCount} character location reference${this.preview.characterLocationCount !== 1 ? 's' : ''}` });
+            details.createDiv({ text: `• ${this.preview.characterLocationCount} character location reference${this.preview.characterLocationCount !== 1 ? 's' : ''}` });
         }
 
         // Buttons
@@ -76,7 +76,7 @@ export class RenameConfirmModal extends Modal {
                     });
             })
             .addButton(btn => {
-                btn.setButtonText('Update References')
+                btn.setButtonText('Update references')
                     .setCta()
                     .onClick(async () => {
                         this.resolved = true;
@@ -94,4 +94,4 @@ export class RenameConfirmModal extends Modal {
         this.contentEl.empty();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+ 

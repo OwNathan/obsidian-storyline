@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- Obsidian's API surface forces dynamic dispatch; floating promises are intentional in DOM/event handlers */
+ 
 import { EventRef, ItemView, MarkdownView, WorkspaceLeaf } from 'obsidian';
 import type SceneCardsPlugin from '../main';
 import { SceneManager } from '../services/SceneManager';
@@ -30,7 +30,7 @@ export class SynopsisView extends ItemView {
     }
 
     getDisplayText(): string {
-        return 'Scene Synopsis';
+        return 'Scene synopsis';
     }
 
     getIcon(): string {
@@ -141,4 +141,4 @@ export class SynopsisView extends ItemView {
         this.emptyEl.setCssStyles({ display: hasScene ? 'none' : 'block' });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- end of file-wide suppression block opened at line 1 */
+ 

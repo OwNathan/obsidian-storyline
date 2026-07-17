@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+ 
 import { App, Modal, Notice, Setting } from 'obsidian';
 import { UniversalFieldTemplate, UniversalFieldType, generateId, suggestTopLevelKey, isReservedTopLevelKey } from '../services/FieldTemplateService';
 import { CHARACTER_CATEGORIES } from '../models/Character';
@@ -93,7 +93,7 @@ export class AddFieldModal extends Modal {
             .setName('Field label')
             .setDesc('The name shown next to the input')
             .addText(text => {
-                text.setPlaceholder('e.g. Species')
+                text.setPlaceholder('E.g. Species')
                     .setValue(this.label)
                     .onChange(v => {
                         this.label = v.trim();
@@ -149,7 +149,7 @@ export class AddFieldModal extends Modal {
             .setName('Placeholder')
             .setDesc('Hint text shown when the field is empty')
             .addText(text => {
-                text.setPlaceholder('e.g. Human, Elf, Dwarf…')
+                text.setPlaceholder('E.g. Human, elf, dwarf???')
                     .setValue(this.placeholder)
                     .onChange(v => { this.placeholder = v; });
             });
@@ -158,7 +158,7 @@ export class AddFieldModal extends Modal {
         optionsContainer = contentEl.createDiv('storyline-field-options-container');
         if (this.type !== 'dropdown' && this.type !== 'multi-select') optionsContainer.setCssStyles({ display: 'none' });
 
-        const optionsLabel = optionsContainer.createEl('div', {
+        const optionsLabel = optionsContainer.createDiv({
             cls: 'setting-item-name',
             text: 'Dropdown options',
         });
@@ -194,7 +194,7 @@ export class AddFieldModal extends Modal {
 
         const addOptBtn = optionsContainer.createEl('button', {
             cls: 'storyline-field-option-add',
-            text: '+ Add option',
+            text: '+ add option',
         });
         addOptBtn.addEventListener('click', () => {
             this.options.push('');
@@ -211,7 +211,7 @@ export class AddFieldModal extends Modal {
             .setName('Folder source (optional)')
             .setDesc('Vault folder path whose note names become selectable options (e.g. Traits/)')
             .addText(text => {
-                text.setPlaceholder('e.g. World/Traits')
+                text.setPlaceholder('E.g. World/traits')
                     .setValue(this.folderSource)
                     .onChange(v => { this.folderSource = v.trim(); });
             });
@@ -235,7 +235,7 @@ export class AddFieldModal extends Modal {
             .setName('Default value (optional)')
             .setDesc('Pre-fill this field on newly-created entities (currently applied to scenes). For multi-select fields, separate values with commas.')
             .addText(text => {
-                text.setPlaceholder('e.g. Draft, fountain, Setup')
+                text.setPlaceholder('E.g. Draft, fountain, setup')
                     .setValue(this.defaultValue)
                     .onChange(v => { this.defaultValue = v; });
             });
@@ -336,4 +336,4 @@ export class AddFieldModal extends Modal {
         this.contentEl.empty();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+ 

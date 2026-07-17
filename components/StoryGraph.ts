@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 /**
  * StoryGraph — interactive SVG graph showing how scenes connect to
  * characters, locations, and other entities via wikilinks detected in
@@ -143,7 +143,7 @@ export class StoryGraph {
 
         if (this.nodes.length === 0) {
             const empty = this.container.createDiv('story-graph-empty');
-            empty.createEl('p', { text: 'No wikilinks detected in scene text. Write [[Character]] or [[Location]] in your scenes to see connections here.' });
+            empty.createEl('p', { text: 'No wikilinks detected in scene text. Write [[character]] or [[location]] in your scenes to see connections here.' });
             return;
         }
 
@@ -701,4 +701,4 @@ export class StoryGraph {
         el.setCssStyles({ cursor: 'grab' });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

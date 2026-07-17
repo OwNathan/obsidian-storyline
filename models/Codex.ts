@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+ 
 /**
  * Codex data model — generic entries for any user-defined category.
  *
@@ -30,8 +30,11 @@ export interface CodexEntry {
     notes?: string;
     /** User-defined custom fields */
     custom?: Record<string, string>;
-    /** Universal field template values (keyed by template id) */
-    universalFields?: Record<string, string | string[]>;
+    /**
+     * Universal field template values (keyed by template id).
+     * `boolean` is supported for `checkbox`-type templates (1.10.43+).
+     */
+    universalFields?: Record<string, string | string[] | boolean>;
 
     // ── Series-ready fields ────────────────────────
     /** Which books (project titles) this entry appears in — for future series sharing */
@@ -517,4 +520,4 @@ export const CODEX_ICON_OPTIONS: Array<{ value: string; label: string }> = [
     { value: 'palette', label: 'Palette' },
     { value: 'heart', label: 'Heart' },
 ];
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+ 

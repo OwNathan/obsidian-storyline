@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ButtonComponent, ItemView, Menu, MenuItem, Modal, Notice, Setting, TFile, TextComponent, WorkspaceLeaf } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { Scene } from '../models/Scene';
@@ -167,7 +167,7 @@ export class StorylineView extends ItemView {
         // New plotline button
         const addPlotlineBtn = controls.createEl('button', {
             cls: 'mod-cta story-line-add-btn',
-            text: '+ New Plotline'
+            text: '+ new plotline'
         });
         addPlotlineBtn.addEventListener('click', () => this.openNewPlotlineModal());
 
@@ -368,7 +368,7 @@ export class StorylineView extends ItemView {
             });
             hint.createEl('h4', { text: 'How to get started' });
             const steps = hint.createEl('ol');
-            steps.createEl('li', { text: 'Click "+ New Plotline" above' });
+            steps.createEl('li', { text: 'Click "+ new plotline" above' });
             steps.createEl('li', { text: 'Give it a name (e.g. "main mystery")' });
             steps.createEl('li', { text: 'Select which scenes belong to it' });
             hint.createEl('p', {
@@ -607,8 +607,8 @@ export class StorylineView extends ItemView {
             // so middle lanes contribute their color instead of being skipped.
             const span = botY - topY || 1;
             for (const lane of sortedLanes) {
-                const stop = activeDocument.createElementNS(svgNS, 'stop');
                 const offset = (laneY(lane) - topY) / span;
+                const stop = activeDocument.createElementNS(svgNS, 'stop');
                 stop.setAttribute('offset', `${(offset * 100).toFixed(1)}%`);
                 stop.setAttribute('stop-color', laneColor(lane, plotlineKeys[lane]));
                 grad.appendChild(stop);
@@ -674,9 +674,9 @@ export class StorylineView extends ItemView {
                 });
 
                 // Tooltip
-                const titleEl = activeDocument.createElementNS(svgNS, 'title');
                 const actStr = scene.act !== undefined ? String(scene.act).padStart(2, '0') : '??';
                 const seqStr = scene.sequence !== undefined ? String(scene.sequence).padStart(2, '0') : '??';
+                const titleEl = activeDocument.createElementNS(svgNS, 'title');
                 titleEl.textContent = this.buildSubwayTooltip(scene, isArcPoint, actStr, seqStr);
                 nodeEl.appendChild(titleEl);
 
@@ -1030,7 +1030,7 @@ export class StorylineView extends ItemView {
         }
 
         menu.addItem((item: MenuItem) => {
-            item.setTitle('+ Create new plotline…')
+            item.setTitle('+ create new plotline???')
                 .setIcon('plus')
                 .onClick(() => this.openNewPlotlineForScene(scene));
         });
@@ -1043,7 +1043,7 @@ export class StorylineView extends ItemView {
 
     private openRenamePlotlineModal(plotline: string): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Rename Plotline');
+        modal.titleEl.setText('Rename plotline');
         let newName = plotline;
 
         new Setting(modal.contentEl)
@@ -1075,7 +1075,7 @@ export class StorylineView extends ItemView {
 
     private confirmDeletePlotline(plotline: string, sceneCount: number): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Delete Plotline');
+        modal.titleEl.setText('Delete plotline');
         modal.contentEl.createEl('p', {
             text: `Remove the tag "${plotline}" from ${sceneCount} scene${sceneCount !== 1 ? 's' : ''}? The scenes themselves will not be deleted.`
         });
@@ -1099,20 +1099,20 @@ export class StorylineView extends ItemView {
 
     private openNewPlotlineForScene(scene: Scene): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('New Plotline');
+        modal.titleEl.setText('New plotline');
         let tagName = '';
 
         new Setting(modal.contentEl)
             .setName('Plotline name')
             .setDesc(`Will be added to "${scene.title || 'Untitled'}"`)
             .addText((text: TextComponent) => {
-                text.setPlaceholder('e.g. main-mystery');
+                text.setPlaceholder('E.g. Main-mystery');
                 text.onChange((v: string) => (tagName = v));
             });
 
         new Setting(modal.contentEl)
             .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Create & Assign').setCta().onClick(async () => {
+                btn.setButtonText('Create & assign').setCta().onClick(async () => {
                     if (!tagName.trim()) return;
                     const slug = tagName.trim().toLowerCase().replace(/\s+/g, '-');
                     const newTags = [...(scene.tags || []), slug];
@@ -1128,14 +1128,14 @@ export class StorylineView extends ItemView {
 
     private openNewPlotlineModal(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('New Plotline');
+        modal.titleEl.setText('New plotline');
         let tagName = '';
 
         new Setting(modal.contentEl)
             .setName('Plotline name')
             .setDesc('Enter a name for the plotline. It will be stored as a tag on each assigned scene.')
             .addText((text: TextComponent) => {
-                text.setPlaceholder('e.g. love-triangle');
+                text.setPlaceholder('E.g. Love-triangle');
                 text.onChange((v: string) => (tagName = v));
             });
 
@@ -1161,7 +1161,7 @@ export class StorylineView extends ItemView {
 
         new Setting(modal.contentEl)
             .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Create Plotline').setCta().onClick(async () => {
+                btn.setButtonText('Create plotline').setCta().onClick(async () => {
                     if (!tagName.trim()) return;
                     const slug = tagName.trim().toLowerCase().replace(/\s+/g, '-');
                     for (const path of selectedPaths) {
@@ -1209,7 +1209,7 @@ export class StorylineView extends ItemView {
 
         new Setting(modal.contentEl)
             .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Add to Plotline').setCta().onClick(async () => {
+                btn.setButtonText('Add to plotline').setCta().onClick(async () => {
                     for (const path of selectedPaths) {
                         const scene = this.sceneManager.getScene(path);
                         if (scene) {
@@ -1304,4 +1304,4 @@ export class StorylineView extends ItemView {
         });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

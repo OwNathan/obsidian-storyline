@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+ 
 import { Modal, Setting, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../main';
 import { tokenizeWords, DEFAULT_STORYLINE_LOCALE } from '../utils/locale';
@@ -34,7 +34,7 @@ export class SplitSceneModal extends Modal {
 
     onOpen(): void {
         const { contentEl } = this;
-        this.titleEl.setText('Split Scene');
+        this.titleEl.setText('Split scene');
         contentEl.addClass('storyline-split-modal');
 
         const body = this.scene.body || '';
@@ -48,26 +48,26 @@ export class SplitSceneModal extends Modal {
 
         // Info
         contentEl.createEl('p', {
-            text: 'Click in the text below to place the split point. Everything above the marker becomes Scene A, everything below becomes Scene B.',
+            text: 'Click in the text below to place the split point. Everything above the marker becomes scene a, everything below becomes scene b.',
             cls: 'setting-item-description',
         });
 
         // Titles
         new Setting(contentEl)
-            .setName('Scene A title')
+            .setName('Scene a title')
             .addText(text => {
                 text.setValue(this.titleA);
                 text.onChange(v => (this.titleA = v));
             });
         new Setting(contentEl)
-            .setName('Scene B title')
+            .setName('Scene b title')
             .addText(text => {
                 text.setValue(this.titleB);
                 text.onChange(v => (this.titleB = v));
             });
 
         // Text area for split placement
-        const label = contentEl.createEl('div', {
+        const label = contentEl.createDiv({
             cls: 'setting-item-name',
             text: 'Click to place split point:',
         });
@@ -139,7 +139,7 @@ export class SplitSceneModal extends Modal {
         const wordCountA = partA ? tokenizeWords(partA, splitLocale).length : 0;
         const wordCountB = partB ? tokenizeWords(partB, splitLocale).length : 0;
 
-        this.previewEl.createEl('div', {
+        this.previewEl.createDiv({
             text: `Scene A: ~${wordCountA} words  |  Scene B: ~${wordCountB} words`,
             cls: 'setting-item-description',
         });
@@ -180,7 +180,7 @@ export class MergeSceneModal extends Modal {
 
     onOpen(): void {
         const { contentEl } = this;
-        this.titleEl.setText('Merge Scenes');
+        this.titleEl.setText('Merge scenes');
         contentEl.addClass('storyline-merge-modal');
 
         if (this.scenes.length < 2) {
@@ -301,4 +301,4 @@ export class MergeSceneModal extends Modal {
         this.contentEl.empty();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+ 

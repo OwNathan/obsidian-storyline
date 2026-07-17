@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-floating-promises -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { Setting, Notice } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { SceneManager } from '../services/SceneManager';
@@ -372,12 +372,12 @@ export class FiltersComponent {
         if (this.plugin) {
             const presetSection = panel.createDiv('story-line-preset-section');
             const presetHeader = presetSection.createDiv('story-line-preset-header');
-            presetHeader.createEl('span', { text: 'Saved Presets', cls: 'setting-item-name' });
+            presetHeader.createSpan({ text: 'Saved Presets', cls: 'setting-item-name' });
 
             // Save current filter as preset
             const saveBtn = presetHeader.createEl('button', {
                 cls: 'story-line-chip story-line-preset-save',
-                text: '+ Save current',
+                text: '+ save current',
             });
             saveBtn.addEventListener('click', () => {
                 // Check if there's anything to save
@@ -388,12 +388,12 @@ export class FiltersComponent {
                     new Notice('No active filters to save');
                     return;
                 }
-                // Prompt for name
-                const nameInput = activeDocument.createElement('input');
-                nameInput.type = 'text';
-                nameInput.placeholder = 'Preset name…';
-                nameInput.className = 'story-line-preset-name-input';
-                presetHeader.appendChild(nameInput);
+                // Prompt for name (attached to presetHeader via createEl method — safe on 1.12.x)
+                const nameInput = presetHeader.createEl('input', {
+                    type: 'text',
+                    cls: 'story-line-preset-name-input',
+                    attr: { placeholder: 'Preset name…' },
+                });
                 nameInput.focus();
                 const doSave = () => {
                     const name = nameInput.value.trim();
@@ -438,7 +438,7 @@ export class FiltersComponent {
         // Clear filters button
         const clearBtn = panel.createEl('button', {
             cls: 'story-line-clear-filters',
-            text: 'Clear All Filters',
+            text: 'Clear all filters',
         });
         clearBtn.addEventListener('click', () => {
             this.currentFilter = {};
@@ -459,4 +459,4 @@ export class FiltersComponent {
         return this.currentSort;
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-floating-promises -- end of file-wide suppression block opened at line 1 */

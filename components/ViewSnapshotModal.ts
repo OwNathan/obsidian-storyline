@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-misused-promises, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import * as obsidian from 'obsidian';
 import type { ViewSnapshotService, ViewSnapshotMeta } from '../services/ViewSnapshotService';
 import { App, Modal, Notice } from 'obsidian';
@@ -22,16 +22,16 @@ class ManageSnapshotsModal extends Modal {
     }
 
     async onOpen() {
-        this.titleEl.setText('View Snapshots');
+        this.titleEl.setText('View snapshots');
         this.modalEl.addClass('sl-snapshot-modal');
 
         // Header row
         const header = this.contentEl.createDiv({ cls: 'sl-snapshot-header' });
-        header.createEl('span', { text: 'Board & plot grid layouts for this project.' });
+        header.createSpan({ text: 'Board & plot grid layouts for this project.' });
 
         const newDiv = header.createDiv({ cls: 'sl-snapshot-new-btn clickable-icon' });
         obsidian.setIcon(newDiv, 'plus');
-        newDiv.setAttribute('aria-label', 'New Snapshot');
+        newDiv.setAttribute('aria-label', 'New snapshot');
         newDiv.addEventListener('click', async () => {
             const snap = await this.service.createSnapshot(`Snapshot ${await this.service.getNextId()}`);
             new Notice(`Created snapshot #${snap.id}`);
@@ -66,15 +66,15 @@ class ManageSnapshotsModal extends Modal {
         // Info
         const info = row.createDiv({ cls: 'sl-snapshot-info' });
         const titleLine = info.createDiv({ cls: 'sl-snapshot-title-line' });
-        titleLine.createEl('span', { text: `#${meta.id}`, cls: 'sl-snapshot-id' });
+        titleLine.createSpan({ text: `#${meta.id}`, cls: 'sl-snapshot-id' });
 
         if (isActive) {
         }
 
         const dateStr = new Date(meta.modified ?? meta.created).toLocaleString();
-        info.createEl('div', { text: dateStr, cls: 'sl-snapshot-date' });
+        info.createDiv({ text: dateStr, cls: 'sl-snapshot-date' });
         if (meta.description) {
-            info.createEl('div', { text: meta.description, cls: 'sl-snapshot-desc' });
+            info.createDiv({ text: meta.description, cls: 'sl-snapshot-desc' });
         }
 
         // Actions (divs, not buttons)
@@ -83,7 +83,7 @@ class ManageSnapshotsModal extends Modal {
         if (!isActive) {
             const loadDiv = actions.createDiv({ cls: 'sl-snapshot-action-btn clickable-icon', attr: { 'aria-label': 'Load' } });
             obsidian.setIcon(loadDiv, 'upload');
-            loadDiv.createEl('span', { text: 'Load' });
+            loadDiv.createSpan({ text: 'Load' });
             loadDiv.addEventListener('click', async () => {
                 const ok = await this.service.restoreSnapshot(meta.id);
                 if (ok) {
@@ -125,7 +125,7 @@ class ManageSnapshotsModal extends Modal {
         const btns = form.createDiv({ cls: 'sl-snapshot-edit-btns' });
         const saveDiv = btns.createDiv({ cls: 'sl-snapshot-action-btn clickable-icon', attr: { 'aria-label': 'Save' } });
         obsidian.setIcon(saveDiv, 'check');
-        saveDiv.createEl('span', { text: 'Save' });
+        saveDiv.createSpan({ text: 'Save' });
         saveDiv.addEventListener('click', async () => {
             const n = nameInput.value.trim();
             if (!n) { new Notice('Name is required.'); return; }
@@ -140,4 +140,4 @@ class ManageSnapshotsModal extends Modal {
         window.setTimeout(() => nameInput.focus(), 30);
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-misused-promises, no-empty -- end of file-wide suppression block opened at line 1 */

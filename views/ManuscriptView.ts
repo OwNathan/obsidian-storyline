@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ItemView, WorkspaceLeaf, WorkspaceSplit, MarkdownRenderer, TFile, setIcon, Notice } from 'obsidian';
 import { EditorView, Decoration } from '@codemirror/view';
 import { RangeSetBuilder, StateEffect, Compartment, EditorSelection } from '@codemirror/state';
@@ -230,10 +230,8 @@ export class ManuscriptView extends ItemView {
         if (filterBar) {
             // Focus mode icon — insert before the search wrapper
             const searchWrapper = filterBar.querySelector('.story-line-search-wrapper');
-            const focusBtn = createEl('button', {
-                cls: 'sl-focus-btn clickable-icon',
-                attr: { 'aria-label': 'Focus mode' },
-            });
+            const focusBtn = (filterBar as HTMLElement).createEl('button', { cls: 'sl-focus-btn clickable-icon' });
+            focusBtn.setAttribute('aria-label', 'Focus mode');
             setIcon(focusBtn, 'glasses');
             if (this._focusMode) focusBtn.addClass('is-active');
             focusBtn.addEventListener('click', () => {
@@ -397,7 +395,7 @@ export class ManuscriptView extends ItemView {
                 cls: 'sl-manuscript-empty',
                 text: 'No scenes match the current filters.',
             });
-            this.footerEl.setText('0 words');
+            this.footerEl.setText('0 Words');
             return;
         }
 
@@ -437,7 +435,7 @@ export class ManuscriptView extends ItemView {
                 const actDiv = this.scrollArea.createDiv('sl-manuscript-act-divider');
                 const actLabel = this.sceneManager.getActLabel(Number(scene.act));
                 const actDisplay = getActDisplayLabel(scene.act);
-                actDiv.createEl('span', {
+                actDiv.createSpan({
                     cls: 'sl-manuscript-act-label',
                     text: actLabel ? `${actDisplay}: ${actLabel}` : actDisplay,
                 });
@@ -449,7 +447,7 @@ export class ManuscriptView extends ItemView {
                 if (prevBlock) prevBlock.classList.add('is-before-divider');
                 const chapDiv = this.scrollArea.createDiv('sl-manuscript-chapter-divider');
                 const chapLabel = this.sceneManager.getChapterLabel(Number(scene.chapter));
-                chapDiv.createEl('span', {
+                chapDiv.createSpan({
                     cls: 'sl-manuscript-chapter-label',
                     text: chapLabel ? `Chapter ${scene.chapter}: ${chapLabel}` : `Chapter ${scene.chapter}`,
                 });
@@ -463,7 +461,7 @@ export class ManuscriptView extends ItemView {
 
             // Scene header: title + status badge
             const header = block.createDiv('sl-manuscript-scene-header');
-            const titleEl = header.createEl('span', {
+            const titleEl = header.createSpan({
                 cls: 'sl-manuscript-scene-title',
                 text: scene.title,
             });
@@ -474,13 +472,13 @@ export class ManuscriptView extends ItemView {
                 }
             });
             if (scene.status) {
-                header.createEl('span', {
+                header.createSpan({
                     cls: `sl-manuscript-status sl-status-${scene.status}`,
                     text: scene.status,
                 });
             }
             if (scene.subtitle) {
-                header.createEl('span', {
+                header.createSpan({
                     cls: 'sl-manuscript-scene-subtitle',
                     text: scene.subtitle,
                 });
@@ -826,7 +824,7 @@ export class ManuscriptView extends ItemView {
         setIcon(prevBtn, 'chevron-up');
         prevBtn.addEventListener('click', () => this.searchNext(false));
 
-        const nextBtn = row.createEl('button', { cls: 'sl-manuscript-search-btn', attr: { 'aria-label': 'Next match', title: 'Next (Enter)' } });
+        const nextBtn = row.createEl('button', { cls: 'sl-manuscript-search-btn', attr: { 'aria-label': 'Next match', title: 'Next (enter)' } });
         setIcon(nextBtn, 'chevron-down');
         nextBtn.addEventListener('click', () => this.searchNext(true));
 
@@ -854,7 +852,7 @@ export class ManuscriptView extends ItemView {
             this.runSearch();
         });
 
-        const closeBtn = row.createEl('button', { cls: 'sl-manuscript-search-btn', attr: { 'aria-label': 'Close', title: 'Close (Esc)' } });
+        const closeBtn = row.createEl('button', { cls: 'sl-manuscript-search-btn', attr: { 'aria-label': 'Close', title: 'Close (esc)' } });
         setIcon(closeBtn, 'x');
         closeBtn.addEventListener('click', () => this.closeSearch());
 
@@ -1513,4 +1511,4 @@ export class ManuscriptView extends ItemView {
         void mountAndFocus();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

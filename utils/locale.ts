@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex -- shared localization helpers; dynamic Intl.Segmenter access needs untyped indexing on older lib targets */
+ 
 
 /**
  * Locale & i18n helpers for word counting, reading time, dialogue, and prose
@@ -510,4 +510,4 @@ export function supportsSyllableMetrics(locale: StoryLineLocale): boolean {
     return getLocaleProfile(locale).supportsSyllables;
 }
 
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex -- end of file-wide suppression block */
+ 

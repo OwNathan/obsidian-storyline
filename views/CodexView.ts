@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { App, ItemView, WorkspaceLeaf, Modal, Setting, Notice, TFile } from 'obsidian';
 import * as obsidian from 'obsidian';
 import type SceneCardsPlugin from '../main';
@@ -17,6 +17,7 @@ import {
     renderCustomSectionsAtSlot,
     renderAddCustomSectionButton,
     type CustomSectionsHost,
+    type CustomSection,
 } from '../components/CustomSectionsRenderer';
 import type { UniversalFieldTemplate } from '../services/FieldTemplateService';
 
@@ -446,7 +447,7 @@ export class CodexView extends ItemView {
         // ── Header ─────────────────────────────────────
         const header = container.createDiv('codex-detail-header');
 
-        const backBtn = header.createEl('span', { cls: 'codex-back-link' });
+        const backBtn = header.createSpan({ cls: 'codex-back-link' });
         const backIcon = backBtn.createSpan();
         obsidian.setIcon(backIcon, 'circle-arrow-left');
         backBtn.createSpan({ text: ` All ${catDef.label}` });
@@ -500,7 +501,7 @@ export class CodexView extends ItemView {
         } else {
             const placeholder = portraitArea.createDiv('codex-detail-portrait-placeholder');
             obsidian.setIcon(placeholder, 'image');
-            placeholder.createEl('span', { text: 'Click to add image' });
+            placeholder.createSpan({ text: 'Click to add image' });
         }
         portraitArea.addEventListener('click', () => {
             const sceneFolder = this.sceneManager.getSceneFolder();
@@ -689,7 +690,7 @@ export class CodexView extends ItemView {
         if (key !== 'name') {
             const hiddenKeys = this.plugin.settings.hiddenFields[catDef.id] ?? [];
             const isHidden = hiddenKeys.includes(key);
-            const hideBtn = labelEl.createEl('span', {
+            const hideBtn = labelEl.createSpan({
                 cls: 'field-hide-btn',
                 attr: { 'aria-label': isHidden ? 'Show this field' : 'Hide this field' },
             });
@@ -809,7 +810,7 @@ export class CodexView extends ItemView {
         builtInKeys: string[],
         fieldKey: string,
     ): void {
-        const upBtn = labelEl.createEl('span', {
+        const upBtn = labelEl.createSpan({
             cls: 'field-move-btn',
             attr: { title: 'Move field up', 'aria-label': 'Move field up' },
         });
@@ -820,7 +821,7 @@ export class CodexView extends ItemView {
             if (this.rootContainer) this.renderView(this.rootContainer);
         });
 
-        const downBtn = labelEl.createEl('span', {
+        const downBtn = labelEl.createSpan({
             cls: 'field-move-btn',
             attr: { title: 'Move field down', 'aria-label': 'Move field down' },
         });
@@ -839,7 +840,11 @@ export class CodexView extends ItemView {
         builtInKeys?: string[],
     ): void {
         if (!draft.universalFields) draft.universalFields = {};
-        const value = (draft.universalFields[tpl.id] ?? '') as string;
+        // 1.10.43: `universalFields` values can be string | string[] | boolean.
+        // `value` is the coerced string used by text / dropdown paths; the
+        // checkbox path reads `rawValue` to detect the actual boolean.
+        const rawValue = draft.universalFields[tpl.id];
+        const value: string = typeof rawValue === 'string' ? rawValue : '';
 
         const row = parent.createDiv('codex-field-row codex-universal-field-row');
 
@@ -847,7 +852,7 @@ export class CodexView extends ItemView {
         const labelWrap = row.createDiv('codex-universal-label-wrap');
         labelWrap.createEl('label', { cls: 'codex-field-label', text: tpl.label });
 
-        const editBtn = labelWrap.createEl('span', {
+        const editBtn = labelWrap.createSpan({
             cls: 'codex-universal-edit-btn',
             attr: { title: 'Edit or remove this universal field', 'aria-label': 'Edit field' },
         });
@@ -881,7 +886,7 @@ export class CodexView extends ItemView {
         });
 
         // Issue #92 — up/down move buttons (revealed on hover)
-        const moveUpBtn = labelWrap.createEl('span', {
+        const moveUpBtn = labelWrap.createSpan({
             cls: 'codex-universal-move-btn',
             attr: { title: 'Move field up', 'aria-label': 'Move field up' },
         });
@@ -894,7 +899,7 @@ export class CodexView extends ItemView {
             if (this.rootContainer) this.renderView(this.rootContainer);
         });
 
-        const moveDownBtn = labelWrap.createEl('span', {
+        const moveDownBtn = labelWrap.createSpan({
             cls: 'codex-universal-move-btn',
             attr: { title: 'Move field down', 'aria-label': 'Move field down' },
         });
@@ -1055,13 +1060,13 @@ export class CodexView extends ItemView {
                 autoGrow();
             });
         } else if (tpl.type === 'checkbox') {
-            const checked = value === true || value === 'true' || value === 'yes';
+            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
             const wrap = row.createDiv('codex-field-checkbox-wrap');
             const cb = wrap.createEl('input', {
                 cls: 'codex-field-checkbox',
                 type: 'checkbox',
             });
-            cb.checked = !!checked;
+            cb.checked = checked;
             cb.addEventListener('change', () => {
                 draft.universalFields![tpl.id] = cb.checked;
                 this.scheduleSave(draft);
@@ -1180,7 +1185,7 @@ export class CodexView extends ItemView {
 
         // Add custom field button
         const addRow = body.createDiv('codex-add-custom-field-row');
-        const addBtn = addRow.createEl('button', { cls: 'codex-add-custom-btn', text: '+ Add custom field' });
+        const addBtn = addRow.createEl('button', { cls: 'codex-add-custom-btn', text: '+ add custom field' });
         addBtn.addEventListener('click', () => {
             const modal = new AddCustomFieldModal(this.app, (name, applyToAll) => {
                 if (!draft.custom) draft.custom = {};
@@ -1220,7 +1225,10 @@ export class CodexView extends ItemView {
         }
         const allSections = this.plugin.settings.codexCategoryCustomSections;
         if (!allSections[draft.type]) allSections[draft.type] = [];
-        const sections = allSections[draft.type];
+        // Settings store the loose JSON shape; CustomSectionsHost expects
+        // the narrower CustomSection[]. Cast at the boundary — the field
+        // renderers normalise unknown `type` values via `normalizeField()`.
+        const sections = allSections[draft.type] as unknown as CustomSection[];
         return {
             app: this.app,
             draft,
@@ -1288,7 +1296,7 @@ export class CodexView extends ItemView {
             });
         }
 
-        const addBtn = body.createEl('button', { cls: 'codex-add-custom-btn', text: '+ Add book' });
+        const addBtn = body.createEl('button', { cls: 'codex-add-custom-btn', text: '+ add book' });
         addBtn.addEventListener('click', () => {
             if (!draft.books) draft.books = [];
             draft.books.push('');
@@ -1561,7 +1569,7 @@ export class CodexView extends ItemView {
         if (!refs || refs.length === 0) return;
 
         const section = container.createDiv('codex-references-panel');
-        section.createEl('h3', { text: 'Referenced By' });
+        section.createEl('h3', { text: 'Referenced by' });
 
         const groups: Record<string, typeof refs> = {};
         for (const ref of refs) {
@@ -1627,7 +1635,7 @@ export class CodexView extends ItemView {
 
     private openManageCategoriesModal(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Manage Codex Categories');
+        modal.titleEl.setText('Manage codex categories');
         this.renderCategoryManager(modal.contentEl, modal);
         modal.open();
     }
@@ -1636,8 +1644,8 @@ export class CodexView extends ItemView {
         el.empty();
         el.addClass('codex-category-manager');
 
-        el.createEl('h4', { text: 'Enabled Categories' });
-        el.createEl('p', { cls: 'setting-item-description', text: 'Toggle categories to show in the Codex. Use the sidebar toggle to also show them in the Scene Inspector.' });
+        el.createEl('h4', { text: 'Enabled categories' });
+        el.createEl('p', { cls: 'setting-item-description', text: 'Toggle categories to show in the codex. Use the sidebar toggle to also show them in the scene inspector.' });
 
         const enabled = new Set(this.plugin.settings.codexEnabledCategories);
         const sidebarSet = new Set(this.plugin.settings.codexSidebarCategories || []);
@@ -1683,7 +1691,7 @@ export class CodexView extends ItemView {
         // Custom categories
         const customCats = this.plugin.settings.codexCustomCategories;
         if (customCats.length > 0) {
-            el.createEl('h4', { text: 'Custom Categories' });
+            el.createEl('h4', { text: 'Custom categories' });
             for (const cc of customCats) {
                 const row = el.createDiv('codex-category-manager-row');
                 const toggle = row.createEl('input', { attr: { type: 'checkbox' } }) as HTMLInputElement;
@@ -1733,7 +1741,7 @@ export class CodexView extends ItemView {
         }
 
         // Add custom category
-        el.createEl('h4', { text: 'Add Custom Category' });
+        el.createEl('h4', { text: 'Add custom category' });
         let newLabel = '';
         let newIcon = 'file-text';
         let newLabelInput: HTMLInputElement | null = null;
@@ -1741,7 +1749,7 @@ export class CodexView extends ItemView {
         new Setting(el)
             .setName('Label')
             .addText(text => {
-                text.setPlaceholder('e.g. Factions, Artifacts, Magic…');
+                text.setPlaceholder('E.g. Factions, artifacts, magic???');
                 text.onChange(v => { newLabel = v; });
                 newLabelInput = text.inputEl;
             });
@@ -1758,7 +1766,7 @@ export class CodexView extends ItemView {
 
         new Setting(el)
             .addButton(btn => btn
-                .setButtonText('Add Category')
+                .setButtonText('Add category')
                 .setCta()
                 .onClick(() => {
                     // Read value directly from input as a fallback in case the change
@@ -2088,14 +2096,14 @@ class AddCustomFieldModal extends Modal {
     }
 
     onOpen(): void {
-        this.titleEl.setText('Add Custom Field');
+        this.titleEl.setText('Add custom field');
         let fieldName = '';
         let applyToAll = true;
         let nameInput: HTMLInputElement | null = null;
         new Setting(this.contentEl)
             .setName('Field name')
             .addText(text => {
-                text.setPlaceholder('e.g. Rarity, Alignment…');
+                text.setPlaceholder('E.g. Rarity, alignment???');
                 text.onChange(v => { fieldName = v; });
                 nameInput = text.inputEl;
                 text.inputEl.addEventListener('keydown', (e) => {
@@ -2130,4 +2138,4 @@ class AddCustomFieldModal extends Modal {
     }
 }
 
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

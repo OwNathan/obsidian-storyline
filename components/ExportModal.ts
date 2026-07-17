@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-misused-promises -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { Modal, Setting, Notice, DropdownComponent, ToggleComponent } from 'obsidian';
 import { ExportService, ExportFormat, ExportScope } from '../services/ExportService';
 import type SceneCardsPlugin from '../main';
@@ -44,7 +44,7 @@ export class ExportModal extends Modal {
         contentEl.addClass('storyline-export-modal');
         this.modalEl.addClass('mod-storyline-export');
 
-        contentEl.createEl('h2', { text: 'Export Project' });
+        contentEl.createEl('h2', { text: 'Export project' });
 
         const project = this.plugin.sceneManager.activeProject;
         if (!project) {
@@ -80,10 +80,10 @@ export class ExportModal extends Modal {
             .addDropdown(dd => {
                 dd.addOption('md', 'Markdown (.md)');
                 dd.addOption('docx', 'Word (.docx)');
-                dd.addOption('pdf', 'PDF (.pdf)');
-                dd.addOption('html', 'HTML (.html)');
-                dd.addOption('csv', 'CSV (.csv)');
-                dd.addOption('json', 'JSON (.json)');
+                dd.addOption('pdf', 'PDF (.PDF)');
+                dd.addOption('html', 'HTML (.HTML)');
+                dd.addOption('csv', 'CSV (.CSV)');
+                dd.addOption('json', 'JSON (.JSON)');
                 dd.setValue(this.format);
                 dd.onChange(v => {
                     this.format = v as ExportFormat;
@@ -121,7 +121,7 @@ export class ExportModal extends Modal {
 
             new Setting(manuscriptOptions)
                 .setName('Include scene titles')
-                .setDesc('Show "#### Scene Title" before each scene. Disable for a clean reader copy.')
+                .setDesc('Show "#### scene title" before each scene. Disable for a clean reader copy.')
                 .addToggle(t => {
                     titlesToggle = t;
                     t.setValue(this.includeSceneTitles && !this.numberScenesOnExport);
@@ -179,7 +179,7 @@ export class ExportModal extends Modal {
                     .setName('Custom separator')
                     .setDesc('Enter any UTF-8 character or text to use as a scene separator.')
                     .addText(text => text
-                        .setPlaceholder('e.g. ~ ~ ~')
+                        .setPlaceholder('E.g. ~ ~ ~')
                         .setValue(this.sceneSeparatorCustom)
                         .onChange(async (v) => {
                             this.sceneSeparatorCustom = v;
@@ -225,4 +225,4 @@ export class ExportModal extends Modal {
         this.contentEl.empty();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-misused-promises -- end of file-wide suppression block opened at line 1 */

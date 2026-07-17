@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { App, ItemView, WorkspaceLeaf, Menu, Modal, TFile, Notice, MarkdownRenderer, Component } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { CellData, ColumnMeta, RowMeta, PlotGridData } from '../models/PlotGridData';
@@ -79,8 +79,8 @@ export class PlotgridView extends ItemView {
         // PlotGrid is desktop-only — show friendly message on mobile
         if (isMobile) {
             const msg = container.createDiv('sl-mobile-unavailable');
-            msg.createEl('h3', { text: 'Plot Grid' });
-            msg.createEl('p', { text: 'The plot grid requires a larger screen. Use the Board view to manage scenes on mobile.' });
+            msg.createEl('h3', { text: 'Plot grid' });
+            msg.createEl('p', { text: 'The plot grid requires a larger screen. Use the board view to manage scenes on mobile.' });
             return;
         }
 
@@ -125,11 +125,18 @@ export class PlotgridView extends ItemView {
                 loaded = null;
             }
             if (loaded && typeof loaded === 'object') {
+                // Clamp zoom to the supported UI range (30%–200%). Older
+                // installs (or corrupted snapshots) sometimes wrote absurd
+                // values (e.g. 990) which made the CSS `zoom` on the canvas
+                // scale the corner cell to fill the viewport — the whole
+                // Plot Grid rendered as a single grey square. #227
+                const rawZoom = typeof loaded.zoom === 'number' && isFinite(loaded.zoom) ? loaded.zoom : 1;
+                const zoom = Math.min(2, Math.max(0.3, rawZoom));
                 this.data = {
                     rows: loaded.rows || [],
                     columns: loaded.columns || [],
                     cells: loaded.cells || {},
-                    zoom: typeof loaded.zoom === 'number' ? loaded.zoom : 1,
+                    zoom,
                     stickyHeaders: typeof loaded.stickyHeaders === 'boolean' ? loaded.stickyHeaders : true,
                 };
             } else {
@@ -468,7 +475,7 @@ export class PlotgridView extends ItemView {
         attachTooltip(zoomOut, 'Zoom out');
         zoomOut.addEventListener('click', () => this.setZoom(Math.max(0.3, this.data.zoom - 0.1)));
 
-        const zoomLabel = actions.createEl('span', { cls: 'plot-grid-zoom-label', text: Math.round(this.data.zoom * 100) + '%' });
+        const zoomLabel = actions.createSpan({ cls: 'plot-grid-zoom-label', text: Math.round(this.data.zoom * 100) + '%' });
         // Keep the label fixed width so the control doesn't jump when digits change (e.g. 100% -> 99%)
         zoomLabel.setCssStyles({
             display: 'inline-block',
@@ -481,18 +488,30 @@ export class PlotgridView extends ItemView {
         zoomLabel.title = 'Click to edit zoom %';
         zoomLabel.addEventListener('click', (ev) => {
             ev.stopPropagation();
-            const inp = activeDocument.createElement('input');
-            inp.type = 'text';
+            // Create input on the label's parent, then replace the label.
+            const inp = (zoomLabel.parentElement ?? actions).createEl('input', { type: 'text' });
             inp.value = Math.round(this.data.zoom * 100).toString();
             inp.setCssStyles({ width: '56px' });
+            // Guard against re-entering renderToolbar when the input has
+            // already been detached (Enter commits, then blur fires while
+            // the toolbar is being rebuilt — the DOMException about
+            // removeChild came from that race).
+            let closed = false;
+            const closeInput = () => {
+                if (closed) return;
+                closed = true;
+                this.renderToolbar();
+            };
             inp.addEventListener('keydown', (ke) => {
                 if (ke.key === 'Enter') {
                     const v = Number(inp.value);
                     if (!isNaN(v) && v > 0) this.setZoom(Math.min(200, Math.max(30, v)) / 100);
-                    this.renderToolbar();
-                } else if (ke.key === 'Escape') this.renderToolbar();
+                    closeInput();
+                } else if (ke.key === 'Escape') {
+                    closeInput();
+                }
             });
-            inp.addEventListener('blur', () => this.renderToolbar());
+            inp.addEventListener('blur', () => closeInput());
             zoomLabel.replaceWith(inp);
             inp.focus();
             inp.select();
@@ -603,6 +622,13 @@ export class PlotgridView extends ItemView {
     }
 
     private setZoom(z: number) {
+        // Defensive clamp — the toolbar handlers already clamp their inputs,
+        // but load-from-disk / snapshot-restore may feed us out-of-range or
+        // non-finite values. Without this, a stale `zoom: 990` in
+        // plotgrid.json makes CSS `zoom` scale the canvas 990× and the
+        // corner cell fills the entire viewport as a grey square. #227
+        if (!isFinite(z) || z <= 0) z = 1;
+        z = Math.min(2, Math.max(0.3, z));
         this.data.zoom = z;
         if (this.canvasEl && this.scrollAreaEl) {
             // Use CSS zoom instead of transform: scale() to preserve position: sticky
@@ -660,12 +686,12 @@ export class PlotgridView extends ItemView {
         }
 
         if (!changed) {
-            new Notice('Plot Grid row heights already fit their content');
+            new Notice('Plot grid row heights already fit their content');
             return;
         }
 
         this.scheduleSave();
-        new Notice('Plot Grid row heights resized to fit content');
+        new Notice('Plot grid row heights resized to fit content');
     }
 
     private async waitForPlotGridLayout(): Promise<void> {
@@ -831,14 +857,14 @@ export class PlotgridView extends ItemView {
         corner.addEventListener('contextmenu', (evt) => {
             evt.preventDefault();
             const menu = new Menu();
-            menu.addItem((it) => it.setTitle('Reset Grid').onClick(() => {
+            menu.addItem((it) => it.setTitle('Reset grid').onClick(() => {
                 class ConfirmModal extends Modal {
                     onConfirm: () => void;
                     constructor(app: App, onConfirm: () => void) { super(app); this.onConfirm = onConfirm; }
                     onOpen() {
                         const { contentEl } = this;
-                        contentEl.createEl('h3', { text: 'Reset Grid' });
-                        contentEl.createEl('p', { text: 'Are you sure you want to reset the Grid? Resetting will delete everything.' });
+                        contentEl.createEl('h3', { text: 'Reset grid' });
+                        contentEl.createEl('p', { text: 'Are you sure you want to reset the grid? Resetting will delete everything.' });
                         const btns = contentEl.createDiv();
                         const ok = btns.createEl('button', { text: 'Reset' });
                         ok.addEventListener('click', () => { this.onConfirm(); this.close(); });
@@ -887,8 +913,7 @@ export class PlotgridView extends ItemView {
             // allow naming like cells: double-click to edit label
             el.addEventListener('dblclick', (ev) => {
                 ev.stopPropagation();
-                const inp = activeDocument.createElement('input');
-                inp.type = 'text';
+                const inp = el.createEl('input', { type: 'text' });
                 inp.value = col.label;
                 inp.setCssStyles({
                     width: '100%',
@@ -950,9 +975,9 @@ export class PlotgridView extends ItemView {
             el.addEventListener('contextmenu', (evt) => {
                 evt.preventDefault();
                 const menu = new Menu();
-                menu.addItem((item) => item.setTitle('Rename Column').onClick(() => {
+                menu.addItem((item) => item.setTitle('Rename column').onClick(() => {
                     const modal = new Modal(this.app);
-                    modal.titleEl.setText('Rename Column');
+                    modal.titleEl.setText('Rename column');
                     const inp = modal.contentEl.createEl('input', { type: 'text', cls: 'plot-grid-rename-input' });
                     inp.setCssStyles({ width: '100%' });
                     inp.value = col.label;
@@ -970,7 +995,7 @@ export class PlotgridView extends ItemView {
                     inp.select();
                 }));
                 menu.addItem((item) => item.setTitle((this.data.stickyHeaders ? 'Disable' : 'Enable') + ' Sticky Headers').onClick(() => { this.data.stickyHeaders = !this.data.stickyHeaders; this.scheduleSave(); this.renderToolbar(); this.renderGrid(); }));
-                menu.addItem((item) => item.setTitle('Set Column Colour…').onClick(() => {
+                menu.addItem((item) => item.setTitle('Set column colour???').onClick(() => {
                     const header = this.canvasEl?.querySelectorAll('.plot-grid-col-header')[ci] as HTMLElement | undefined;
                     const els: HTMLElement[] = [];
                     for (let ri = 0; ri < this.data.rows.length; ri++) { const e = this.getCellElement(ri, ci); if (e) els.push(e); }
@@ -978,7 +1003,7 @@ export class PlotgridView extends ItemView {
                     const prevHeaderBg = header ? header.style.background : null;
                     this.chooseColor(this.data.columns[ci].bgColor || this.defaultBgColor(), (c) => { if (c === null) { els.forEach((e,i) => e.setCssStyles({ background: prevs[i] })); if (header && prevHeaderBg !== null) header.setCssStyles({ background: prevHeaderBg }); return; } this.data.columns[ci].bgColor = c || ''; this.scheduleSave(); this.renderGrid(); for (let ri=0; ri<this.data.rows.length; ri++) this.flashElement(this.getCellElement(ri, ci)); }, (preview) => { if (preview === null) { els.forEach((e,i) => e.setCssStyles({ background: prevs[i] })); if (header && prevHeaderBg !== null) header.setCssStyles({ background: prevHeaderBg }); } else { els.forEach(e => e.setCssStyles({ background: preview })); if (header) header.setCssStyles({ background: preview }); } });
                 }));
-                menu.addItem((item) => item.setTitle('Set Header Colour…').onClick(() => {
+                menu.addItem((item) => item.setTitle('Set header colour???').onClick(() => {
                     const header = this.canvasEl?.querySelectorAll('.plot-grid-col-header')[ci] as HTMLElement | undefined;
                     const prevHeaderBg = header ? header.style.background : null;
                     this.chooseColor(this.data.columns[ci].headerBgColor || this.data.columns[ci].bgColor || this.defaultBgColor(), (c) => {
@@ -992,10 +1017,10 @@ export class PlotgridView extends ItemView {
                     });
                 }));
                 menu.addSeparator();
-                menu.addItem((item) => item.setTitle('Insert Column Left').onClick(() => this.insertColumnAt(ci, true)));
-                menu.addItem((item) => item.setTitle('Insert Column Right').onClick(() => this.insertColumnAt(ci, false)));
+                menu.addItem((item) => item.setTitle('Insert column left').onClick(() => this.insertColumnAt(ci, true)));
+                menu.addItem((item) => item.setTitle('Insert column right').onClick(() => this.insertColumnAt(ci, false)));
                 menu.addSeparator();
-                menu.addItem((item) => item.setTitle('Delete Column').onClick(() => this.deleteColumn(ci)));
+                menu.addItem((item) => item.setTitle('Delete column').onClick(() => this.deleteColumn(ci)));
                 menu.showAtMouseEvent(evt);
             });
         }
@@ -1052,8 +1077,7 @@ export class PlotgridView extends ItemView {
             rowEl.addEventListener('dblclick', (ev) => {
                 ev.stopPropagation();
                 rowEl.draggable = false;
-                const inp = activeDocument.createElement('input');
-                inp.type = 'text';
+                const inp = rowEl.createEl('input', { type: 'text' });
                 inp.value = row.label;
                 inp.setCssStyles({
                     width: '100%',
@@ -1126,9 +1150,9 @@ export class PlotgridView extends ItemView {
             rowEl.addEventListener('contextmenu', (evt) => {
                 evt.preventDefault();
                 const menu = new Menu();
-                menu.addItem((item) => item.setTitle('Rename Row').onClick(() => {
+                menu.addItem((item) => item.setTitle('Rename row').onClick(() => {
                     const modal = new Modal(this.app);
-                    modal.titleEl.setText('Rename Row');
+                    modal.titleEl.setText('Rename row');
                     const inp = modal.contentEl.createEl('input', { type: 'text', cls: 'plot-grid-rename-input' });
                     inp.setCssStyles({ width: '100%' });
                     inp.value = row.label;
@@ -1146,7 +1170,7 @@ export class PlotgridView extends ItemView {
                     inp.select();
                 }));
                 menu.addItem((item) => item.setTitle((this.data.stickyHeaders ? 'Disable' : 'Enable') + ' Sticky Headers').onClick(() => { this.data.stickyHeaders = !this.data.stickyHeaders; this.scheduleSave(); this.renderToolbar(); this.renderGrid(); }));
-                menu.addItem((item) => item.setTitle('Set Row Colour…').onClick(() => {
+                menu.addItem((item) => item.setTitle('Set row colour???').onClick(() => {
                     const els: HTMLElement[] = [];
                     for (let ci = 0; ci < this.data.columns.length; ci++) { const e = this.getCellElement(ri, ci); if (e) els.push(e); }
                     const prevs = els.map(e => e.style.background);
@@ -1154,7 +1178,7 @@ export class PlotgridView extends ItemView {
                     const prevHeaderBg = header ? header.style.background : null;
                     this.chooseColor(this.data.rows[ri].bgColor || this.defaultBgColor(), (c) => { if (c === null) { els.forEach((e,i) => e.setCssStyles({ background: prevs[i] })); if (header && prevHeaderBg !== null) header.setCssStyles({ background: prevHeaderBg }); return; } this.data.rows[ri].bgColor = c || ''; this.scheduleSave(); this.renderGrid(); for (let ci=0; ci<this.data.columns.length; ci++) this.flashElement(this.getCellElement(ri, ci)); }, (preview) => { if (preview === null) { els.forEach((e,i) => e.setCssStyles({ background: prevs[i] })); if (header && prevHeaderBg !== null) header.setCssStyles({ background: prevHeaderBg }); } else { els.forEach(e => e.setCssStyles({ background: preview })); if (header) header.setCssStyles({ background: preview }); } });
                 }));
-                menu.addItem((item) => item.setTitle('Set Header Colour…').onClick(() => {
+                menu.addItem((item) => item.setTitle('Set header colour???').onClick(() => {
                     const header = this.canvasEl?.querySelectorAll('.plot-grid-row-header')[ri] as HTMLElement | undefined;
                     const prevHeaderBg = header ? header.style.background : null;
                     this.chooseColor(this.data.rows[ri].headerBgColor || this.data.rows[ri].bgColor || this.defaultBgColor(), (c) => {
@@ -1168,10 +1192,10 @@ export class PlotgridView extends ItemView {
                     });
                 }));
                 menu.addSeparator();
-                menu.addItem((item) => item.setTitle('Insert Row Above').onClick(() => this.insertRowAt(ri, true)));
-                menu.addItem((item) => item.setTitle('Insert Row Below').onClick(() => this.insertRowAt(ri, false)));
+                menu.addItem((item) => item.setTitle('Insert row above').onClick(() => this.insertRowAt(ri, true)));
+                menu.addItem((item) => item.setTitle('Insert row below').onClick(() => this.insertRowAt(ri, false)));
                 menu.addSeparator();
-                menu.addItem((item) => item.setTitle('Delete Row').onClick(() => this.deleteRow(ri)));
+                menu.addItem((item) => item.setTitle('Delete row').onClick(() => this.deleteRow(ri)));
                 menu.showAtMouseEvent(evt);
             });
 
@@ -1512,11 +1536,11 @@ export class PlotgridView extends ItemView {
                             .onClick(() => { void this.setNoteColor(linkedScene, undefined, key); }));
 
                         menu.addSeparator();
-                        menu.addItem((it) => it.setTitle('Duplicate Note').setIcon('copy').onClick(async () => {
+                        menu.addItem((it) => it.setTitle('Duplicate note').setIcon('copy').onClick(async () => {
                             await scMgr?.duplicateScene(linkedScene.filePath);
                             this.renderGrid();
                         }));
-                        menu.addItem((it) => it.setTitle('Delete Note').setIcon('trash').onClick(async () => {
+                        menu.addItem((it) => it.setTitle('Delete note').setIcon('trash').onClick(async () => {
                             openConfirmModal(this.app, {
                                 title: 'Delete Note',
                                 message: `Delete note "${linkedScene.title || 'Note'}"?`,
@@ -1531,7 +1555,7 @@ export class PlotgridView extends ItemView {
                         }));
 
                         menu.addSeparator();
-                        menu.addItem((it) => it.setTitle('Convert to Scene').setIcon('clapperboard').onClick(async () => {
+                        menu.addItem((it) => it.setTitle('Convert to scene').setIcon('clapperboard').onClick(async () => {
                             const oldPath = linkedScene.filePath;
                             const newPath = await scMgr?.moveNoteToSceneFolder(oldPath) ?? oldPath;
                             linkedScene.corkboardNote = false;
@@ -1544,14 +1568,14 @@ export class PlotgridView extends ItemView {
                             }
                             this.renderGrid();
                         }));
-                        menu.addItem((it) => it.setTitle('Edit Cell Text').onClick(() => this.enterEditMode(cellEl, cell, contentEl)));
-                        menu.addItem((it) => it.setTitle('Unlink Note').setIcon('unlink').onClick(() => {
+                        menu.addItem((it) => it.setTitle('Edit cell text').onClick(() => this.enterEditMode(cellEl, cell, contentEl)));
+                        menu.addItem((it) => it.setTitle('Unlink note').setIcon('unlink').onClick(() => {
                             const c = this.data.cells[key]; if (c) c.linkedSceneId = undefined; this.scheduleSave(); this.renderGrid();
                         }));
                     } else if (linkedScene) {
                         // ── Regular Scene actions ──
-                        menu.addItem((it) => it.setTitle('Open Scene').setIcon('file-text').onClick(() => this.openScene(linkedScene)));
-                        menu.addItem((it) => it.setTitle('Show in Inspector').setIcon('info').onClick(() => {
+                        menu.addItem((it) => it.setTitle('Open scene').setIcon('file-text').onClick(() => this.openScene(linkedScene)));
+                        menu.addItem((it) => it.setTitle('Show in inspector').setIcon('info').onClick(() => {
                             if (this.plugin?.isSceneInspectorOpen()) {
                                 this.inspectorComponent?.hide();
                                 this.app.workspace.trigger('storyline:scene-focus', linkedScene.filePath);
@@ -1571,15 +1595,15 @@ export class PlotgridView extends ItemView {
                                 }));
                         });
                         menu.addSeparator();
-                        menu.addItem((it) => it.setTitle('Duplicate Scene').setIcon('copy').onClick(async () => {
+                        menu.addItem((it) => it.setTitle('Duplicate scene').setIcon('copy').onClick(async () => {
                             await scMgr?.duplicateScene(linkedScene.filePath);
                             this.renderGrid();
                         }));
-                        menu.addItem((it) => it.setTitle('Edit Cell Text').onClick(() => this.enterEditMode(cellEl, cell, contentEl)));
-                        menu.addItem((it) => it.setTitle('Unlink Scene').setIcon('unlink').onClick(() => {
+                        menu.addItem((it) => it.setTitle('Edit cell text').onClick(() => this.enterEditMode(cellEl, cell, contentEl)));
+                        menu.addItem((it) => it.setTitle('Unlink scene').setIcon('unlink').onClick(() => {
                             const c = this.data.cells[key]; if (c) c.linkedSceneId = undefined; this.scheduleSave(); this.renderGrid();
                         }));
-                        menu.addItem((it) => it.setTitle('Delete Scene').setIcon('trash').onClick(async () => {
+                        menu.addItem((it) => it.setTitle('Delete scene').setIcon('trash').onClick(async () => {
                             openConfirmModal(this.app, {
                                 title: 'Delete Scene',
                                 message: `Delete scene "${linkedScene.title || 'Untitled'}"?`,
@@ -1593,27 +1617,27 @@ export class PlotgridView extends ItemView {
                         }));
                     } else {
                         // No linked scene — show cell editing + create/link options
-                        menu.addItem((it) => it.setTitle('Edit Cell').onClick(() => this.enterEditMode(cellEl, cell, contentEl)));
+                        menu.addItem((it) => it.setTitle('Edit cell').onClick(() => this.enterEditMode(cellEl, cell, contentEl)));
                         menu.addSeparator();
                         if (scMgr) {
-                            menu.addItem((it) => it.setTitle('Create New Scene…').setIcon('plus').onClick(() => {
+                            menu.addItem((it) => it.setTitle('Create new scene???').setIcon('plus').onClick(() => {
                                 this.openQuickAddForCell(key);
                             }));
                         }
-                        menu.addItem((it) => it.setTitle('Link Scene Card…').setIcon('link').onClick(() => {
+                        menu.addItem((it) => it.setTitle('Link scene card???').setIcon('link').onClick(() => {
                             this.openSceneLinkModal((path) => { const c = this.data.cells[key]; if (c) c.linkedSceneId = path; this.scheduleSave(); this.renderGrid(); });
                         }));
                         menu.addSeparator();
-                        menu.addItem((it) => it.setTitle('Clear Cell Content').onClick(() => { const c = this.data.cells[key]; if (c) c.content = ''; this.scheduleSave(); this.renderGrid(); }));
+                        menu.addItem((it) => it.setTitle('Clear cell content').onClick(() => { const c = this.data.cells[key]; if (c) c.content = ''; this.scheduleSave(); this.renderGrid(); }));
                     }
                     menu.addSeparator();
-                    menu.addItem((it) => it.setTitle('Insert Row Above').onClick(() => this.insertRowAt(ri, true)));
-                    menu.addItem((it) => it.setTitle('Insert Row Below').onClick(() => this.insertRowAt(ri, false)));
-                    menu.addItem((it) => it.setTitle('Insert Column Left').onClick(() => this.insertColumnAt(ci, true)));
-                    menu.addItem((it) => it.setTitle('Insert Column Right').onClick(() => this.insertColumnAt(ci, false)));
+                    menu.addItem((it) => it.setTitle('Insert row above').onClick(() => this.insertRowAt(ri, true)));
+                    menu.addItem((it) => it.setTitle('Insert row below').onClick(() => this.insertRowAt(ri, false)));
+                    menu.addItem((it) => it.setTitle('Insert column left').onClick(() => this.insertColumnAt(ci, true)));
+                    menu.addItem((it) => it.setTitle('Insert column right').onClick(() => this.insertColumnAt(ci, false)));
                     menu.addSeparator();
-                    menu.addItem((it) => it.setTitle('Delete Row').onClick(() => this.deleteRow(ri)));
-                    menu.addItem((it) => it.setTitle('Delete Column').onClick(() => this.deleteColumn(ci)));
+                    menu.addItem((it) => it.setTitle('Delete row').onClick(() => this.deleteRow(ri)));
+                    menu.addItem((it) => it.setTitle('Delete column').onClick(() => this.deleteColumn(ci)));
                     menu.showAtMouseEvent(evt);
                 });
 
@@ -1684,7 +1708,7 @@ export class PlotgridView extends ItemView {
                 maxWidth: '100%',
                 textAlign: 'left',
             });
-            msg.textContent = "Use 'Add Row' and 'Add Column' to begin building your plot grid.";
+            msg.textContent = "Use 'add row' and 'add column' to begin building your plot grid.";
         }
 
         // reapply selection visuals after render
@@ -2613,7 +2637,7 @@ export class PlotgridView extends ItemView {
             }
             onOpen() {
                 const { contentEl } = this;
-                contentEl.createEl('h3', { text: 'Link Scene Card' });
+                contentEl.createEl('h3', { text: 'Link scene card' });
                 this.inputEl = contentEl.createEl('input');
                 this.inputEl.placeholder = 'Search files...';
                 this.inputEl.setCssStyles({ width: '100%' });
@@ -2665,7 +2689,7 @@ export class PlotgridView extends ItemView {
             constructor(app: App) { super(app); }
             onOpen() {
                 const { contentEl } = this;
-                contentEl.createEl('h3', { text: 'Sync from Scenes' });
+                contentEl.createEl('h3', { text: 'Sync from scenes' });
                 contentEl.createEl('p', {
                     text: 'Auto-populate the grid with rows from scenes and columns from story data. Manual changes will be preserved.',
                     cls: 'setting-item-description',
@@ -2702,7 +2726,7 @@ export class PlotgridView extends ItemView {
 
                 // Row sorting info
                 const sortInfo = contentEl.createEl('p', {
-                    text: 'Rows will be ordered by Act → Chapter → Sequence.',
+                    text: 'Rows will be ordered by act — chapter — sequence.',
                     cls: 'setting-item-description',
                 });
                 sortInfo.setCssStyles({ marginBottom: '12px' });
@@ -3118,7 +3142,7 @@ export class PlotgridView extends ItemView {
 
         // ── Header ──
         const header = el.createDiv('inspector-header');
-        header.createEl('h3', { text: 'Cell Details' });
+        header.createEl('h3', { text: 'Cell details' });
         const closeBtn = header.createEl('button', { cls: 'clickable-icon inspector-close', text: '×' });
         closeBtn.addEventListener('click', () => this.hideCellInspector());
 
@@ -3396,4 +3420,4 @@ export class PlotgridView extends ItemView {
 }
 
 export default PlotgridView;
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

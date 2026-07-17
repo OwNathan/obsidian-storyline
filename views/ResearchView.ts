@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ItemView, WorkspaceLeaf, TFile, Notice, Modal, Setting, FuzzySuggestModal } from 'obsidian';
 import * as obsidian from 'obsidian';
 import type SceneCardsPlugin from '../main';
@@ -482,7 +482,7 @@ export class ResearchView extends ItemView {
 
     private openCreateModal(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('New Research Post');
+        modal.titleEl.setText('New research post');
         modal.contentEl.addClass('sl-research-create-modal');
 
         let title = '';
@@ -513,7 +513,7 @@ export class ResearchView extends ItemView {
             new Setting(dynamicContainer)
                 .setName('Tags')
                 .addText(text => {
-                    text.setPlaceholder('sailing, history, 1800s')
+                    text.setPlaceholder('Sailing, history, 1800s')
                         .setValue(tags).onChange(v => { tags = v; });
                 });
 
@@ -521,7 +521,7 @@ export class ResearchView extends ItemView {
                 new Setting(dynamicContainer)
                     .setName('URL')
                     .addText(text => {
-                        text.setPlaceholder('https://...')
+                        text.setPlaceholder('HTTPS://...')
                             .setValue(sourceUrl).onChange(v => { sourceUrl = v; });
                     });
             }
@@ -654,7 +654,7 @@ export class ResearchView extends ItemView {
 
     private openEditModal(post: ResearchPost): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Edit Research Post');
+        modal.titleEl.setText('Edit research post');
         modal.contentEl.addClass('sl-research-create-modal');
 
         let title = post.title;
@@ -680,7 +680,7 @@ export class ResearchView extends ItemView {
         new Setting(modal.contentEl)
             .setName('Tags')
             .addText(text => {
-                text.setPlaceholder('sailing, history, 1800s')
+                text.setPlaceholder('Sailing, history, 1800s')
                     .setValue(tags).onChange(v => { tags = v; });
             });
 
@@ -688,7 +688,7 @@ export class ResearchView extends ItemView {
             new Setting(modal.contentEl)
                 .setName('URL')
                 .addText(text => {
-                    text.setPlaceholder('https://...')
+                    text.setPlaceholder('HTTPS://...')
                         .setValue(sourceUrl).onChange(v => { sourceUrl = v; });
                 });
         }
@@ -798,4 +798,4 @@ class VaultNotePickerModal extends FuzzySuggestModal<TFile> {
         this.onSelect(item);
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- end of file-wide suppression block opened at line 1 */

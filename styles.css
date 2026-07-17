@@ -5887,6 +5887,31 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
     gap: 8px;
 }
 
+.stats-word-freq-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.stats-word-freq-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.8em;
+    color: var(--sc-text-muted);
+    cursor: pointer;
+}
+
+.stats-word-freq-toggle-label {
+    white-space: nowrap;
+}
+
+.stats-word-freq-list {
+    margin-top: 8px;
+}
+
 .stats-word-freq-word {
     min-width: 100px;
     font-weight: 600;
@@ -5921,6 +5946,11 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
 }
 
 /* ── Echo Finder ── */
+/* Scrollable container for large manuscripts (was hard-capped at 10 scenes). */
+.stats-echo-list {
+    max-height: 600px;
+    overflow-y: auto;
+}
 .stats-echo-scene {
     margin-bottom: 10px;
 }

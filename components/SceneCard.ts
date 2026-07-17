@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import * as obsidian from 'obsidian';
 import { Modal, App } from 'obsidian';
 import type SceneCardsPlugin from '../main';
@@ -505,7 +505,7 @@ export class SceneCardComponent {
      */
     static openColorPicker(app: App, scene: Scene, sceneManager: SceneManager, onDone: () => void): void {
         const modal = new Modal(app);
-        modal.titleEl.setText('Scene Color');
+        modal.titleEl.setText('Scene color');
         const colorInput = modal.contentEl.createEl('input', {
             type: 'color',
         });
@@ -532,7 +532,7 @@ export class SceneCardComponent {
         });
 
         if (scene.color) {
-            const clearBtn = btnRow.createEl('button', { text: 'Clear Color' });
+            const clearBtn = btnRow.createEl('button', { text: 'Clear color' });
             clearBtn.addEventListener('click', async () => {
                 await sceneManager.updateScene(scene.filePath, { color: undefined } as Partial<Scene>);
                 modal.close();
@@ -543,4 +543,4 @@ export class SceneCardComponent {
         modal.open();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

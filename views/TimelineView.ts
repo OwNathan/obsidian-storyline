@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { openConfirmModal } from '../components/ConfirmModal';
 import { SceneManager } from '../services/SceneManager';
 import { SceneCardComponent } from '../components/SceneCard';
@@ -111,7 +111,7 @@ export class TimelineView extends ItemView {
         // Add scene button
         const addBtn = controls.createEl('button', {
             cls: 'mod-cta story-line-add-btn',
-            text: '+ New Scene'
+            text: '+ new scene'
         });
         addBtn.addEventListener('click', () => this.openQuickAdd());
 
@@ -319,7 +319,7 @@ export class TimelineView extends ItemView {
         if (scenes.length === 0 && definedActs.length === 0) {
             const empty = timelineEl.createDiv('story-line-empty');
             empty.createEl('p', { text: 'No scenes found.' });
-            empty.createEl('p', { text: 'Click "+ New Scene" to create your first scene, or use the structure button to set up acts and chapters.' });
+            empty.createEl('p', { text: 'Click "+ new scene" to create your first scene, or use the structure button to set up acts and chapters.' });
             return;
         }
 
@@ -420,12 +420,10 @@ export class TimelineView extends ItemView {
                 }
                 await this.sceneManager.globalResequence();
             }
+            // refresh() handles scroll save/restore — no need for a
+            // competing rAF here (the duplicate rAF caused a race that
+            // left scroll at 0 for large lists, issue: drag-drop scroll).
             this.refresh();
-
-            // Restore scroll position after DOM rebuild
-            window.requestAnimationFrame(() => {
-                if (scrollEl) scrollEl.scrollTop = savedScroll;
-            });
         };
 
         // Build a combined list: scenes + empty act placeholders
@@ -575,7 +573,7 @@ export class TimelineView extends ItemView {
         if (scenes.length === 0) {
             const empty = timelineEl.createDiv('story-line-empty');
             empty.createEl('p', { text: 'No scenes found.' });
-            empty.createEl('p', { text: 'Click "+ New Scene" to create your first scene.' });
+            empty.createEl('p', { text: 'Click "+ new scene" to create your first scene.' });
             return;
         }
 
@@ -1105,13 +1103,13 @@ export class TimelineView extends ItemView {
         const menu = new Menu();
 
         menu.addItem(item => {
-            item.setTitle('Edit Scene')
+            item.setTitle('Edit scene')
                 .setIcon('pencil')
                 .onClick(() => this.openScene(scene));
         });
 
         menu.addItem(item => {
-            item.setTitle('Edit Date/Time')
+            item.setTitle('Edit date/time')
                 .setIcon('clock')
                 .onClick(() => this.openTimeEditModal(scene));
         });
@@ -1126,7 +1124,7 @@ export class TimelineView extends ItemView {
         });
 
         menu.addItem(item => {
-            item.setTitle('Duplicate Scene')
+            item.setTitle('Duplicate scene')
                 .setIcon('copy')
                 .onClick(async () => {
                     await this.sceneManager.duplicateScene(scene.filePath);
@@ -1152,7 +1150,7 @@ export class TimelineView extends ItemView {
         menu.addSeparator();
 
         menu.addItem(item => {
-            item.setTitle('Delete Scene')
+            item.setTitle('Delete scene')
                 .setIcon('trash')
                 .onClick(async () => {
                     openConfirmModal(this.app, {
@@ -1215,12 +1213,12 @@ export class TimelineView extends ItemView {
      */
     private openStructureModal(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Manage Story Structure');
+        modal.titleEl.setText('Manage story structure');
 
         const { contentEl } = modal;
 
         // ── Beat Sheet Templates section ──
-        contentEl.createEl('h3', { text: 'Beat Sheet Templates' });
+        contentEl.createEl('h3', { text: 'Beat sheet templates' });
         contentEl.createEl('p', {
             cls: 'setting-item-description',
             text: 'Apply a template to pre-populate your act/chapter structure with named beats.'
@@ -1318,15 +1316,13 @@ export class TimelineView extends ItemView {
                 editBtn.addEventListener('click', () => {
                     const input = row.querySelector('.structure-label-input') as HTMLInputElement;
                     if (input) { input.focus(); return; }
-                    // Create inline edit
+                    // Create inline edit on the row, then position with insertBefore.
                     const labelSpan = row.querySelector('.structure-label') as HTMLElement;
                     if (!labelSpan) return;
                     labelSpan.setCssStyles({ display: 'none' });
-                    const editInput = activeDocument.createElement('input');
-                    editInput.type = 'text';
+                    const editInput = row.createEl('input', { type: 'text', cls: 'structure-label-input' });
                     editInput.value = label || '';
-                    editInput.placeholder = 'e.g. Setup, Confrontation…';
-                    editInput.className = 'structure-label-input';
+                    editInput.placeholder = 'E.g. Setup, confrontation???';
                     row.insertBefore(editInput, labelSpan.nextSibling);
                     editInput.focus();
                     const commitEdit = async () => {
@@ -1450,11 +1446,9 @@ export class TimelineView extends ItemView {
                     const labelSpan = row.querySelector('.structure-label') as HTMLElement;
                     if (!labelSpan) return;
                     labelSpan.setCssStyles({ display: 'none' });
-                    const editInput = activeDocument.createElement('input');
-                    editInput.type = 'text';
+                    const editInput = row.createEl('input', { type: 'text', cls: 'structure-label-input' });
                     editInput.value = label || '';
-                    editInput.placeholder = 'e.g. The Journey Begins…';
-                    editInput.className = 'structure-label-input';
+                    editInput.placeholder = 'E.g. The journey begins???';
                     row.insertBefore(editInput, labelSpan.nextSibling);
                     editInput.focus();
                     const commitEdit = async () => {
@@ -1593,11 +1587,11 @@ export class TimelineView extends ItemView {
 
         // Date field (free text: "2026-02-17", "Day 1", "Monday", etc.)
         new Setting(modal.contentEl)
-            .setName('Date / Day')
-            .setDesc('E.g. 2026-02-17, Day 1, Monday, Chapter 3…')
+            .setName('Date / day')
+            .setDesc('E.g. 2026-02-17, day 1, monday, chapter 3???')
             .addText((text: TextComponent) => {
                 text.setValue(storyDate)
-                    .setPlaceholder('e.g. Day 1')
+                    .setPlaceholder('E.g. Day 1')
                     .onChange((v: string) => (storyDate = v));
             });
 
@@ -1607,7 +1601,7 @@ export class TimelineView extends ItemView {
             .setDesc('E.g. 14:00, morning, evening, night…')
             .addText((text: TextComponent) => {
                 text.setValue(storyTime)
-                    .setPlaceholder('e.g. evening')
+                    .setPlaceholder('E.g. Evening')
                     .onChange((v: string) => (storyTime = v));
             });
 
@@ -1617,7 +1611,7 @@ export class TimelineView extends ItemView {
             .setDesc('Free-form note about when this happens in the story')
             .addText((text: TextComponent) => {
                 text.setValue(timeline)
-                    .setPlaceholder('e.g. After the party')
+                    .setPlaceholder('E.g. After the party')
                     .onChange((v: string) => (timeline = v));
             });
 
@@ -1627,7 +1621,7 @@ export class TimelineView extends ItemView {
             .setDesc('The order this event happens in story time (for non-linear narratives)')
             .addText((text: TextComponent) => {
                 text.setValue(chronoOrder)
-                    .setPlaceholder('e.g. 5')
+                    .setPlaceholder('E.g. 5')
                     .onChange((v: string) => (chronoOrder = v));
                 text.inputEl.type = 'number';
                 text.inputEl.min = '1';
@@ -1653,10 +1647,10 @@ export class TimelineView extends ItemView {
         // ── Timeline Strand field (only for parallel/frame) ──
         const strandSetting = new Setting(modeSection)
             .setName('Timeline strand')
-            .setDesc('Name for this timeline strand (e.g. "1943", "Outer frame", "Sarah\'s past")')
+            .setDesc('Name for this timeline strand (e.g. "1943", "outer frame", "sarah\'s past")')
             .addText((text: TextComponent) => {
                 text.setValue(timelineStrand)
-                    .setPlaceholder('e.g. 1943')
+                    .setPlaceholder('E.g. 1943')
                     .onChange((v: string) => (timelineStrand = v));
             });
         // Only show strand field for parallel/frame modes
@@ -1715,13 +1709,19 @@ export class TimelineView extends ItemView {
             const savedScroll = scrollEl ? { top: scrollEl.scrollTop, left: scrollEl.left } : null;
             const prevSelectedPath = this.selectedScene?.filePath ?? null;
             this.renderView(this.rootContainer);
-            // Restore scroll position after re-render
+            // Restore scroll position after re-render. Use a second
+            // requestAnimationFrame so the browser has time to lay out
+            // the rebuilt DOM before we set scrollTop — otherwise the
+            // new content may not have its full height yet and the
+            // scroll position is lost (especially with 100+ scenes).
             if (savedScroll) {
-                const newScrollEl = this.rootContainer.querySelector('.story-line-main-area');
-                if (newScrollEl) {
-                    newScrollEl.scrollTop = savedScroll.top;
-                    newScrollEl.scrollLeft = savedScroll.left;
-                }
+                window.requestAnimationFrame(() => {
+                    const newScrollEl = this.rootContainer?.querySelector('.story-line-main-area');
+                    if (newScrollEl) {
+                        newScrollEl.scrollTop = savedScroll.top;
+                        newScrollEl.scrollLeft = savedScroll.left;
+                    }
+                });
             }
             if (prevSelectedPath) {
                 const updated = this.sceneManager.getScene(prevSelectedPath);
@@ -1735,4 +1735,4 @@ export class TimelineView extends ItemView {
         });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

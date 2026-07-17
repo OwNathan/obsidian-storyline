@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ButtonComponent, ItemView, Modal, Notice, Setting, TFile, TextComponent, WorkspaceLeaf } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { LOCATION_VIEW_TYPE } from '../constants';
@@ -19,6 +19,7 @@ import {
     renderCustomSectionsAtSlot,
     renderAddCustomSectionButton,
     type CustomSectionsHost,
+    type CustomSection,
 } from '../components/CustomSectionsRenderer';
 import type { UniversalFieldTemplate } from '../services/FieldTemplateService';
 import { formatActChapterPrefix } from '../utils/actChapter';
@@ -158,7 +159,7 @@ export class LocationView extends ItemView {
 
     private renderOverview(container: HTMLElement): void {
         container.empty();
-        container.createEl('h3', { text: 'Worlds & Locations' });
+        container.createEl('h3', { text: 'Worlds & locations' });
 
         // Search + Sort
         const searchRow = container.createDiv('codex-search-row');
@@ -272,7 +273,7 @@ export class LocationView extends ItemView {
             const emptyIcon = empty.createDiv('location-empty-icon');
             obsidian.setIcon(emptyIcon, 'map');
             empty.createEl('h4', { text: 'No worlds or locations yet' });
-            empty.createEl('p', { text: 'Click "+ World" to create a worldbuilding profile, or "+ Location" to add a specific place.' });
+            empty.createEl('p', { text: 'Click "+ world" to create a worldbuilding profile, or "+ location" to add a specific place.' });
             return;
         }
 
@@ -287,7 +288,7 @@ export class LocationView extends ItemView {
         if (orphanLocations.length > 0) {
             if (worlds.length > 0) {
                 const divider = tree.createDiv('location-orphan-divider');
-                divider.createEl('span', { text: 'Standalone Locations' });
+                divider.createSpan({ text: 'Standalone Locations' });
             }
             for (const loc of orphanLocations) {
                 this.renderLocationNode(tree, loc, scenes, 0);
@@ -305,7 +306,7 @@ export class LocationView extends ItemView {
 
         if (unlinked.length > 0) {
             const divider = tree.createDiv('location-orphan-divider');
-            divider.createEl('span', { text: 'Locations from scenes (no profile yet)' });
+            divider.createSpan({ text: 'Locations from scenes (no profile yet)' });
             for (const name of unlinked) {
                 this.renderUnlinkedLocation(tree, name, scenes);
             }
@@ -347,10 +348,8 @@ export class LocationView extends ItemView {
                 img.onerror = () => {
                     img.remove();
                     obsidian.setIcon(icon, 'globe');
-                    console.log('Failed to load world image:', world.image);
                 };
             } catch (error) {
-                console.error('Error loading world image:', error);
                 obsidian.setIcon(icon, 'globe');
             }
         } else {
@@ -416,10 +415,8 @@ export class LocationView extends ItemView {
                 img.onerror = () => {
                     img.remove();
                     obsidian.setIcon(icon, 'map-pin');
-                    console.log('Failed to load location image:', loc.image);
                 };
             } catch (error) {
-                console.error('Error loading location image:', error);
                 obsidian.setIcon(icon, 'map-pin');
             }
         } else {
@@ -590,7 +587,7 @@ export class LocationView extends ItemView {
 
         // Header
         const header = container.createDiv('location-detail-header');
-        const backBtn = header.createEl('span', { cls: 'codex-nav-back-link' });
+        const backBtn = header.createSpan({ cls: 'codex-nav-back-link' });
         const backIcon = backBtn.createSpan();
         obsidian.setIcon(backIcon, 'circle-arrow-left');
         backBtn.createSpan({ text: ' All Locations' });
@@ -643,17 +640,15 @@ export class LocationView extends ItemView {
                         img.remove();
                         const ph = portraitArea.createDiv('location-detail-portrait-placeholder');
                         obsidian.setIcon(ph, 'image');
-                        console.log('Failed to load location detail image:', draft.image);
                     };
                 } catch (error) {
-                    console.error('Error loading location detail image:', error);
                     const ph = portraitArea.createDiv('location-detail-portrait-placeholder');
                     obsidian.setIcon(ph, 'image');
                 }
             } else {
                 const ph = portraitArea.createDiv('location-detail-portrait-placeholder');
                 obsidian.setIcon(ph, 'image');
-                ph.createEl('span', { text: 'Click to add image' });
+                ph.createSpan({ text: 'Click to add image' });
             }
             const changeLabel = portraitArea.createDiv('location-portrait-change-label');
             changeLabel.textContent = draft.image ? 'Change image' : '';
@@ -845,7 +840,7 @@ export class LocationView extends ItemView {
         if (field.key !== 'name') {
             const hiddenKeys = this.plugin.settings.hiddenFields['location'] ?? [];
             const isHidden = hiddenKeys.includes(field.key);
-            const hideBtn = labelEl.createEl('span', {
+            const hideBtn = labelEl.createSpan({
                 cls: 'field-hide-btn',
                 attr: { 'aria-label': isHidden ? 'Show this field' : 'Hide this field' },
             });
@@ -897,7 +892,7 @@ export class LocationView extends ItemView {
             }
             // "+ Add custom type…" sentinel
             const ADD_SENTINEL = '__add_custom_type__';
-            select.createEl('option', { text: '+ Add custom type…', value: ADD_SENTINEL });
+            select.createEl('option', { text: '+ add custom type???', value: ADD_SENTINEL });
 
             select.addEventListener('change', async () => {
                 if (select.value === ADD_SENTINEL) {
@@ -961,7 +956,7 @@ export class LocationView extends ItemView {
         builtInKeys: string[],
         fieldKey: string,
     ): void {
-        const upBtn = labelEl.createEl('span', {
+        const upBtn = labelEl.createSpan({
             cls: 'field-move-btn',
             attr: { title: 'Move field up', 'aria-label': 'Move field up' },
         });
@@ -972,7 +967,7 @@ export class LocationView extends ItemView {
             if (this.rootContainer) this.renderDetail(this.rootContainer);
         });
 
-        const downBtn = labelEl.createEl('span', {
+        const downBtn = labelEl.createSpan({
             cls: 'field-move-btn',
             attr: { title: 'Move field down', 'aria-label': 'Move field down' },
         });
@@ -991,14 +986,18 @@ export class LocationView extends ItemView {
         builtInKeys?: string[],
     ): void {
         if (!draft.universalFields) draft.universalFields = {};
-        const value = (draft.universalFields[tpl.id] ?? '') as string;
+        // `universalFields` now holds `string | string[] | boolean` (checkbox
+        // support, 1.10.43). Keep `rawValue` as the union for the checkbox
+        // path and `value` as the coerced string for text / dropdown paths.
+        const rawValue = draft.universalFields[tpl.id];
+        const value: string = typeof rawValue === 'string' ? rawValue : '';
 
         const row = parent.createDiv('location-field-row codex-universal-field-row');
 
         const labelWrap = row.createDiv('codex-universal-label-wrap');
         labelWrap.createEl('label', { cls: 'location-field-label', text: tpl.label });
 
-        const editBtn = labelWrap.createEl('span', {
+        const editBtn = labelWrap.createSpan({
             cls: 'codex-universal-edit-btn',
             attr: { title: 'Edit or remove this universal field', 'aria-label': 'Edit field' },
         });
@@ -1036,7 +1035,7 @@ export class LocationView extends ItemView {
         });
 
         // Up/down move buttons — share field-move-btn styling for hover behavior.
-        const moveUpBtn = labelWrap.createEl('span', {
+        const moveUpBtn = labelWrap.createSpan({
             cls: 'codex-universal-move-btn',
             attr: { title: 'Move field up', 'aria-label': 'Move field up' },
         });
@@ -1049,7 +1048,7 @@ export class LocationView extends ItemView {
             if (this.rootContainer) this.renderDetail(this.rootContainer);
         });
 
-        const moveDownBtn = labelWrap.createEl('span', {
+        const moveDownBtn = labelWrap.createSpan({
             cls: 'codex-universal-move-btn',
             attr: { title: 'Move field down', 'aria-label': 'Move field down' },
         });
@@ -1187,13 +1186,13 @@ export class LocationView extends ItemView {
                 this.scheduleSave(draft);
             });
         } else if (tpl.type === 'checkbox') {
-            const checked = value === true || value === 'true' || value === 'yes';
+            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
             const wrap = row.createDiv('location-field-checkbox-wrap');
             const cb = wrap.createEl('input', {
                 cls: 'location-field-checkbox',
                 type: 'checkbox',
             });
-            cb.checked = !!checked;
+            cb.checked = checked;
             cb.addEventListener('change', () => {
                 draft.universalFields![tpl.id] = cb.checked;
                 this.scheduleSave(draft);
@@ -1239,7 +1238,7 @@ export class LocationView extends ItemView {
 
         // Parent location dropdown
         const parentRow = body.createDiv('location-field-row');
-        parentRow.createEl('label', { cls: 'location-field-label', text: 'Parent Location' });
+        parentRow.createEl('label', { cls: 'location-field-label', text: 'Parent location' });
         const parentSelect = parentRow.createEl('select', { cls: 'location-field-input dropdown' });
         parentSelect.createEl('option', { text: 'None (top-level)', value: '' });
         const allLocations = this.locationManager.getAllLocations()
@@ -1324,7 +1323,7 @@ export class LocationView extends ItemView {
             }
 
             const addRow = sectionBody.createDiv('location-custom-add-row');
-            const addBtn = addRow.createEl('button', { cls: 'location-custom-add-btn', text: '+ Add Field' });
+            const addBtn = addRow.createEl('button', { cls: 'location-custom-add-btn', text: '+ add field' });
             addBtn.addEventListener('click', () => {
                 if (!draft.custom) draft.custom = {};
                 let n = Object.keys(draft.custom).length + 1;
@@ -1353,7 +1352,12 @@ export class LocationView extends ItemView {
         if (!this.plugin.settings.locationCustomSections) {
             this.plugin.settings.locationCustomSections = [];
         }
-        const sections = this.plugin.settings.locationCustomSections;
+        // Settings store the loose `{ fields: Array<string | { name; type?: string; ... }> }`
+        // shape (comes from user JSON). CustomSectionsHost expects the
+        // narrower `CustomSection[]` where `type` is a `CustomFieldType`
+        // union. Cast at the boundary — the field renderers already treat
+        // unknown `type` values as plain text via `normalizeField()`.
+        const sections = this.plugin.settings.locationCustomSections as unknown as CustomSection[];
         return {
             app: this.app,
             draft,
@@ -1378,7 +1382,7 @@ export class LocationView extends ItemView {
 
         // Location count
         const statsBox = container.createDiv('location-side-stats');
-        statsBox.createEl('h4', { text: 'World Summary' });
+        statsBox.createEl('h4', { text: 'World summary' });
         const statGrid = statsBox.createDiv('location-stat-grid');
         this.renderStat(statGrid, String(locations.length), 'Locations');
 
@@ -1390,7 +1394,7 @@ export class LocationView extends ItemView {
         // Location list
         if (locations.length > 0) {
             const listSection = container.createDiv('location-side-list');
-            listSection.createEl('h4', { text: 'Locations in this World' });
+            listSection.createEl('h4', { text: 'Locations in this world' });
             for (const loc of locations) {
                 const item = listSection.createDiv('location-side-item');
                 const icon = item.createSpan('location-side-item-icon');
@@ -1421,7 +1425,7 @@ export class LocationView extends ItemView {
 
         // Stats
         const statsBox = container.createDiv('location-side-stats');
-        statsBox.createEl('h4', { text: 'Location Info' });
+        statsBox.createEl('h4', { text: 'Location info' });
 
         if (loc.world) {
             const worldInfo = statsBox.createDiv('location-side-world-info');
@@ -1523,7 +1527,7 @@ export class LocationView extends ItemView {
         if (!refs || refs.length === 0) return;
 
         const section = container.createDiv('location-references-panel');
-        section.createEl('h3', { text: 'Referenced By' });
+        section.createEl('h3', { text: 'Referenced by' });
 
         const groups: Record<string, typeof refs> = {};
         for (const ref of refs) {
@@ -1569,7 +1573,7 @@ export class LocationView extends ItemView {
             let name = '';
             new Setting(modal.contentEl)
                 .setName('Type name')
-                .setDesc('e.g. Planet, Star System, Galaxy, Dimension…')
+                .setDesc('E.g. Planet, star system, galaxy, dimension???')
                 .addText((text: TextComponent) => {
                     text.setPlaceholder('Planet');
                     text.onChange((v: string) => (name = v));
@@ -1638,7 +1642,7 @@ export class LocationView extends ItemView {
                 }
                 this.pendingSaveDraft = null;
             } catch (e) {
-                console.error('StoryLine: failed to save location/world', e);
+                void e;
             }
         }, 600);
     }
@@ -1672,7 +1676,7 @@ export class LocationView extends ItemView {
                     await this.locationManager.saveLocation(draft as StoryLocation);
                 }
             } catch (e) {
-                console.error('StoryLine: failed to flush-save location/world', e);
+                void e;
             }
         }
     }
@@ -1741,7 +1745,7 @@ export class LocationView extends ItemView {
                     await this.locationManager.saveLocation(draft as StoryLocation);
                 }
             } catch (e) {
-                console.error('StoryLine: failed to flush location/world save on close', e);
+                void e;
             }
             this.pendingSaveDraft = null;
         }
@@ -1751,7 +1755,7 @@ export class LocationView extends ItemView {
 
     private promptNewWorld(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('New World');
+        modal.titleEl.setText('New world');
 
         let name = '';
         new Setting(modal.contentEl)
@@ -1783,7 +1787,7 @@ export class LocationView extends ItemView {
 
     private promptNewLocation(worldName?: string): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('New Location');
+        modal.titleEl.setText('New location');
 
         let name = '';
         let selectedWorld = worldName || '';
@@ -2301,4 +2305,4 @@ export class LocationView extends ItemView {
         return pickImageModal(this.app, sceneFolder, currentImage);
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

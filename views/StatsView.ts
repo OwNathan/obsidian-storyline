@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-unused-vars, no-useless-escape -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { SceneManager } from '../services/SceneManager';
 import { renderViewSwitcher } from '../components/ViewSwitcher';
 import * as obsidian from 'obsidian';
@@ -34,7 +34,7 @@ export class StatsView extends ItemView {
     private plugin: SceneCardsPlugin;
     private sceneManager: SceneManager;
     private rootContainer: HTMLElement | null = null;
-    private proseCache: { readability: ReadabilityResult; wordFreq: [string, number][] } | null = null;
+    private proseCache: { readability: ReadabilityResult; wordFreq: [string, number][]; allWordFreq: [string, number][] } | null = null;
     private echoCache: { echoes: EchoCluster[]; perScene: SceneEchoReport[] } | null = null;
     private sprintTimerId: number | null = null;
 
@@ -231,7 +231,7 @@ export class StatsView extends ItemView {
     private renderWritingSprint(parent: HTMLElement, currentTotalWords: number): void {
         const tracker = this.plugin.writingTracker;
         const section = parent.createDiv('stats-section');
-        section.createEl('h4', { text: 'Writing Sprint' });
+        section.createEl('h4', { text: 'Writing sprint' });
 
         // ── Sprint Timer Controls ──────────────────────
         const sprintPanel = section.createDiv('stats-sprint-controls');
@@ -455,7 +455,7 @@ export class StatsView extends ItemView {
         const summary = tracker.getSprintSummary();
         if (summary.count === 0) return;
 
-        container.createEl('h5', { cls: 'stats-subsection-title', text: 'Sprint History' });
+        container.createEl('h5', { cls: 'stats-subsection-title', text: 'Sprint history' });
         const summaryRow = container.createDiv('stats-sprint-row');
         this.createStatCard(summaryRow, 'timer', 'Sprints', String(summary.count));
         this.createStatCard(summaryRow, 'pencil', 'Sprint Words', summary.totalWords.toLocaleString());
@@ -550,7 +550,7 @@ export class StatsView extends ItemView {
     ): void {
         // ── Status breakdown ──
         const statusSec = parent.createDiv('stats-subsection');
-        statusSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Status Breakdown' });
+        statusSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Status breakdown' });
         const statusList = statusSec.createEl('ul', { cls: 'stats-list' });
 
         const allStatuses = getStatusOrder();
@@ -587,7 +587,7 @@ export class StatsView extends ItemView {
 
         if (chapEntries.length > 1) {
             const chapSec = parent.createDiv('stats-subsection');
-            chapSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Chapter Word Counts' });
+            chapSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Chapter word counts' });
             const maxCw = Math.max(...chapEntries.map(([, v]) => v.words), 1);
             const medianCw = this.median(chapEntries.map(([, v]) => v.words));
             const outlierThresh = medianCw * 1.5;
@@ -619,7 +619,7 @@ export class StatsView extends ItemView {
         );
         if (actEntries.length > 0) {
             const actSec = parent.createDiv('stats-subsection');
-            actSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Act Balance' });
+            actSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Act balance' });
             for (const [act, count] of actEntries) {
                 const pct = stats.totalScenes > 0 ? Math.round((count / stats.totalScenes) * 100) : 0;
                 const row = actSec.createDiv('stats-row');
@@ -671,7 +671,7 @@ export class StatsView extends ItemView {
         const povEntries = Object.entries(mergedPov).sort(([, a], [, b]) => b - a);
         if (povEntries.length > 0) {
             const sec = parent.createDiv('stats-subsection');
-            sec.createEl('h5', { cls: 'stats-subsection-title', text: 'POV Distribution' });
+            sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Pov distribution' });
             const maxPov = Math.max(...povEntries.map(([, c]) => c), 1);
             for (const [pov, count] of povEntries) {
                 const pct = stats.totalScenes > 0 ? Math.round((count / stats.totalScenes) * 100) : 0;
@@ -690,7 +690,7 @@ export class StatsView extends ItemView {
         const charEntries = Object.entries(charCounts).sort(([, a], [, b]) => b - a);
         if (charEntries.length > 0) {
             const sec = parent.createDiv('stats-subsection');
-            sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Character Scene Coverage' });
+            sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Character scene coverage' });
             const maxC = Math.max(...charEntries.map(([, c]) => c), 1);
             const LIMIT = 15;
             const renderRows = (entries: [string, number][], container: HTMLElement) => {
@@ -718,7 +718,7 @@ export class StatsView extends ItemView {
         const locEntries = Object.entries(stats.locationCounts).sort(([, a], [, b]) => b - a);
         if (locEntries.length > 0) {
             const sec = parent.createDiv('stats-subsection');
-            sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Location Frequency' });
+            sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Location frequency' });
             const maxL = Math.max(...locEntries.map(([, c]) => c), 1);
             for (const [loc, count] of locEntries.slice(0, 15)) {
                 const row = sec.createDiv('stats-row');
@@ -777,7 +777,7 @@ export class StatsView extends ItemView {
         const maxCount = Math.max(...charEntries.flatMap(c => Object.values(c.counts)), 1);
 
         const sec = parent.createDiv('stats-subsection');
-        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Character × Chapter Heatmap' });
+        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Character — chapter heatmap' });
         sec.createEl('p', { cls: 'stats-hint', text: 'Darker cells = more scene appearances in that chapter.' });
 
         const table = sec.createEl('table', { cls: 'stats-heatmap-table' });
@@ -965,7 +965,7 @@ export class StatsView extends ItemView {
 
         // ── Avg scene length per act ──
         const avgSec = parent.createDiv('stats-subsection');
-        avgSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Avg Scene Length per Act' });
+        avgSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Avg scene length per act' });
 
         const actWordMap: Record<string, { total: number; count: number }> = {};
         for (const s of allScenes) {
@@ -992,7 +992,7 @@ export class StatsView extends ItemView {
 
         // ── Word-count distribution histogram ──
         const distSec = parent.createDiv('stats-subsection');
-        distSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Word Count Distribution' });
+        distSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Word count distribution' });
 
         const wcs = allScenes.map(s => s.wordcount || 0);
         const maxWc = Math.max(...wcs, 1);
@@ -1085,7 +1085,7 @@ export class StatsView extends ItemView {
 
         const overallPct = totalAll > 0 ? Math.round((totalDlg / totalAll) * 100) : 0;
         const sec = parent.createDiv('stats-subsection');
-        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Dialogue vs Narrative' });
+        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Dialogue vs narrative' });
         sec.createEl('p', { text: `Overall: ${overallPct}% dialogue, ${100 - overallPct}% narrative` });
 
         for (const [act, data] of Object.entries(actDlg).sort(([a], [b]) =>
@@ -1104,7 +1104,7 @@ export class StatsView extends ItemView {
 
     private renderTensionCurve(parent: HTMLElement, scenes: { title: string; intensity?: number }[]): void {
         const sec = parent.createDiv('stats-subsection');
-        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Tension Curve' });
+        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Tension curve' });
         const chart = sec.createDiv('tension-chart');
         for (const scene of scenes) {
             const col = chart.createDiv('tension-col');
@@ -1142,6 +1142,7 @@ export class StatsView extends ItemView {
             this.proseCache = {
                 readability: this.computeReadability(allText),
                 wordFreq: this.computeWordFrequency(allText),
+                allWordFreq: this.computeAllWordFrequency(allText),
             };
             spinner.remove();
             this.renderProseResults(parent, this.proseCache);
@@ -1150,7 +1151,7 @@ export class StatsView extends ItemView {
 
     private renderProseResults(
         parent: HTMLElement,
-        cache: { readability: ReadabilityResult; wordFreq: [string, number][] },
+        cache: { readability: ReadabilityResult; wordFreq: [string, number][]; allWordFreq: [string, number][] },
     ): void {
         const { readability, wordFreq } = cache;
 
@@ -1176,23 +1177,46 @@ export class StatsView extends ItemView {
                 : 'Difficult — dense or academic prose.';
             rSec.createEl('p', { cls: 'stats-hint', text: interp });
         } else {
-            rSec.createEl('p', { cls: 'stats-hint', text: 'Flesch readability scores are tuned for English prose; only sentence/word averages are shown for the current project language.' });
+            rSec.createEl('p', { cls: 'stats-hint', text: 'Flesch readability scores are tuned for english prose; only sentence/word averages are shown for the current project language.' });
         }
 
-        // Word frequency — top 20
+        // Word frequency — top 20, with toggle to include all words
         const totalWc = wordFreq.reduce((s, [, c]) => s + c, 0);
+        const totalAllWc = cache.allWordFreq.reduce((s, [, c]) => s + c, 0);
         const fSec = parent.createDiv('stats-subsection');
-        fSec.createEl('h5', { cls: 'stats-subsection-title', text: 'Most Used Words' });
+        const fHeader = fSec.createDiv('stats-word-freq-header');
+        fHeader.createEl('h5', { cls: 'stats-subsection-title', text: 'Most used words' });
 
-        const top20 = wordFreq.slice(0, 20);
-        const maxF = top20.length > 0 ? top20[0][1] : 1;
-        for (const [word, count] of top20) {
-            const r = fSec.createDiv('stats-row stats-word-freq-row');
-            r.createSpan({ cls: 'stats-word-freq-word', text: word });
-            r.createSpan({ cls: 'stats-word-freq-count', text: `${count.toLocaleString()} (${((count / totalWc) * 100).toFixed(2)}%)` });
-            const bar = r.createDiv('stats-bar');
-            bar.createDiv('stats-bar-fill').setCssStyles({ width: `${(count / maxF) * 100}%` });
-        }
+        // Toggle: "Exclude common words" (default on) vs "Include all words"
+        const toggleWrap = fHeader.createEl('label', { cls: 'sl-toggle-wrap stats-word-freq-toggle' });
+        const toggleCb = toggleWrap.createEl('input', { type: 'checkbox' });
+        toggleCb.checked = true;
+        toggleWrap.createSpan({ cls: 'stats-word-freq-toggle-label', text: 'Exclude common words' });
+
+        const wordListEl = fSec.createDiv('stats-word-freq-list');
+
+        const renderWordList = (useFiltered: boolean) => {
+            wordListEl.empty();
+            const source = useFiltered ? wordFreq : cache.allWordFreq;
+            const total = useFiltered ? totalWc : totalAllWc;
+            const top20 = source.slice(0, 20);
+            const maxF = top20.length > 0 ? top20[0][1] : 1;
+            for (const [word, count] of top20) {
+                const r = wordListEl.createDiv('stats-row stats-word-freq-row');
+                r.createSpan({ cls: 'stats-word-freq-word', text: word });
+                r.createSpan({ cls: 'stats-word-freq-count', text: `${count.toLocaleString()} (${((count / total) * 100).toFixed(2)}%)` });
+                const bar = r.createDiv('stats-bar');
+                bar.createDiv('stats-bar-fill').setCssStyles({ width: `${(count / maxF) * 100}%` });
+            }
+            if (!useFiltered) {
+                wordListEl.createEl('p', { cls: 'stats-hint', text: 'Showing all words including common words and character names.' });
+            }
+        };
+        renderWordList(true);
+
+        toggleCb.addEventListener('change', () => {
+            renderWordList(toggleCb.checked);
+        });
 
         // Overused words (>0.5% of total)
         const overused = wordFreq.filter(([, c]) => (c / totalWc) > 0.005);
@@ -1281,6 +1305,28 @@ export class StatsView extends ItemView {
         const tokens = tokenizeWords(clean, locale)
             .map(w => normalizeAnalysisToken(w, locale))
             .filter(w => isSignificantWord(w, locale, stop));
+
+        const freq: Record<string, number> = {};
+        for (const w of tokens) freq[w] = (freq[w] || 0) + 1;
+        return Object.entries(freq).sort(([, a], [, b]) => b - a);
+    }
+
+    /**
+     * Compute word frequency WITHOUT stop-word filtering. Includes all
+     * words (character names, common words, etc.) so users can see the
+     * true count of every word across all chapters.
+     */
+    private computeAllWordFrequency(text: string): [string, number][] {
+        const locale: StoryLineLocale = this.plugin.sceneManager?.getEffectiveLocale() ?? DEFAULT_STORYLINE_LOCALE;
+        const clean = text
+            .replace(/^---[\s\S]*?---/gm, '')
+            .replace(/\[\[([^\]|]+)(\|([^\]]+))?\]\]/g, '$3$1')
+            .replace(/[#*_~`>\[\]()!]/g, '')
+            .toLowerCase();
+
+        const tokens = tokenizeWords(clean, locale)
+            .map(w => normalizeAnalysisToken(w, locale))
+            .filter(w => w.length > 0);
 
         const freq: Record<string, number> = {};
         for (const w of tokens) freq[w] = (freq[w] || 0) + 1;
@@ -1436,9 +1482,10 @@ export class StatsView extends ItemView {
         echoSec.createEl('h5', { cls: 'stats-subsection-title', text: `Proximity Echoes (${echoes.length} scene${echoes.length !== 1 ? 's' : ''})` });
         echoSec.createEl('p', { cls: 'stats-hint', text: 'Words repeated within 3 sentences of each other — often unintentional.' });
 
-        const shown = echoes.slice(0, 10);
-        for (const cluster of shown) {
-            const row = echoSec.createDiv('stats-echo-scene');
+        // Show all scenes in a scrollable container (was limited to 10).
+        const echoList = echoSec.createDiv('stats-echo-list');
+        for (const cluster of echoes) {
+            const row = echoList.createDiv('stats-echo-scene');
             const link = row.createEl('a', { text: cluster.sceneTitle, cls: 'stats-scene-link' });
             link.addEventListener('click', () => {
                 this.app.workspace.openLinkText(cluster.filePath, '', true);
@@ -1452,20 +1499,18 @@ export class StatsView extends ItemView {
                 });
             }
         }
-        if (echoes.length > 10) {
-            echoSec.createEl('p', { cls: 'stats-hint', text: `…and ${echoes.length - 10} more scenes with echoes.` });
-        }
 
         // Per-scene favourites (words overused relative to manuscript average)
         const withFavourites = perScene.filter(r => r.favourites.length > 0);
         if (withFavourites.length > 0) {
             const favSec = parent.createDiv('stats-subsection');
-            favSec.createEl('h5', { cls: 'stats-subsection-title stats-overused-title', text: 'Scene-specific Favourite Words' });
+            favSec.createEl('h5', { cls: 'stats-subsection-title stats-overused-title', text: 'Scene-specific favourite words' });
             favSec.createEl('p', { cls: 'stats-hint', text: 'Words used much more in a specific scene than in the rest of the manuscript.' });
 
-            const showFav = withFavourites.slice(0, 10);
-            for (const report of showFav) {
-                const row = favSec.createDiv('stats-echo-scene');
+            // Show all scenes with favourites in a scrollable container (was limited to 10).
+            const favList = favSec.createDiv('stats-echo-list');
+            for (const report of withFavourites) {
+                const row = favList.createDiv('stats-echo-scene');
                 const link = row.createEl('a', { text: report.sceneTitle, cls: 'stats-scene-link' });
                 link.addEventListener('click', () => {
                     this.app.workspace.openLinkText(report.filePath, '', true);
@@ -1480,9 +1525,6 @@ export class StatsView extends ItemView {
                     });
                 }
             }
-            if (withFavourites.length > 10) {
-                favSec.createEl('p', { cls: 'stats-hint', text: `…and ${withFavourites.length - 10} more scenes.` });
-            }
         }
     }
 
@@ -1495,7 +1537,7 @@ export class StatsView extends ItemView {
         if (ordered.length < 3) return;
 
         const sec = parent.createDiv('stats-subsection');
-        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Pacing Coach' });
+        sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Pacing coach' });
         sec.createEl('p', { cls: 'stats-hint', text: 'Scene length (bars) with conflict presence (dots). Long scenes without conflict may slow pacing.' });
 
         const maxWc = Math.max(...ordered.map(s => s.wordcount || 0), 1);
@@ -1619,7 +1661,7 @@ export class StatsView extends ItemView {
         } else {
             parent.createEl('p', {
                 cls: 'stats-ok',
-                text: 'Plot hole detection is disabled. Enable it in Settings → Advanced.',
+                text: 'Plot hole detection is disabled. Enable it in settings — advanced.',
             });
         }
     }
@@ -1750,4 +1792,4 @@ interface SceneEchoReport {
     favourites: { word: string; sceneRate: number; globalRate: number; count: number }[];
     echoCount: number;
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-unused-vars, no-useless-escape -- end of file-wide suppression block opened at line 1 */

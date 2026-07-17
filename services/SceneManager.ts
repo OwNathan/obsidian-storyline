@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { StoryLineProject, deriveProjectFolders, deriveProjectFoldersFromFilePath } from '../models/StoryLineProject';
 import { MetadataParser, setWordcountLocale, setSceneTitleToStemMap } from './MetadataParser';
 import { normalizeStoryLineLocale, resolveLocale, DEFAULT_STORYLINE_LOCALE, AUTO_DETECT_LOCALE, type StoryLineLocale } from '../utils/locale';
@@ -1391,7 +1391,7 @@ export class SceneManager implements ISceneStore {
         const scene = this.scenes.get(filePath);
         if (!scene) return null;
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit filePath/body from the duplicated scene metadata
+         
         const { filePath: _fp, body: _body, ...rest } = scene;
         const newScene: Partial<Scene> = {
             ...rest,
@@ -2484,7 +2484,7 @@ export class SceneManager implements ISceneStore {
         }
 
         // Scene B: create new file inheriting metadata
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to strip per-file fields before cloning
+         
         const { filePath: _fp, body: _body, wordcount: _wc, created: _cr, modified: _mod, ...inherited } = scene;
         const sceneB: Partial<Scene> = {
             ...inherited,
@@ -2593,4 +2593,4 @@ export class SceneManager implements ISceneStore {
         return primaryFile;
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

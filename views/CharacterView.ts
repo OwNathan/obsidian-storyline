@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import * as obsidian from 'obsidian';
 import { SceneManager } from '../services/SceneManager';
 import { CharacterManager } from '../services/CharacterManager';
@@ -14,6 +14,7 @@ import {
     renderCustomSectionsAtSlot,
     renderAddCustomSectionButton,
     type CustomSectionsHost,
+    type CustomSection,
 } from '../components/CustomSectionsRenderer';
 import type { UniversalFieldTemplate } from '../services/FieldTemplateService';
 import { formatActChapterPrefix } from '../utils/actChapter';
@@ -387,7 +388,7 @@ export class CharacterView extends ItemView {
                 // Divider
                 if (fileCharacters.length > 0) {
                     const divider = container.createDiv('character-unlinked-divider');
-                    divider.createEl('span', { text: 'Characters from scenes (no profile yet)' });
+                    divider.createSpan({ text: 'Characters from scenes (no profile yet)' });
                 }
                 const ugrid = container.createDiv('character-overview-grid');
                 for (const name of deduped) {
@@ -399,7 +400,7 @@ export class CharacterView extends ItemView {
             const emptyIcon = empty.createDiv('character-empty-icon');
             obsidian.setIcon(emptyIcon, 'user-plus');
             empty.createEl('h4', { text: 'No characters yet' });
-            empty.createEl('p', { text: 'Click "+ New Character" to create your first character profile, or add characters to your scene frontmatter.' });
+            empty.createEl('p', { text: 'Click "+ new character" to create your first character profile, or add characters to your scene frontmatter.' });
         }
     }
 
@@ -610,7 +611,7 @@ export class CharacterView extends ItemView {
 
         const btnRow = card.createDiv('character-unlinked-actions');
 
-        const createBtn = btnRow.createEl('button', { cls: 'character-create-profile-btn', text: 'Create Profile' });
+        const createBtn = btnRow.createEl('button', { cls: 'character-create-profile-btn', text: 'Create profile' });
         createBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
             await this.createCharacterFromName(name);
@@ -711,7 +712,7 @@ export class CharacterView extends ItemView {
 
     private renderRelationshipMap(container: HTMLElement): void {
         container.empty();
-        container.createEl('h3', { text: 'Relationship Map' });
+        container.createEl('h3', { text: 'Relationship map' });
 
         const characters = this.characterManager.getAllCharacters();
         const mapContainer = container.createDiv('relationship-map-container');
@@ -759,7 +760,7 @@ export class CharacterView extends ItemView {
 
     private renderStoryGraph(container: HTMLElement): void {
         container.empty();
-        container.createEl('h3', { text: 'Story Graph' });
+        container.createEl('h3', { text: 'Story graph' });
 
         const scenes = this.sceneManager.getAllScenes().filter(scene => !scene.inactive);
         const characters = this.characterManager.getAllCharacters();
@@ -809,7 +810,7 @@ export class CharacterView extends ItemView {
 
         // Back button + character name header
         const header = container.createDiv('character-detail-header');
-        const backBtn = header.createEl('span', { cls: 'codex-nav-back-link' });
+        const backBtn = header.createSpan({ cls: 'codex-nav-back-link' });
         const backIcon = backBtn.createSpan();
         obsidian.setIcon(backIcon, 'circle-arrow-left');
         backBtn.createSpan({ text: ' All Characters' });
@@ -1037,7 +1038,7 @@ export class CharacterView extends ItemView {
         if (field.key !== 'name') {
             const hiddenKeys = this.plugin.settings.hiddenFields['character'] ?? [];
             const isHidden = hiddenKeys.includes(field.key);
-            const hideBtn = labelEl.createEl('span', {
+            const hideBtn = labelEl.createSpan({
                 cls: 'field-hide-btn',
                 attr: { 'aria-label': isHidden ? 'Show this field' : 'Hide this field' },
             });
@@ -1177,7 +1178,7 @@ export class CharacterView extends ItemView {
         builtInKeys: string[],
         fieldKey: string,
     ): void {
-        const upBtn = labelEl.createEl('span', {
+        const upBtn = labelEl.createSpan({
             cls: 'field-move-btn',
             attr: { title: 'Move field up', 'aria-label': 'Move field up' },
         });
@@ -1188,7 +1189,7 @@ export class CharacterView extends ItemView {
             if (this.selectedCharacter && this.rootContainer) this.renderCharacterDetail(this.rootContainer);
         });
 
-        const downBtn = labelEl.createEl('span', {
+        const downBtn = labelEl.createSpan({
             cls: 'field-move-btn',
             attr: { title: 'Move field down', 'aria-label': 'Move field down' },
         });
@@ -1211,7 +1212,11 @@ export class CharacterView extends ItemView {
         builtInKeys?: string[],
     ): void {
         if (!draft.universalFields) draft.universalFields = {};
-        const value = (draft.universalFields[tpl.id] ?? '') as string;
+        // 1.10.43: `universalFields` values can be string | string[] | boolean.
+        // `value` is the coerced string used by text / dropdown paths; the
+        // checkbox path reads `rawValue` to detect the actual boolean.
+        const rawValue = draft.universalFields[tpl.id];
+        const value: string = typeof rawValue === 'string' ? rawValue : '';
 
         const row = parent.createDiv('character-field-row character-universal-field-row');
 
@@ -1219,7 +1224,7 @@ export class CharacterView extends ItemView {
         const labelWrap = row.createDiv('character-universal-label-wrap');
         labelWrap.createEl('label', { cls: 'character-field-label', text: tpl.label });
 
-        const editBtn = labelWrap.createEl('span', {
+        const editBtn = labelWrap.createSpan({
             cls: 'character-universal-edit-btn',
             attr: { title: 'Edit or remove this universal field', 'aria-label': 'Edit field' },
         });
@@ -1258,7 +1263,7 @@ export class CharacterView extends ItemView {
         });
 
         // Issue #92 — up/down move buttons (revealed on hover)
-        const moveUpBtn = labelWrap.createEl('span', {
+        const moveUpBtn = labelWrap.createSpan({
             cls: 'character-universal-move-btn',
             attr: { title: 'Move field up', 'aria-label': 'Move field up' },
         });
@@ -1271,7 +1276,7 @@ export class CharacterView extends ItemView {
             if (this.selectedCharacter && this.rootContainer) this.renderCharacterDetail(this.rootContainer);
         });
 
-        const moveDownBtn = labelWrap.createEl('span', {
+        const moveDownBtn = labelWrap.createSpan({
             cls: 'character-universal-move-btn',
             attr: { title: 'Move field down', 'aria-label': 'Move field down' },
         });
@@ -1431,13 +1436,13 @@ export class CharacterView extends ItemView {
                 autoGrow();
             });
         } else if (tpl.type === 'checkbox') {
-            const checked = value === true || value === 'true' || value === 'yes';
+            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
             const wrap = row.createDiv('character-field-checkbox-wrap');
             const cb = wrap.createEl('input', {
                 cls: 'character-field-checkbox',
                 type: 'checkbox',
             });
-            cb.checked = !!checked;
+            cb.checked = checked;
             cb.addEventListener('change', () => {
                 draft.universalFields![tpl.id] = cb.checked;
                 this.scheduleSave(draft);
@@ -1500,7 +1505,7 @@ export class CharacterView extends ItemView {
                 const roleInput = r.createEl('input', {
                     cls: 'character-role-history-input character-role-history-role',
                     type: 'text',
-                    attr: { placeholder: 'role', list: roleListId },
+                    attr: { placeholder: 'Role', list: roleListId },
                 });
                 roleInput.value = entry.role || '';
                 const dl = r.createEl('datalist', { attr: { id: roleListId } });
@@ -1513,7 +1518,7 @@ export class CharacterView extends ItemView {
                 const fromInput = r.createEl('input', {
                     cls: 'character-role-history-input character-role-history-from',
                     type: 'text',
-                    attr: { placeholder: 'from (scene or [[wikilink]])' },
+                    attr: { placeholder: 'From (scene or [[wikilink]])' },
                 });
                 fromInput.value = entry.from || '';
                 fromInput.addEventListener('input', () => {
@@ -1524,7 +1529,7 @@ export class CharacterView extends ItemView {
                 const plotInput = r.createEl('input', {
                     cls: 'character-role-history-input character-role-history-plotline',
                     type: 'text',
-                    attr: { placeholder: 'plotline' },
+                    attr: { placeholder: 'Plotline' },
                 });
                 plotInput.value = entry.plotline || '';
                 plotInput.addEventListener('input', () => {
@@ -1535,7 +1540,7 @@ export class CharacterView extends ItemView {
                 const bookInput = r.createEl('input', {
                     cls: 'character-role-history-input character-role-history-book',
                     type: 'text',
-                    attr: { placeholder: 'book label' },
+                    attr: { placeholder: 'Book label' },
                 });
                 bookInput.value = entry.book || '';
                 bookInput.addEventListener('input', () => {
@@ -1565,7 +1570,7 @@ export class CharacterView extends ItemView {
 
         const addBtn = container.createEl('button', {
             cls: 'character-role-history-add',
-            text: '+ Add role entry',
+            text: '+ add role entry',
             attr: { type: 'button' },
         });
         addBtn.addEventListener('click', () => {
@@ -1611,25 +1616,16 @@ export class CharacterView extends ItemView {
             for (const category of RELATION_CATEGORIES) {
                 const types = RELATION_TYPES_BY_CATEGORY[category.value];
                 if (types.length === 0) continue;
-                const group = activeDocument.createElement('optgroup');
-                group.label = category.label;
+                // createEl helpers (obsidianmd/prefer-create-el)
+                const group = select.createEl('optgroup', { attr: { label: category.label } });
                 for (const type of types) {
-                    const opt = activeDocument.createElement('option');
-                    opt.value = type;
-                    opt.text = type;
+                    const opt = group.createEl('option', { text: type, value: type });
                     if (currentType === type) opt.selected = true;
-                    group.appendChild(opt);
                 }
-                select.appendChild(group);
             }
 
-            const customGroup = activeDocument.createElement('optgroup');
-            customGroup.label = 'Custom';
-            const createOpt = activeDocument.createElement('option');
-            createOpt.value = NEW_CUSTOM_TYPE_VALUE;
-            createOpt.text = 'New';
-            customGroup.appendChild(createOpt);
-            select.appendChild(customGroup);
+            const customGroup = select.createEl('optgroup', { attr: { label: 'Custom' } });
+            customGroup.createEl('option', { text: 'New', value: NEW_CUSTOM_TYPE_VALUE });
 
             if (!select.value) {
                 const fallback = RELATION_TYPES_BY_CATEGORY.family[0] || 'sibling';
@@ -1652,7 +1648,7 @@ export class CharacterView extends ItemView {
                 const customTypeInput = inlineRow.createEl('input', {
                     cls: 'character-field-input relation-builder-type relation-builder-custom-input',
                     type: 'text',
-                    attr: { placeholder: 'Custom relation type (e.g. bodyguard)' },
+                    attr: { placeholder: 'Custom relation type (e.g. Bodyguard)' },
                 });
                 customTypeInput.setCssStyles({ display: 'none' });
                 const dragHandle = inlineRow.createDiv('relation-builder-drag-handle');
@@ -1770,7 +1766,7 @@ export class CharacterView extends ItemView {
             }
         };
 
-        const addBtn = addRow.createEl('button', { cls: 'character-custom-add-btn', text: '+ Add relation' });
+        const addBtn = addRow.createEl('button', { cls: 'character-custom-add-btn', text: '+ add relation' });
         addBtn.addEventListener('click', () => {
             const existing = addRow.querySelector('.relation-builder-add-picker') as HTMLSelectElement | null;
             if (existing) {
@@ -1903,7 +1899,7 @@ export class CharacterView extends ItemView {
 
             // Add button
             const addRow = sectionBody.createDiv('character-custom-add-row');
-            const addBtn = addRow.createEl('button', { cls: 'character-custom-add-btn', text: '+ Add Field' });
+            const addBtn = addRow.createEl('button', { cls: 'character-custom-add-btn', text: '+ add field' });
             addBtn.addEventListener('click', () => {
                 if (!draft.custom) draft.custom = {};
                 const n = Object.keys(draft.custom).length + 1;
@@ -1929,7 +1925,10 @@ export class CharacterView extends ItemView {
         if (!this.plugin.settings.characterCustomSections) {
             this.plugin.settings.characterCustomSections = [];
         }
-        const sections = this.plugin.settings.characterCustomSections;
+        // Settings store the loose JSON shape; CustomSectionsHost expects
+        // the narrower CustomSection[]. Cast at the boundary — the field
+        // renderers normalise unknown `type` values via `normalizeField()`.
+        const sections = this.plugin.settings.characterCustomSections as unknown as CustomSection[];
         return {
             app: this.app,
             draft,
@@ -2153,7 +2152,7 @@ export class CharacterView extends ItemView {
 
         // Stats summary
         const statsBox = container.createDiv('character-side-stats');
-        statsBox.createEl('h4', { text: 'Scene Presence' });
+        statsBox.createEl('h4', { text: 'Scene presence' });
 
         const statGrid = statsBox.createDiv('character-stat-grid');
         this.renderStat(statGrid, String(povScenes.length), 'POV');
@@ -2173,7 +2172,7 @@ export class CharacterView extends ItemView {
 
         if (totalScenes > 0) {
             const progressSection = container.createDiv('character-progress');
-            progressSection.createEl('h4', { text: 'Writing Progress' });
+            progressSection.createEl('h4', { text: 'Writing progress' });
             const progressBar = progressSection.createDiv('character-progress-bar');
             const filled = progressBar.createDiv('character-progress-filled');
             const percent = Math.round((completedScenes / totalScenes) * 100);
@@ -2249,7 +2248,7 @@ export class CharacterView extends ItemView {
 
                     // Show section
                     pgSection.setCssStyles({ display: '' });
-                    pgSection.createEl('h4', { text: 'Plotgrid Appearances' });
+                    pgSection.createEl('h4', { text: 'Plotgrid appearances' });
                     const sortedRows = [...pgRows].sort();
                     for (const rowLabel of sortedRows) {
                         const item = pgSection.createDiv('character-side-scene-item');
@@ -2293,7 +2292,7 @@ export class CharacterView extends ItemView {
         if (linked.length === 0) return;
 
         const section = container.createDiv('character-linked-aliases-panel');
-        section.createEl('h3', { text: 'Linked Aliases' });
+        section.createEl('h3', { text: 'Linked aliases' });
 
         const desc = section.createEl('p', {
             cls: 'setting-item-description',
@@ -2332,7 +2331,7 @@ export class CharacterView extends ItemView {
         if (!refs || refs.length === 0) return;
 
         const section = container.createDiv('character-references-panel');
-        section.createEl('h3', { text: 'Referenced By' });
+        section.createEl('h3', { text: 'Referenced by' });
 
         const groups: Record<string, typeof refs> = {};
         for (const ref of refs) {
@@ -2521,7 +2520,7 @@ export class CharacterView extends ItemView {
 
     private promptNewCharacter(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('New Character');
+        modal.titleEl.setText('New character');
 
         let name = '';
         new Setting(modal.contentEl)
@@ -2575,7 +2574,7 @@ export class CharacterView extends ItemView {
 
     private confirmDeleteCharacter(character: Character): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Delete Character');
+        modal.titleEl.setText('Delete character');
         modal.contentEl.createEl('p', {
             text: `Are you sure you want to delete "${character.name}"? The file will be moved to trash.`
         });
@@ -2660,7 +2659,7 @@ export class CharacterView extends ItemView {
         const scenesAfter = sortedAll.filter(s => (s.sequence ?? 0) > lastCharSeq).length;
 
         const section = container.createDiv('character-gaps-section');
-        section.createEl('h4', { text: 'Presence Gaps' });
+        section.createEl('h4', { text: 'Presence gaps' });
 
         if (gaps.length === 0 && scenesBefore < GAP_THRESHOLD && scenesAfter < GAP_THRESHOLD) {
             const okDiv = section.createDiv('character-gap-ok');
@@ -2706,7 +2705,7 @@ export class CharacterView extends ItemView {
 
     private renderIntensityCurve(container: HTMLElement, _character: string, scenes: Scene[]): void {
         const section = container.createDiv('character-arc-section');
-        section.createEl('h4', { text: 'Character Arc (Intensity)' });
+        section.createEl('h4', { text: 'Character arc (intensity)' });
 
         const width = 400;
         const height = 120;
@@ -2718,7 +2717,13 @@ export class CharacterView extends ItemView {
         const maxIntensity = 10;
         const intensityRange = maxIntensity - minIntensity;
 
-        const svg = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        // createSvg (method or standalone) is only available from Obsidian
+        // 1.13.0+. Since manifest.minAppVersion is still 1.12.7, we build
+        // SVG elements with the raw DOM API. The prefer-create-el lint
+        // fires here but is disabled per-block to avoid crashing 1.12.x.
+         
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = activeDocument.createElementNS(svgNS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', String(height));
@@ -2726,7 +2731,7 @@ export class CharacterView extends ItemView {
 
         for (let v = minIntensity; v <= maxIntensity; v += 5) {
             const y = padY + plotH - ((v - minIntensity) / intensityRange) * plotH;
-            const line = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'line');
+            const line = activeDocument.createElementNS(svgNS, 'line');
             line.setAttribute('x1', String(padX));
             line.setAttribute('x2', String(padX + plotW));
             line.setAttribute('y1', String(y));
@@ -2735,7 +2740,7 @@ export class CharacterView extends ItemView {
             svg.appendChild(line);
         }
 
-        const yLabelLow = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const yLabelLow = activeDocument.createElementNS(svgNS, 'text');
         yLabelLow.setAttribute('x', String(padX - 6));
         yLabelLow.setAttribute('y', String(padY + plotH));
         yLabelLow.setAttribute('text-anchor', 'end');
@@ -2743,7 +2748,7 @@ export class CharacterView extends ItemView {
         yLabelLow.textContent = String(minIntensity);
         svg.appendChild(yLabelLow);
 
-        const yLabelHigh = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const yLabelHigh = activeDocument.createElementNS(svgNS, 'text');
         yLabelHigh.setAttribute('x', String(padX - 6));
         yLabelHigh.setAttribute('y', String(padY + 4));
         yLabelHigh.setAttribute('text-anchor', 'end');
@@ -2761,31 +2766,31 @@ export class CharacterView extends ItemView {
 
         if (points.length >= 2) {
             const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-            const path = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const path = activeDocument.createElementNS(svgNS, 'path');
             path.setAttribute('d', pathD);
             path.setAttribute('class', 'arc-line');
             svg.appendChild(path);
 
             const areaD = pathD + ` L ${points[points.length - 1].x} ${padY + plotH} L ${points[0].x} ${padY + plotH} Z`;
-            const area = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const area = activeDocument.createElementNS(svgNS, 'path');
             area.setAttribute('d', areaD);
             area.setAttribute('class', 'arc-area');
             svg.appendChild(area);
         }
 
         points.forEach(p => {
-            const circle = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            const circle = activeDocument.createElementNS(svgNS, 'circle');
             circle.setAttribute('cx', String(p.x));
             circle.setAttribute('cy', String(p.y));
             circle.setAttribute('r', '4');
             circle.setAttribute('class', 'arc-dot');
 
-            const title = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'title');
+            const title = activeDocument.createElementNS(svgNS, 'title');
             title.textContent = `${p.scene.title} \u2014 intensity: ${p.scene.intensity}`;
             circle.appendChild(title);
             svg.appendChild(circle);
 
-            const label = activeDocument.createElementNS('http://www.w3.org/2000/svg', 'text');
+            const label = activeDocument.createElementNS(svgNS, 'text');
             label.setAttribute('x', String(p.x));
             label.setAttribute('y', String(padY + plotH + 14));
             label.setAttribute('text-anchor', 'middle');
@@ -2795,6 +2800,7 @@ export class CharacterView extends ItemView {
         });
 
         section.appendChild(svg);
+         
     }
 
     // ── Utility ────────────────────────────────────────
@@ -3220,4 +3226,4 @@ class LinkCharacterModal extends Modal {
         this.contentEl.empty();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

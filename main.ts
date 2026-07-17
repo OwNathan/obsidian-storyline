@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { App, ButtonComponent, DropdownComponent, FuzzySuggestModal, ItemView, Modal, Notice, Platform, Plugin, Setting, TFile, TextComponent, ToggleComponent, WorkspaceLeaf, normalizePath, parseYaml, setIcon } from 'obsidian';
 import { SceneCardsSettings, SceneCardsSettingTab, DEFAULT_SETTINGS } from './settings';
 import { asRecord, asString, asNumber, asBool, isRecord } from './utils/narrow';
@@ -150,7 +150,6 @@ export default class SceneCardsPlugin extends Plugin {
         // API surface varies between Obsidian versions.
         for (const ext of ['json', 'docx']) {
             try {
-                // eslint-disable-next-line @typescript-eslint/no-this-alias -- needed for cast to access version-dependent API
                 const pluginAny = this as unknown as Record<string, unknown>;
                 let alreadyRegistered = false;
 
@@ -171,7 +170,7 @@ export default class SceneCardsPlugin extends Plugin {
                 }
             } catch (e) {
                 // non-fatal: extension registration may fail if already registered by another plugin
-                console.error(`StoryLine: failed to register .${ext} extension`, e);
+                void e;
             }
         }
 
@@ -274,7 +273,7 @@ export default class SceneCardsPlugin extends Plugin {
             // their data from the correct project folder.
             this.refreshOpenViews();
             } catch (startupErr) {
-                console.error('[StoryLine] Startup error:', startupErr);
+                void startupErr;
             }
         });
 
@@ -403,7 +402,7 @@ export default class SceneCardsPlugin extends Plugin {
             // Check if a StoryLine view is active
             const view = this.app.workspace.getActiveViewOfType(ItemView);
             if (!view) return;
-            const viewType = (view as unknown as Record<string, unknown>)?.getViewType?.();
+            const viewType: string = view.getViewType();
             if (typeof viewType !== 'string') return;
             const slViewTypes = [
                 BOARD_VIEW_TYPE, PLOTGRID_VIEW_TYPE, TIMELINE_VIEW_TYPE,
@@ -712,6 +711,38 @@ export default class SceneCardsPlugin extends Plugin {
         // Inject formatting toolbar into scene editors when Editing Toolbar is absent
         this.registerEvent(
             this.app.workspace.on('active-leaf-change', (leaf) => {
+                // Issue #215 — on iPad/iPhone, any DOM mutation inside a
+                // scroll container (even class toggles) causes WebKit to
+                // reset the scroll position to the top. When the new active
+                // leaf is NOT a StoryLine scene file (e.g. settings, a
+                // sidebar, another plugin's view, a non-StoryLine tab),
+                // skip all DOM work entirely. The toolbar and frontmatter
+                // visibility are already applied to scene editors from the
+                // previous activation; they don't need re-evaluation when
+                // the user merely opens settings or switches to a tab that
+                // isn't a StoryLine scene.
+                if (leaf) {
+                    const view = leaf.view as unknown as {
+                        getViewType?: () => string;
+                        file?: TFile | null;
+                    };
+                    const isMarkdown = view?.getViewType?.() === 'markdown';
+                    const file = view?.file ?? null;
+                    const sf = this.sceneManager?.activeProject?.sceneFolder;
+                    const projectRoot = sf ? sf.replace(/\/Scenes$/, '') : undefined;
+                    const isStoryLineScene = isMarkdown
+                        && !!file
+                        && !!projectRoot
+                        && file.path.startsWith(projectRoot);
+                    if (!isStoryLineScene) {
+                        // Still tear down toolbars if the setting was turned off,
+                        // but don't do any other DOM work.
+                        if (!this.settings.showFormattingToolbar) {
+                            activeDocument.querySelectorAll('.sl-injected-fmt-toolbar').forEach(el => el.remove());
+                        }
+                        return;
+                    }
+                }
                 this.injectFormattingToolbar(leaf);
                 this.updateFrontmatterVisibility();
             })
@@ -737,9 +768,32 @@ export default class SceneCardsPlugin extends Plugin {
      * "Properties in document" editor setting. This keeps the user's global
      * Obsidian preference intact across vaults.
      */
+    /** Cached state to skip redundant DOM work (issue #215 — WebKit scroll jumps). */
+    private _lastFrontmatterHide: boolean | null = null;
+    private _lastFrontmatterFileSet: string = '';
+
     public updateFrontmatterVisibility(): void {
         const hide = !!this.settings.hideFrontmatter;
         const root = this.settings.storyLineRoot.replace(/\\/g, '/').replace(/\/$/, '') + '/';
+
+        // Issue #215 — skip all DOM work if nothing changed since the last run.
+        // On iPad/iPhone, even class toggles on scroll containers can trigger
+        // WebKit scroll resets. Build a cheap fingerprint of the current state
+        // and bail out if it matches the last-applied state.
+        const leaves: WorkspaceLeaf[] = [];
+        this.app.workspace.iterateAllLeaves(l => { leaves.push(l); });
+        let fileSet = '';
+        for (const leaf of leaves) {
+            const view = leaf.view as unknown as { getViewType?: () => string; file?: TFile | null };
+            const filePath = view?.file?.path;
+            if (filePath) fileSet += filePath + '|';
+        }
+        const fingerprint = `${hide}|${fileSet}`;
+        if (fingerprint === this._lastFrontmatterFileSet && hide === this._lastFrontmatterHide) {
+            return;
+        }
+        this._lastFrontmatterFileSet = fingerprint;
+        this._lastFrontmatterHide = hide;
 
         const body = activeDocument.body;
         if (body) {
@@ -747,8 +801,6 @@ export default class SceneCardsPlugin extends Plugin {
             else body.classList.remove('sl-hide-frontmatter-global');
         }
 
-        const leaves: WorkspaceLeaf[] = [];
-        this.app.workspace.iterateAllLeaves(l => { leaves.push(l); });
         for (const leaf of leaves) {
             const view = leaf.view as unknown as { getViewType?: () => string; file?: TFile | null };
             const filePath = view?.file?.path;
@@ -936,8 +988,9 @@ export default class SceneCardsPlugin extends Plugin {
         // Re-inserting on every focus event is what triggered the iPad scroll jump.
         if (viewContent.querySelector('.sl-injected-fmt-toolbar')) return;
 
-        // Create and inject the toolbar at the top of view-content
-        const toolbar = createDiv({ cls: 'sl-fmt-toolbar sl-injected-fmt-toolbar' });
+        // Create and inject the toolbar at the top of view-content.
+        // createDiv appends at the end; move it to the front with insertBefore.
+        const toolbar = viewContent.createDiv({ cls: 'sl-fmt-toolbar sl-injected-fmt-toolbar' });
         buildFormattingToolbar(toolbar, () => cm);
         viewContent.insertBefore(toolbar, viewContent.firstChild);
     }
@@ -1340,7 +1393,7 @@ export default class SceneCardsPlugin extends Plugin {
                     if (didChange) touched++;
                 });
             } catch (e) {
-                console.error('[StoryLine] migrateUniversalFieldMirror:', file.path, e);
+                void e;
             }
         }
         if (touched > 0) {
@@ -1399,7 +1452,7 @@ export default class SceneCardsPlugin extends Plugin {
             }
             await adapter.write(`${systemFolder}/${filename}`, JSON.stringify(data, null, 2));
         } catch (e) {
-            console.error(`[StoryLine] writeSystemJson(${filename}):`, e);
+            void e;
         }
     }
 
@@ -1533,7 +1586,7 @@ export default class SceneCardsPlugin extends Plugin {
                     const existing = await adapter.read(filePath);
                     const parsed = JSON.parse(existing);
                     if (parsed.rows && parsed.rows.length > 0) {
-                        console.log('[StoryLine] savePlotGrid: BLOCKED overwriting non-empty plotgrid with empty data');
+                        // Blocked: refusing to overwrite non-empty plotgrid with empty data
                         return;
                     }
                 } catch { /* file unreadable or invalid JSON — allow overwrite */ }
@@ -1580,10 +1633,11 @@ export default class SceneCardsPlugin extends Plugin {
                     await adapter.write(`${folder}/plotgrid.json`, JSON.stringify(imported, null, 2));
                     // Remove the import file so it isn't re-imported next time
                     await adapter.remove(importPath);
-                    console.log('[StoryLine] loadPlotGrid: imported data from plotgrid-import.json');
+                    // Imported data from plotgrid-import.json successfully
                     return imported;
                 } catch (importErr) {
-                    console.warn('[StoryLine] loadPlotGrid: failed to import plotgrid-import.json', importErr);
+                    // Failed to import plotgrid-import.json — fall through to normal load
+                    void importErr;
                 }
             }
 
@@ -2259,7 +2313,7 @@ export default class SceneCardsPlugin extends Plugin {
         try {
             await this.migrateJsonFilesToSystem();
         } catch (e) {
-            console.error('[StoryLine] migrateJsonFilesToSystem error:', e);
+            void e;
         }
 
         // ── Phase 3: migrate per-project data from data.json → System/ files ──
@@ -2286,7 +2340,7 @@ export default class SceneCardsPlugin extends Plugin {
                     await this.app.vault.createFolder(sysFolder);
                 }
             } catch (e) {
-                console.error('[StoryLine] Migration: failed to create System folder:', e);
+                void e;
             }
 
             // ── plotgrid.json (rows/columns/cells/zoom/stickyHeaders) ──
@@ -2312,7 +2366,7 @@ export default class SceneCardsPlugin extends Plugin {
                         await adapter.write(pgPath, JSON.stringify(pgData, null, 2));
                     }
                 } catch (e) {
-                    console.error('[StoryLine] Migration: plotgrid write failed:', e);
+                    void e;
                 }
             }
 
@@ -2334,7 +2388,7 @@ export default class SceneCardsPlugin extends Plugin {
                     };
                     await adapter.write(path, JSON.stringify(merged, null, 2));
                 } catch (e) {
-                    console.error('[StoryLine] Migration: plotlines write failed:', e);
+                    void e;
                 }
             }
 
@@ -2352,7 +2406,7 @@ export default class SceneCardsPlugin extends Plugin {
                     };
                     await adapter.write(path, JSON.stringify(merged, null, 2));
                 } catch (e) {
-                    console.error('[StoryLine] Migration: characters write failed:', e);
+                    void e;
                 }
             }
 
@@ -2371,7 +2425,7 @@ export default class SceneCardsPlugin extends Plugin {
                         await adapter.write(path, JSON.stringify(merged, null, 2));
                     }
                 } catch (e) {
-                    console.error('[StoryLine] Migration: stats write failed:', e);
+                    void e;
                 }
             }
 
@@ -2385,7 +2439,7 @@ export default class SceneCardsPlugin extends Plugin {
             // allow an intervening saveSettings() call to overwrite System
             // files with empty defaults before they're loaded into memory.
         } else if (!sysFolder) {
-            console.warn('[StoryLine] Migration: no active project, skipping System/ writes');
+            // No active project — nothing to migrate.
         } else {
             // No legacy data to migrate — flag set by loadProjectSystemData()
         }
@@ -2435,9 +2489,10 @@ export default class SceneCardsPlugin extends Plugin {
                     const oldFile = this.app.vault.getAbstractFileByPath(oldPath);
                     if (oldFile) await this.app.fileManager.trashFile(oldFile);
 
-                    console.log(`[StoryLine] Migrated ${oldPath} → ${newPath}`);
+                    // Migrated oldPath → newPath successfully
                 } catch (e) {
-                    console.warn(`[StoryLine] Failed to migrate ${oldPath} → ${newPath}:`, e);
+                    // Migration failed for this file — continue with remaining files
+                    void e;
                 }
             }
         }
@@ -2512,7 +2567,7 @@ export default class SceneCardsPlugin extends Plugin {
     async openNewProjectModal(): Promise<StoryLineProject | null> {
         return new Promise<StoryLineProject | null>((resolve) => {
             const modal = new Modal(this.app);
-            modal.titleEl.setText('New StoryLine Project');
+            modal.titleEl.setText('New StoryLine project');
             let title = '';
             let customFolder = '';
             let createAsSeries = false;
@@ -2523,14 +2578,14 @@ export default class SceneCardsPlugin extends Plugin {
                 .setName('Series name')
                 .setDesc('Characters, locations, and codex entries will be shared across all books in this series.')
                 .addText((text: TextComponent) => {
-                    text.setPlaceholder('My Trilogy');
+                    text.setPlaceholder('My trilogy');
                     text.onChange((v: string) => (seriesName = v));
                 });
             seriesNameSetting.settingEl.setCssStyles({ display: 'none' });
 
             new Setting(modal.contentEl)
                 .setName('Create as series')
-                .setDesc('Wrap this book in a series folder with a shared Codex.')
+                .setDesc('Wrap this book in a series folder with a shared codex.')
                 .addToggle((toggle: ToggleComponent) => {
                     toggle.setValue(false);
                     toggle.onChange((v: boolean) => {
@@ -2544,7 +2599,7 @@ export default class SceneCardsPlugin extends Plugin {
                 .setName('Book title')
                 .setDesc('The title of this book. Each book gets its own scenes folder.')
                 .addText((text: TextComponent) => {
-                    text.setPlaceholder('My Novel');
+                    text.setPlaceholder('My novel');
                     text.onChange((v: string) => (title = v));
                 });
 
@@ -2652,7 +2707,7 @@ export default class SceneCardsPlugin extends Plugin {
         // Warning banner
         const warningEl = modal.contentEl.createDiv({ cls: 'sl-delete-warning' });
         warningEl.createEl('p', {
-            text: '⚠️ This will permanently delete the project folder and everything inside it:',
+            text: '⚠️ this will permanently delete the project folder and everything inside it:',
         });
         const list = warningEl.createEl('ul');
         list.createEl('li', { text: 'All scenes' });
@@ -2721,21 +2776,21 @@ export default class SceneCardsPlugin extends Plugin {
         }
 
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Create New Series');
+        modal.titleEl.setText('Create new series');
         let seriesName = '';
 
         new Setting(modal.contentEl)
             .setName('Series name')
             .setDesc(`"${project.title}" will become the first book in this series. Its codex will be shared.`)
             .addText((text: TextComponent) => {
-                text.setPlaceholder('My Trilogy');
+                text.setPlaceholder('My trilogy');
                 text.onChange((v: string) => (seriesName = v));
                 window.setTimeout(() => text.inputEl.focus(), 50);
             });
 
         new Setting(modal.contentEl)
             .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Create Series').setCta().onClick(async () => {
+                btn.setButtonText('Create series').setCta().onClick(async () => {
                     if (!seriesName.trim()) {
                         new Notice('Please enter a series name.');
                         return;
@@ -2766,12 +2821,12 @@ export default class SceneCardsPlugin extends Plugin {
 
         const seriesList = await this.seriesManager.discoverSeries();
         if (seriesList.length === 0) {
-            new Notice('No series found. Create one first using "Create New Series from Current Project".');
+            new Notice('No series found. Create one first using "create new series from current project".');
             return;
         }
 
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Add to Existing Series');
+        modal.titleEl.setText('Add to existing series');
         let selectedFolder = seriesList[0].folder;
 
         new Setting(modal.contentEl)
@@ -2786,7 +2841,7 @@ export default class SceneCardsPlugin extends Plugin {
 
         new Setting(modal.contentEl)
             .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Add to Series').setCta().onClick(async () => {
+                btn.setButtonText('Add to series').setCta().onClick(async () => {
                     modal.close();
                     try {
                         await this.seriesManager.addProjectToSeries(selectedFolder);
@@ -2808,7 +2863,7 @@ export default class SceneCardsPlugin extends Plugin {
         }
 
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Rename Project');
+        modal.titleEl.setText('Rename project');
         let newTitle = project.title;
 
         new Setting(modal.contentEl)
@@ -2883,7 +2938,7 @@ class ProjectSelectModal extends Modal {
     constructor(app: App, plugin: SceneCardsPlugin) {
         super(app);
         this.plugin = plugin;
-        this.titleEl.setText('Open StoryLine Project');
+        this.titleEl.setText('Open StoryLine project');
     }
     onOpen() {
         const { contentEl } = this;
@@ -2919,7 +2974,7 @@ class ProjectSelectModal extends Modal {
             }
         });
 
-        const createBtn = actions.createEl('button', { text: 'Create New Project', cls: 'mod-cta' });
+        const createBtn = actions.createEl('button', { text: 'Create new project', cls: 'mod-cta' });
         createBtn.setAttr('type', 'button');
         createBtn.addEventListener('click', async () => {
             // open project creation modal and refresh list if a new project was created
@@ -2951,7 +3006,7 @@ class ProjectSelectModal extends Modal {
         cancel.setAttr('type', 'button');
         cancel.addEventListener('click', () => this.close());
 
-        const seriesBtn = actions.createEl('button', { text: 'Manage Series…' });
+        const seriesBtn = actions.createEl('button', { text: 'Manage series…' });
         seriesBtn.setAttr('type', 'button');
         seriesBtn.addEventListener('click', async () => {
             const seriesModal = new SeriesManagementModal(this.app, this.plugin);
@@ -2959,7 +3014,7 @@ class ProjectSelectModal extends Modal {
         });
 
         // "Browse" button — manually pick a .md file as a StoryLine project
-        const browseBtn = actions.createEl('button', { text: 'Browse for Project…' });
+        const browseBtn = actions.createEl('button', { text: 'Browse for project…' });
         browseBtn.setAttr('type', 'button');
         browseBtn.addEventListener('click', async () => {
             // Build a list of all .md files in the vault for the user to pick from
@@ -3103,7 +3158,7 @@ class SeriesManagementModal extends Modal {
     constructor(app: App, plugin: SceneCardsPlugin) {
         super(app);
         this.plugin = plugin;
-        this.titleEl.setText('Manage Series');
+        this.titleEl.setText('Manage series');
     }
 
     onOpen() {
@@ -3191,7 +3246,7 @@ class SeriesManagementModal extends Modal {
 
     private async renameSeries(folder: string, meta: SeriesMetadata) {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Rename Series');
+        modal.titleEl.setText('Rename series');
         let newName = meta.name;
 
         new Setting(modal.contentEl)
@@ -3276,7 +3331,7 @@ class SeriesManagementModal extends Modal {
         // Confirm
         const confirm = await new Promise<boolean>((resolve) => {
             const m = new Modal(this.app);
-            m.titleEl.setText('Remove from Series');
+            m.titleEl.setText('Remove from series');
             m.contentEl.createEl('p', {
                 text: `Remove "${bookName}" from "${meta.name}"? The shared codex will be copied into the book's local folder.`,
             });
@@ -3389,7 +3444,7 @@ class SeriesManagementModal extends Modal {
         }
 
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Rename Book');
+        modal.titleEl.setText('Rename book');
         let newTitle = bookProject.title;
 
         new Setting(modal.contentEl)
@@ -3449,7 +3504,7 @@ class SeriesManagementModal extends Modal {
 
         new Setting(modal.contentEl)
             .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Add to Series').setCta().onClick(async () => {
+                btn.setButtonText('Add to series').setCta().onClick(async () => {
                     const bookProject = projects.find(p => p.filePath === selectedPath);
                     if (!bookProject) return;
                     modal.close();
@@ -3476,4 +3531,4 @@ class SeriesManagementModal extends Modal {
         modal.open();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- end of file-wide suppression block opened at line 1 */

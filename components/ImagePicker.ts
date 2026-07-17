@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 /**
  * ImagePicker — shared image selection component.
  *
@@ -99,11 +99,11 @@ function getImagesFolderPath(sceneFolder: string): string {
  */
 function importImageFromComputer(app: App, sceneFolder: string): Promise<string | undefined> {
     return new Promise((resolve) => {
-        const input = activeDocument.createElement('input');
-        input.type = 'file';
+        // Detached file input attached to <body> for the click → file
+        // Detached file input attached to <body> for the click → file chooser flow.
+        const input = activeDocument.body.createEl('input', { type: 'file' });
         input.accept = 'image/png,image/jpeg,image/gif,image/svg+xml,image/webp,image/bmp,image/avif';
         input.setCssStyles({ display: 'none' });
-        activeDocument.body.appendChild(input);
 
         let settled = false;
         const complete = (result: string | undefined): void => {
@@ -160,7 +160,6 @@ function importImageFromComputer(app: App, sceneFolder: string): Promise<string 
                 
                 complete(targetPath);
             } catch (err) {
-                console.error('[StoryLine] Image import failed:', err);
                 new Notice(`❌ Failed to import image: ${String(err)}`);
                 complete(undefined);
             }
@@ -226,7 +225,7 @@ class ImageChoiceModal extends Modal {
         contentEl.empty();
         contentEl.addClass('storyline-image-choice-modal');
 
-        contentEl.createEl('h3', { text: 'Set Image' });
+        contentEl.createEl('h3', { text: 'Set image' });
 
         // Current image preview
         if (this.currentImage) {
@@ -249,10 +248,9 @@ class ImageChoiceModal extends Modal {
                     img.remove();
                     const placeholder = preview.createDiv('image-choice-preview-placeholder');
                     placeholder.setText('Image not found');
-                    console.log('Failed to load image in picker:', this.currentImage);
                 };
             } catch (error) {
-                console.error('Error loading image in picker:', error);
+                // Image failed to load — leave preview empty
                 const placeholder = preview.createDiv('image-choice-preview-placeholder');
                 placeholder.setText('Image not found');
             }
@@ -360,4 +358,4 @@ class VaultImagePickerModal extends FuzzySuggestModal<TFile> {
         window.setTimeout(() => this.emitOnce(undefined), 0);
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { Scene, SceneStatus, SceneTemplate, BUILTIN_SCENE_TEMPLATES, getStatusOrder, getStatusConfig } from '../models/Scene';
 import { SceneManager } from '../services/SceneManager';
 import type SceneCardsPlugin from '../main';
@@ -39,7 +39,7 @@ export class QuickAddModal extends Modal {
         const { contentEl } = this;
         contentEl.addClass('story-line-quick-add');
 
-        contentEl.createEl('h2', { text: 'Create New Scene' });
+        contentEl.createEl('h2', { text: 'Create new scene' });
 
         // Template selector
         const allTemplates = [...BUILTIN_SCENE_TEMPLATES, ...this.plugin.settings.sceneTemplates];
@@ -47,7 +47,7 @@ export class QuickAddModal extends Modal {
             .setName('Template')
             .setDesc('Pre-fill fields and body from a template')
             .addDropdown(dd => {
-                dd.addOption('', '(none)');
+                dd.addOption('', '(None)');
                 allTemplates.forEach((tpl, idx) => dd.addOption(String(idx), tpl.name));
                 dd.onChange(value => {
                     if (value === '') {
@@ -146,7 +146,7 @@ export class QuickAddModal extends Modal {
         });
 
         // POV (autocomplete input)
-        const povSetting = new Setting(contentEl).setName('POV Character');
+        const povSetting = new Setting(contentEl).setName('Pov character');
         const povContainer = povSetting.controlEl.createDiv('sl-quickadd-autocomplete');
         renderAutocompleteInput({
             container: povContainer,
@@ -203,7 +203,7 @@ export class QuickAddModal extends Modal {
 
         // Scene Draft (becomes body text)
         new Setting(contentEl)
-            .setName('Scene Draft')
+            .setName('Scene draft')
             .addTextArea(area => {
                 area.setPlaceholder('Write your scene draft here…')
                     .onChange(value => this.result.description = value || undefined);
@@ -235,7 +235,7 @@ export class QuickAddModal extends Modal {
         });
 
         // Tags / Plotlines (autocomplete tag-pill input)
-        const tagSetting = new Setting(contentEl).setName('Tags / Plotlines');
+        const tagSetting = new Setting(contentEl).setName('Tags / plotlines');
         const tagContainer = tagSetting.controlEl.createDiv('sl-quickadd-tagpill');
         renderTagPillInput({
             container: tagContainer,
@@ -263,7 +263,7 @@ export class QuickAddModal extends Modal {
         cancelBtn.addEventListener('click', () => this.close());
 
         const createEditBtn = buttonRow.createEl('button', {
-            text: 'Create & Edit',
+            text: 'Create & edit',
             cls: 'mod-cta'
         });
         createEditBtn.addEventListener('click', () => {
@@ -363,4 +363,4 @@ export class QuickAddModal extends Modal {
         return (value: string) => displayMap.get(value) || value;
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

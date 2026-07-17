@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, Modal, Setting, MarkdownRenderer } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { Scene, SceneFilter, SortConfig, BoardGroupBy, SceneStatus, SceneTemplate, BUILTIN_BEAT_SHEETS, getStatusOrder, getStatusConfig, resolveStatusCfg } from '../models/Scene';
@@ -161,7 +161,8 @@ export class BoardView extends ItemView {
             const filterBar = filterContainer.querySelector('.story-line-filter-bar') as HTMLElement | null;
             if (filterBar) {
                 const searchWrapper = filterBar.querySelector('.story-line-search-wrapper');
-                const groupContainer = createDiv('story-line-group-control');
+                // Create on filterBar, then reposition with insertBefore.
+                const groupContainer = filterBar.createDiv({ cls: 'story-line-group-control' });
                 groupContainer.createSpan({ text: 'Group by: ' });
                 const groupSelect = groupContainer.createEl('select', { cls: 'dropdown' });
                 const groupOptions: { value: BoardGroupBy; label: string }[] = [
@@ -315,7 +316,7 @@ export class BoardView extends ItemView {
         if (!isCorkboardMode && this.groupBy === 'chapter') {
             const addChBtn = controls.createEl('button', {
                 cls: 'mod-cta story-line-add-btn',
-                text: '+ New Chapter'
+                text: '+ new chapter'
             });
             addChBtn.addEventListener('click', async () => {
                 const newNum = await this.sceneManager.insertChapter();
@@ -492,7 +493,7 @@ export class BoardView extends ItemView {
         if (sortedKeys.length === 0) {
             const empty = this.boardEl.createDiv('story-line-empty');
             empty.createEl('p', { text: 'No scenes found.' });
-            empty.createEl('p', { text: 'Click "+ New Scene" to create your first scene, or check your Scene folder setting.' });
+            empty.createEl('p', { text: 'Click "+ new scene" to create your first scene, or check your scene folder setting.' });
             return;
         }
 
@@ -542,7 +543,7 @@ export class BoardView extends ItemView {
         if (scenes.length === 0) {
             const empty = this.boardEl.createDiv('story-line-empty');
             empty.createEl('p', { text: 'No scenes found.' });
-            empty.createEl('p', { text: 'Click "+ New Scene" to create your first scene, or adjust your filters.' });
+            empty.createEl('p', { text: 'Click "+ new scene" to create your first scene, or adjust your filters.' });
             return;
         }
 
@@ -1482,16 +1483,16 @@ export class BoardView extends ItemView {
         const hasFontLight = !!this.plugin.settings.stickyNoteFontColorLight;
         const hasFontDark = !!this.plugin.settings.stickyNoteFontColorDark;
         menu.addItem(item => item
-            .setTitle('Font Color: Light Notes…')
+            .setTitle('Font color: Light notes???')
             .setIcon('text')
             .onClick(() => { this.openStickyNoteFontColorModal(scene, 'light'); }));
         menu.addItem(item => item
-            .setTitle('Font Color: Dark Notes…')
+            .setTitle('Font color: Dark notes???')
             .setIcon('text')
             .onClick(() => { this.openStickyNoteFontColorModal(scene, 'dark'); }));
         if (hasFontLight || hasFontDark) {
             menu.addItem(item => item
-                .setTitle('Font Color: Reset to Auto')
+                .setTitle('Font color: Reset to auto')
                 .setIcon('rotate-ccw')
                 .onClick(async () => {
                     this.plugin.settings.stickyNoteFontColorLight = '';
@@ -1503,7 +1504,7 @@ export class BoardView extends ItemView {
 
         menu.addSeparator();
         menu.addItem(item => item
-            .setTitle('Duplicate Note')
+            .setTitle('Duplicate note')
             .setIcon('copy')
             .onClick(() => { void this.duplicateCorkboardNote(scene); }));
 
@@ -1511,11 +1512,11 @@ export class BoardView extends ItemView {
         menu.addSeparator();
         if (scene.corkboardNoteImage) {
             menu.addItem(item => item
-                .setTitle('Change Image…')
+                .setTitle('Change image???')
                 .setIcon('image')
                 .onClick(() => { void this.changeNoteImage(scene); }));
             menu.addItem(item => item
-                .setTitle('Remove Image')
+                .setTitle('Remove image')
                 .setIcon('image-off')
                 .onClick(async () => {
                     await this.sceneManager.updateScene(scene.filePath, {
@@ -1528,13 +1529,13 @@ export class BoardView extends ItemView {
                 }));
         } else {
             menu.addItem(item => item
-                .setTitle('Set Image…')
+                .setTitle('Set image???')
                 .setIcon('image-plus')
                 .onClick(() => { void this.changeNoteImage(scene); }));
         }
 
         menu.addItem(item => item
-            .setTitle('Delete Note')
+            .setTitle('Delete note')
             .setIcon('trash')
             .onClick(async () => {
                 await this.deleteScene(scene);
@@ -1543,7 +1544,7 @@ export class BoardView extends ItemView {
         if (!scene.corkboardNoteImage) {
             menu.addSeparator();
             menu.addItem(item => item
-                .setTitle('Convert to Scene')
+                .setTitle('Convert to scene')
                 .setIcon('clapperboard')
                 .onClick(() => { void this.convertCorkboardNoteToScene(scene); }));
         }
@@ -1881,7 +1882,7 @@ export class BoardView extends ItemView {
         // Add scene button at bottom
         const addBtn = column.createEl('button', {
             cls: 'story-line-column-add',
-            text: '+ Add Scene'
+            text: '+ add scene'
         });
         addBtn.addEventListener('click', () => this.openQuickAdd(title));
     }
@@ -2110,7 +2111,7 @@ export class BoardView extends ItemView {
         // Bulk status change
         const statusBtn = this.bulkBarEl.createEl('button', {
             cls: 'bulk-bar-btn',
-            text: 'Set Status'
+            text: 'Set status'
         });
         const statusIcon = statusBtn.createSpan();
         obsidian.setIcon(statusIcon, 'check-circle');
@@ -2137,7 +2138,7 @@ export class BoardView extends ItemView {
         // Bulk move to act
         const actBtn = this.bulkBarEl.createEl('button', {
             cls: 'bulk-bar-btn',
-            text: 'Move to Act'
+            text: 'Move to act'
         });
         const actIcon = actBtn.createSpan();
         obsidian.setIcon(actIcon, 'folder');
@@ -2183,7 +2184,7 @@ export class BoardView extends ItemView {
         // Bulk add tag
         const tagBtn = this.bulkBarEl.createEl('button', {
             cls: 'bulk-bar-btn',
-            text: 'Add Tag'
+            text: 'Add tag'
         });
         const tagIcon = tagBtn.createSpan();
         obsidian.setIcon(tagIcon, 'tag');
@@ -2286,7 +2287,7 @@ export class BoardView extends ItemView {
         // Clear selection
         const clearBtn = this.bulkBarEl.createEl('button', {
             cls: 'bulk-bar-btn bulk-bar-clear',
-            text: '× Clear'
+            text: '✓ clear'
         });
         clearBtn.addEventListener('click', () => {
             this.selectedScenes.clear();
@@ -2375,13 +2376,13 @@ export class BoardView extends ItemView {
         }
 
         menu.addItem(item => {
-            item.setTitle('Edit Scene')
+            item.setTitle('Edit scene')
                 .setIcon('pencil')
                 .onClick(() => this.openScene(scene));
         });
 
         menu.addItem(item => {
-            item.setTitle('Duplicate Scene')
+            item.setTitle('Duplicate scene')
                 .setIcon('copy')
                 .onClick(async () => {
                     await this.sceneManager.duplicateScene(scene.filePath);
@@ -2390,7 +2391,7 @@ export class BoardView extends ItemView {
         });
 
         menu.addItem(item => {
-            item.setTitle('Split Scene')
+            item.setTitle('Split scene')
                 .setIcon('scissors')
                 .onClick(() => {
                     new SplitSceneModal(this.plugin, scene, () => this.refreshBoard()).open();
@@ -2427,7 +2428,7 @@ export class BoardView extends ItemView {
         const definedActs = this.sceneManager.getDefinedActs();
         if (definedActs.length > 0) {
             menu.addItem(item => {
-                item.setTitle('Move to Act…')
+                item.setTitle('Move to act???')
                     .setIcon('folder');
                 // Build submenu manually via Menu
             });
@@ -2469,7 +2470,7 @@ export class BoardView extends ItemView {
         menu.addSeparator();
 
         menu.addItem(item => {
-            item.setTitle('Save as Template')
+            item.setTitle('Save as template')
                 .setIcon('file-plus')
                 .onClick(() => {
                     const tpl: SceneTemplate = {
@@ -2504,7 +2505,7 @@ export class BoardView extends ItemView {
         menu.addSeparator();
 
         menu.addItem(item => {
-            item.setTitle('Archive Scene')
+            item.setTitle('Archive scene')
                 .setIcon('archive')
                 .onClick(async () => {
                     await this.sceneManager.archiveScene(scene.filePath);
@@ -2513,7 +2514,7 @@ export class BoardView extends ItemView {
         });
 
         menu.addItem(item => {
-            item.setTitle('Delete Scene')
+            item.setTitle('Delete scene')
                 .setIcon('trash')
                 .onClick(async () => {
                     openConfirmModal(this.app, {
@@ -2533,7 +2534,7 @@ export class BoardView extends ItemView {
      */
     private async openArchiveModal(): Promise<void> {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Archived Scenes');
+        modal.titleEl.setText('Archived scenes');
 
         const archived = await this.sceneManager.getArchivedScenes();
         if (archived.length === 0) {
@@ -2622,7 +2623,7 @@ export class BoardView extends ItemView {
             const currentLabel = this.sceneManager.getActLabel(actNum) || '';
 
             menu.addItem(item => {
-                item.setTitle('Rename Act')
+                item.setTitle('Rename act')
                     .setIcon('pencil')
                     .onClick(() => {
                         this.openRenameModal('Act', actNum, currentLabel, async (newLabel) => {
@@ -2633,7 +2634,7 @@ export class BoardView extends ItemView {
             });
 
             menu.addItem(item => {
-                item.setTitle('Edit Description')
+                item.setTitle('Edit description')
                     .setIcon('file-text')
                     .onClick(() => {
                         const currentDesc = this.sceneManager.getActDescription(actNum) || '';
@@ -2645,7 +2646,7 @@ export class BoardView extends ItemView {
             });
 
             menu.addItem(item => {
-                item.setTitle('Delete Act')
+                item.setTitle('Delete act')
                     .setIcon('trash')
                     .onClick(() => {
                         const actDisplay = getActDisplayLabel(actNum);
@@ -2691,7 +2692,7 @@ export class BoardView extends ItemView {
             // Issue #220 — insert a new chapter before or after this column,
             // renumbering existing chapters (and their scenes) to make room.
             menu.addItem(item => {
-                item.setTitle('Insert Chapter Before')
+                item.setTitle('Insert chapter before')
                     .setIcon('arrow-up-from-line')
                     .onClick(async () => {
                         await this.sceneManager.insertChapter(chNum);
@@ -2702,7 +2703,7 @@ export class BoardView extends ItemView {
             });
 
             menu.addItem(item => {
-                item.setTitle('Insert Chapter After')
+                item.setTitle('Insert chapter after')
                     .setIcon('arrow-down-from-line')
                     .onClick(async () => {
                         await this.sceneManager.insertChapter(chNum + 1);
@@ -2715,7 +2716,7 @@ export class BoardView extends ItemView {
             menu.addSeparator();
 
             menu.addItem(item => {
-                item.setTitle('Rename Chapter')
+                item.setTitle('Rename chapter')
                     .setIcon('pencil')
                     .onClick(() => {
                         this.openRenameModal('Chapter', chNum, currentLabel, async (newLabel) => {
@@ -2726,7 +2727,7 @@ export class BoardView extends ItemView {
             });
 
             menu.addItem(item => {
-                item.setTitle('Edit Description')
+                item.setTitle('Edit description')
                     .setIcon('file-text')
                     .onClick(() => {
                         const currentDesc = this.sceneManager.getChapterDescription(chNum) || '';
@@ -2738,7 +2739,7 @@ export class BoardView extends ItemView {
             });
 
             menu.addItem(item => {
-                item.setTitle('Delete Chapter')
+                item.setTitle('Delete chapter')
                     .setIcon('trash')
                     .onClick(() => {
                         if (scenes.length > 0) {
@@ -2796,7 +2797,7 @@ export class BoardView extends ItemView {
             cls: 'storyline-description-textarea',
         });
         textArea.value = current;
-        textArea.placeholder = 'e.g. "Our heroes arrive in the capital…"';
+        textArea.placeholder = 'E.g. "our heroes arrive in the capital???"';
         textArea.rows = 4;
         textArea.setCssStyles({
             width: '100%',
@@ -2831,7 +2832,7 @@ export class BoardView extends ItemView {
             .setDesc(`Display name for ${type} ${num}. Leave blank to remove.`)
             .addText(text => {
                 text.setValue(current)
-                    .setPlaceholder(`e.g. "The Beginning"`)
+                    .setPlaceholder(`E.g. "the beginning"`)
                     .onChange(v => { value = v; });
                 // Auto-focus
                 window.setTimeout(() => text.inputEl.focus(), 50);
@@ -2924,7 +2925,7 @@ export class BoardView extends ItemView {
             gap: '8px',
             marginTop: '12px',
         });
-        const assignBtn = btnRow.createEl('button', { text: 'Assign Selected', cls: 'mod-cta' });
+        const assignBtn = btnRow.createEl('button', { text: 'Assign selected', cls: 'mod-cta' });
         assignBtn.addEventListener('click', async () => {
             if (selectedPaths.size === 0) {
                 new Notice('No scenes selected');
@@ -2975,13 +2976,13 @@ export class BoardView extends ItemView {
      */
     private openStructureModal(): void {
         const modal = new Modal(this.app);
-        modal.titleEl.setText('Manage Story Structure');
+        modal.titleEl.setText('Manage story structure');
         modal.containerEl.addClass('sl-structure-modal');
 
         const { contentEl } = modal;
 
         // ── Beat Sheet Templates section ──
-        contentEl.createEl('h3', { text: 'Beat Sheet Templates' });
+        contentEl.createEl('h3', { text: 'Beat sheet templates' });
         contentEl.createEl('p', {
             cls: 'setting-item-description',
             text: 'Apply a template to pre-populate your act/chapter structure with named beats.'
@@ -3037,8 +3038,8 @@ export class BoardView extends ItemView {
                 });
 
             // Summary line + expandable beat list under the Setting description
-            const descFrag = activeDocument.createDocumentFragment();
-            const summaryLine = descFrag.createEl('div', { cls: 'beat-sheet-row-summary', text: `${template.summary} \u00b7 ${parts.join(' \u00b7 ')}` });
+            const descFrag = activeWindow.createFragment();
+            const summaryLine = descFrag.createDiv({ cls: 'beat-sheet-row-summary', text: `${template.summary} \u00b7 ${parts.join(' \u00b7 ')}` });
             const details = descFrag.createEl('details', { cls: 'beat-sheet-details' });
             details.createEl('summary', { cls: 'beat-sheet-details-summary', text: 'Show beats' });
             for (const beat of template.beats) {
@@ -3233,7 +3234,7 @@ export class BoardView extends ItemView {
             });
 
         // ── Custom Structure Builder ──
-        contentEl.createEl('h3', { text: 'Custom Structure Builder' });
+        contentEl.createEl('h3', { text: 'Custom structure builder' });
         contentEl.createEl('p', {
             cls: 'setting-item-description',
             text: 'Quickly generate a custom act/chapter structure with optional placeholder scenes.'
@@ -3279,7 +3280,7 @@ export class BoardView extends ItemView {
             });
 
         const customApplyRow = contentEl.createDiv('structure-close-row');
-        customApplyRow.createEl('button', { text: 'Apply Custom Structure', cls: 'mod-cta' })
+        customApplyRow.createEl('button', { text: 'Apply custom structure', cls: 'mod-cta' })
             .addEventListener('click', async () => {
                 if (customActs < 1 || customChaptersPerAct < 1) {
                     new Notice('Enter at least 1 act and 1 chapter per act.');
@@ -3922,4 +3923,4 @@ export class BoardView extends ItemView {
         });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

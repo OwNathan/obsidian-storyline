@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { Modal, App, Notice } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { openConfirmModal } from './ConfirmModal';
@@ -112,7 +112,7 @@ export class InspectorComponent {
 
         // Header
         const header = this.container.createDiv('inspector-header');
-        header.createEl('h3', { text: 'Scene Details' });
+        header.createEl('h3', { text: 'Scene details' });
         const closeBtn = header.createEl('button', {
             cls: 'clickable-icon inspector-close',
             text: '×'
@@ -464,7 +464,7 @@ export class InspectorComponent {
 
         const strandGroup = tmRow.createDiv();
         strandGroup.createSpan({ cls: 'inspector-label', text: 'Strand' });
-        const strandInput = strandGroup.createEl('input', { attr: { type: 'text', placeholder: 'e.g. "1943", "outer"' } });
+        const strandInput = strandGroup.createEl('input', { attr: { type: 'text', placeholder: 'E.g. "1943", "outer"' } });
         styleInput(strandInput);
         strandInput.value = scene.timeline_strand || '';
         strandInput.addEventListener('change', async () => {
@@ -483,7 +483,7 @@ export class InspectorComponent {
         arcCheckbox.addClass('inspector-arc-checkbox');
         const arcLabel = arcRow.createEl('label', {
             attr: { for: 'arc-anchor-toggle' },
-            text: 'Arc Point',
+            text: 'Arc point',
         });
         arcLabel.addClass('inspector-arc-label');
         arcCheckbox.addEventListener('change', async () => {
@@ -502,7 +502,7 @@ export class InspectorComponent {
 
         const dateGroup = dtRow.createDiv();
         dateGroup.createSpan({ cls: 'inspector-label', text: 'Story Date' });
-        const dateInput = dateGroup.createEl('input', { attr: { type: 'text', placeholder: 'e.g. 2026-02-17, Day 3' } });
+        const dateInput = dateGroup.createEl('input', { attr: { type: 'text', placeholder: 'E.g. 2026-02-17, day 3' } });
         styleInput(dateInput);
         dateInput.value = scene.storyDate || scene.timeline || '';
         dateInput.addEventListener('change', async () => {
@@ -513,7 +513,7 @@ export class InspectorComponent {
 
         const timeGroup = dtRow.createDiv();
         timeGroup.createSpan({ cls: 'inspector-label', text: 'Story Time' });
-        const timeInput = timeGroup.createEl('input', { attr: { type: 'text', placeholder: 'e.g. morning, 14:00' } });
+        const timeInput = timeGroup.createEl('input', { attr: { type: 'text', placeholder: 'E.g. Morning, 14:00' } });
         styleInput(timeInput);
         timeInput.value = scene.storyTime || '';
         timeInput.addEventListener('change', async () => {
@@ -647,7 +647,7 @@ export class InspectorComponent {
         emotionSection.createSpan({ cls: 'inspector-label', text: 'Emotion: ' });
         const emotionInput = emotionSection.createEl('input', {
             cls: 'inspector-emotion-input',
-            attr: { type: 'text', placeholder: 'e.g. tense, hopeful, melancholic' },
+            attr: { type: 'text', placeholder: 'E.g. Tense, hopeful, melancholic' },
         });
         emotionInput.value = scene.emotion || '';
         styleInput(emotionInput);
@@ -707,12 +707,12 @@ export class InspectorComponent {
 
         const editBtn = actions.createEl('button', {
             cls: 'mod-cta',
-            text: 'Edit Scene'
+            text: 'Edit scene'
         });
         editBtn.addEventListener('click', () => this.onEdit(scene));
 
         const splitBtn = actions.createEl('button', {
-            text: 'Split Scene'
+            text: 'Split scene'
         });
         splitBtn.addEventListener('click', () => {
             new SplitSceneModal(this.plugin, scene, () => {
@@ -790,7 +790,11 @@ export class InspectorComponent {
         scene: Scene,
     ): void {
         if (!scene.universalFields) scene.universalFields = {};
-        const value = (scene.universalFields[tpl.id] ?? '') as string;
+        // 1.10.43: `universalFields` values can be string | string[] | boolean.
+        // `value` is the coerced string used by text / dropdown paths; the
+        // checkbox path reads `rawValue` to detect the actual boolean.
+        const rawValue = scene.universalFields[tpl.id];
+        const value: string = typeof rawValue === 'string' ? rawValue : '';
 
         const row = parent.createDiv('inspector-universal-field-row');
 
@@ -887,13 +891,13 @@ export class InspectorComponent {
                 }
             });
         } else if (tpl.type === 'checkbox') {
-            const checked = value === true || value === 'true' || value === 'yes';
+            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
             const wrap = row.createDiv('inspector-universal-checkbox-wrap');
             const cb = wrap.createEl('input', {
                 cls: 'inspector-universal-checkbox',
                 type: 'checkbox',
             });
-            cb.checked = !!checked;
+            cb.checked = checked;
             cb.addEventListener('change', async () => {
                 scene.universalFields![tpl.id] = cb.checked;
                 await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
@@ -1330,7 +1334,7 @@ export class InspectorComponent {
 
         const textarea = editorEl.createEl('textarea', {
             cls: 'inspector-notes-textarea',
-            attr: { placeholder: 'Write notes in markdown… Use - [ ] for checkboxes, **bold**, [[wikilinks]]', rows: '4' },
+            attr: { placeholder: 'Write notes in markdown — use - [ ] for checkboxes, **bold**, [[wikilinks]]', rows: '4' },
         });
         textarea.value = currentNotes;
 
@@ -1542,7 +1546,7 @@ class SnapshotLabelModal extends Modal {
 
     onOpen(): void {
         const { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Save Snapshot' });
+        contentEl.createEl('h3', { text: 'Save snapshot' });
         contentEl.createEl('p', { text: 'Enter a name for this snapshot (e.g. "before major rewrite")' });
 
         const input = contentEl.createEl('input', {
@@ -1581,4 +1585,4 @@ class SnapshotLabelModal extends Modal {
         this.contentEl.empty();
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

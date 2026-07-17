@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- Obsidian DOM API forces dynamic dispatch */
+ 
 /**
  * Shared renderer for user-defined custom sections (#114, #120).
  *
@@ -300,7 +300,7 @@ export function renderAddCustomSectionButton<T extends { custom?: Record<string,
     const addSectionRow = container.createDiv('codex-add-custom-section-row');
     const addSectionBtn = addSectionRow.createEl('button', {
         cls: 'codex-add-custom-section-btn',
-        text: '+ Add custom section',
+        text: '+ add custom section',
     });
     addSectionBtn.addEventListener('click', () => {
         const modal = new AddCustomSectionModal(app, '', (title) => {
@@ -814,7 +814,7 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
         const addRow = body.createDiv('codex-add-custom-field-row');
         const addFieldBtn = addRow.createEl('button', {
             cls: 'codex-add-custom-btn',
-            text: '+ Add field to this section',
+            text: '+ add field to this section',
         });
         addFieldBtn.addEventListener('click', () => {
             const modal = new AddSectionFieldModal(app, (result) => {
@@ -864,7 +864,7 @@ export class AddCustomSectionModal extends Modal {
         new Setting(this.contentEl)
             .setName('Section title')
             .addText(text => {
-                text.setPlaceholder('e.g. Misbelief, Voice, Wardrobe…');
+                text.setPlaceholder('E.g. Misbelief, voice, wardrobe???');
                 text.setValue(this.initialTitle);
                 text.onChange(v => { title = v; });
                 nameInput = text.inputEl;
@@ -932,7 +932,7 @@ export class AddSectionFieldModal extends Modal {
         new Setting(this.contentEl)
             .setName('Field name')
             .addText(text => {
-                text.setPlaceholder('e.g. The Lie, The Truth…');
+                text.setPlaceholder('E.g. The lie, the truth???');
                 text.setValue(name);
                 text.onChange(v => { name = v; });
                 nameInput = text.inputEl;
@@ -968,7 +968,7 @@ export class AddSectionFieldModal extends Modal {
             .setName('Placeholder')
             .setDesc('Hint text shown in empty inputs (optional).')
             .addText(t => {
-                t.setPlaceholder('e.g. “What does this character lie to themselves about?”');
+                t.setPlaceholder('E.g. ???what does this character lie to themselves about????');
                 t.setValue(placeholder);
                 t.onChange(v => { placeholder = v; });
             });
@@ -981,7 +981,7 @@ export class AddSectionFieldModal extends Modal {
                 .setName('Options')
                 .setDesc('Comma-separated list of choices.')
                 .addTextArea(ta => {
-                    ta.setPlaceholder('option 1, option 2, option 3');
+                    ta.setPlaceholder('Option 1, option 2, option 3');
                     ta.setValue(optionsCsv);
                     ta.onChange(v => { optionsCsv = v; });
                     ta.inputEl.rows = 2;
@@ -990,7 +990,7 @@ export class AddSectionFieldModal extends Modal {
                 .setName('Folder source (optional)')
                 .setDesc('Vault folder path whose note names become selectable options.')
                 .addText(text => {
-                    text.setPlaceholder('e.g. World/Traits');
+                    text.setPlaceholder('E.g. World/traits');
                     text.setValue(folderSource);
                     text.onChange(v => { folderSource = v.trim(); });
                 });
@@ -1032,4 +1032,4 @@ export class AddSectionFieldModal extends Modal {
     /** Replaced inside onOpen to capture modal form state at submit time. */
     private submit: () => void = () => {};
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- end file-wide suppression for Obsidian DOM event handlers */
+ 

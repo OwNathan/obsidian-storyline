@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { StoryLineProject } from '../models/StoryLineProject';
 import { SceneManager } from './SceneManager';
 import { compareActChapter, getActDisplayLabel } from '../utils/actChapter';
@@ -1027,7 +1027,7 @@ ${body}
             }
         };
 
-        new Notice('Exporting to Word...');
+        new Notice('Exporting to word...');
 
         const blob = await converter.convert(
             markdown,
@@ -1218,7 +1218,9 @@ ${body}
 
         return new Promise<Uint8Array | null>((resolve) => {
             try {
-                const webview = activeDocument.createElement('webview') as unknown as {
+                // `<webview>` is an Electron-only tag. Use createEl on body
+                // (supports arbitrary tag names) rather than createElement.
+                const webview = activeDocument.body.createEl('webview') as unknown as {
                     setCssStyles: (s: Record<string, string>) => void;
                     setAttribute: (k: string, v: string) => void;
                     addEventListener: (ev: string, cb: (...args: unknown[]) => void) => void;
@@ -1377,4 +1379,4 @@ ${body}
 </html>`;
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- end of file-wide suppression block opened at line 1 */
