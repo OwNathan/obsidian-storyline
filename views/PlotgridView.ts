@@ -2365,6 +2365,13 @@ export class PlotgridView extends ItemView {
     private async openScene(scene: Scene): Promise<void> {
         const file = this.app.vault.getAbstractFileByPath(scene.filePath);
         if (file instanceof TFile) {
+            // #224 — Reuse an existing tab that already shows this file instead of opening a duplicate.
+            const existing = this.app.workspace.getLeavesOfType('markdown')
+                .find(leaf => leaf.getViewState()?.state?.file === scene.filePath);
+            if (existing) {
+                this.app.workspace.setActiveLeaf(existing, { focus: true });
+                return;
+            }
             const leaf = this.app.workspace.getLeaf('tab');
             await leaf.openFile(file, { state: { mode: 'source', source: false } });
         } else {
