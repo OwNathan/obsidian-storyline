@@ -1012,7 +1012,6 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
  * below is intentional; migrating this ~3400-line settings surface to the
  * declarative API is tracked separately once we drop 1.12.x support.
  */
-// eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions -- StoryLine still targets Obsidian 1.12.x; see class docstring above.
 export class SceneCardsSettingTab extends PluginSettingTab {
     plugin: SceneCardsPlugin;
 

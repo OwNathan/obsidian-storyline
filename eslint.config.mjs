@@ -20,20 +20,17 @@ export default defineConfig([
       "obsidianmd/ui/sentence-case": ["error", {
         brands: ["StoryLine", "Scrivener", "Obsidian"],
       }],
-      // Allow disabling obsidianmd/prefer-create-el for SVG createElementNS
-      // (createSvg is 1.13+ only; we still support 1.12.x for SVG graphs).
-      "eslint-comments/no-restricted-disable": ["error",
-        "no-console",
-        "no-restricted-globals",
-        "@typescript-eslint/no-restricted-imports",
-        "no-alert",
-        "@typescript-eslint/no-deprecated",
-        "@typescript-eslint/no-explicit-any",
-        "@microsoft/sdl/no-document-write",
-        "no-eval",
-        "@microsoft/sdl/no-inner-html",
-        "obsidianmd/no-nodejs-modules",
-      ],
+      // StoryLine still targets Obsidian 1.12.x (see manifest.json →
+      // minAppVersion), where getSettingDefinitions() doesn't exist. The
+      // declarative settings API is 1.13.0+ only, so the imperative display()
+      // path in settings.ts is intentional until we drop 1.12.x support.
+      //
+      // The plugin's recommended config forbids inline-disabling ANY
+      // obsidianmd/* rule (via eslint-comments/no-restricted-disable with
+      // the "obsidianmd/*" wildcard), so the suppression must live here.
+      // Re-enable this rule (and remove this entry) once minAppVersion is
+      // bumped to 1.13.0 and settings.ts migrates to getSettingDefinitions().
+      "obsidianmd/settings-tab/prefer-setting-definitions": "off",
     },
   },
 ]);
