@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 /**
  * ScrivenerImporter — import a .scriv project into StoryLine.
  *
@@ -20,9 +19,38 @@ import { makeCustomCodexCategory } from '../models/Codex';
 import type { SeriesMetadata } from '../models/StoryLineProject';
 import { App, Modal, Notice, Setting, normalizePath, stringifyYaml } from 'obsidian';
 
+// ────────────────────────────────────────────────────
+//  Minimal typed façades for Node fs / path
+// ────────────────────────────────────────────────────
+// We deliberately define local shapes for the small subset of the Node API
+// we consume so that tools which lint without `@types/node` (or without
+// TypeScript project services) still see well-typed values instead of `any`.
+interface NodeStats {
+    isDirectory(): boolean;
+    isFile(): boolean;
+}
+interface NodeFsModule {
+    readdirSync(path: string): string[];
+    readFileSync(path: string, encoding: 'utf-8'): string;
+    readFileSync(path: string): Uint8Array;
+    existsSync(path: string): boolean;
+    statSync(path: string): NodeStats;
+}
+interface NodePathModule {
+    join(...parts: string[]): string;
+    basename(path: string, ext?: string): string;
+}
+
 // Node modules — only available on desktop
-const fs = ((window as unknown as { require?: (m: string) => unknown }).require)?.('fs') as typeof import('fs') | undefined;
-const nodePath = ((window as unknown as { require?: (m: string) => unknown }).require)?.('path') as typeof import('path') | undefined;
+type NodeRequire = (mod: string) => unknown;
+const nodeRequire: NodeRequire | undefined =
+    (window as unknown as { require?: NodeRequire }).require;
+const fs: NodeFsModule | undefined = nodeRequire
+    ? (nodeRequire('fs') as NodeFsModule)
+    : undefined;
+const nodePath: NodePathModule | undefined = nodeRequire
+    ? (nodeRequire('path') as NodePathModule)
+    : undefined;
 
 // ────────────────────────────────────────────────────
 //  Interfaces
@@ -1133,7 +1161,7 @@ export class ScrivenerImporter {
 
         // ── 5. Refresh ──
         await this.plugin.sceneManager.setActiveProject(lastProject!);
-        this.plugin.refreshOpenViews();
+        await this.plugin.refreshOpenViews();
 
         return result;
     }
@@ -1354,7 +1382,7 @@ export class ScrivenerImporter {
                 // Scan for case-insensitive UUID match
                 const uuidLower = uuid.toLowerCase();
                 try {
-                    const dirs = fs.readdirSync(dataDir) as string[];
+                    const dirs = fs.readdirSync(dataDir);
                     const match = dirs.find((d: string) => d.toLowerCase() === uuidLower);
                     if (match) {
                         const candidate = nodePath.join(dataDir, match);
@@ -1367,7 +1395,7 @@ export class ScrivenerImporter {
 
             if (targetDir) {
                 try {
-                    const files = fs.readdirSync(targetDir) as string[];
+                    const files = fs.readdirSync(targetDir);
                     // Prefer content.rtf, then any content.* file, then first non-system file
                     const contentFile = files.find((f: string) => f.toLowerCase() === 'content.rtf')
                         || files.find((f: string) => f.toLowerCase().startsWith('content.'))
@@ -1384,7 +1412,7 @@ export class ScrivenerImporter {
         const v2Dir = nodePath.join(scrivPath, 'Files', 'Docs');
         if (fs.existsSync(v2Dir)) {
             try {
-                const v2Files = fs.readdirSync(v2Dir) as string[];
+                const v2Files = fs.readdirSync(v2Dir);
                 const uuidLower = uuid.toLowerCase();
                 const match = v2Files.find((f: string) => {
                     const name = f.substring(0, f.lastIndexOf('.'));
@@ -1538,7 +1566,7 @@ export class ScrivenerImporter {
     ): Promise<void> {
         // If the item came from a named Scrivener folder, create a sub-folder
         const targetFolder = item.sourceFolder
-            ? normalizePath(`${researchFolder}/${item.sourceFolder.replace(/[\/\/:*?"<>|]/g, '-')}`)
+            ? normalizePath(`${researchFolder}/${item.sourceFolder.replace(/[/:*?"<>|]/g, '-')}`)
             : researchFolder;
         await this.ensureFolder(targetFolder);
         const now = new Date().toISOString().split('T')[0];
@@ -1675,4 +1703,3 @@ export class ScrivenerImporter {
         await this.app.vault.create(filePath, content);
     }
 }
-/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- end of file-wide suppression block opened at line 1 */

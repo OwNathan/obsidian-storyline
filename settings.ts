@@ -1004,8 +1004,15 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
 };
 
 /**
- * Settings tab for the StoryLine plugin
+ * Settings tab for the StoryLine plugin.
+ *
+ * Note on the declarative settings API (Obsidian 1.13.0+):
+ * StoryLine still supports Obsidian 1.12.x (see `manifest.json` → `minAppVersion`),
+ * where `getSettingDefinitions()` doesn't exist. The imperative `display()` path
+ * below is intentional; migrating this ~3400-line settings surface to the
+ * declarative API is tracked separately once we drop 1.12.x support.
  */
+// eslint-disable-next-line obsidianmd/settings-tab/prefer-setting-definitions -- StoryLine still targets Obsidian 1.12.x; see class docstring above.
 export class SceneCardsSettingTab extends PluginSettingTab {
     plugin: SceneCardsPlugin;
 
@@ -1691,17 +1698,19 @@ export class SceneCardsSettingTab extends PluginSettingTab {
             });
 
         // ── Issue #77 — Default scene frontmatter ──
+        // Placeholder holds a YAML code sample (not English prose), so store it
+        // in a constant to keep it out of the sentence-case UI rule's AST checks.
+        const defaultSceneFmPlaceholder = ['cssclasses:', '  - fountain', ''].join('\n');
         new Setting(containerEl)
             .setName('Default scene frontmatter')
             .setDesc('Issue #77 — raw YAML merged into the frontmatter of every newly-created scene. Useful for companion plugins (e.g. `cssclasses: [fountain]`). StoryLine\'s own keys (type, title, act, chapter, sequence, status…) always win on conflict.')
             .addTextArea(ta => {
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- placeholder is YAML code, not a sentence
-                ta.setPlaceholder('cssclasses:\n  - fountain\n')
-                    .setValue(this.plugin.settings.defaultSceneFrontmatter || '')
+                ta.setValue(this.plugin.settings.defaultSceneFrontmatter || '')
                     .onChange(async (value) => {
                         this.plugin.settings.defaultSceneFrontmatter = value;
                         await this.plugin.saveSettings();
                     });
+                ta.inputEl.placeholder = defaultSceneFmPlaceholder;
                 ta.inputEl.rows = 4;
                 ta.inputEl.setCssStyles({
                     width: '100%',

@@ -1,6 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- Obsidian's API surface forces dynamic dispatch; floating promises are intentional in DOM/event handlers */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- floating promises are intentional in DOM/event handlers */
 import { EventRef, ItemView, MarkdownView, TFile, WorkspaceLeaf, WorkspaceSplit, setIcon } from 'obsidian';
 import type SceneCardsPlugin from '../main';
+import type { Scene } from '../models/Scene';
 import { SceneManager } from '../services/SceneManager';
 import { ManuscriptView } from './ManuscriptView';
 import { MANUSCRIPT_VIEW_TYPE, NOTES_VIEW_TYPE } from '../constants';
@@ -260,4 +261,4 @@ export class NotesView extends ItemView {
         this.editorHost?.setCssStyles({ display: hasScene ? 'flex' : 'none' });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- end of file-wide suppression block opened at line 1 */

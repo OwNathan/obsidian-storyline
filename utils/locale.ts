@@ -315,7 +315,10 @@ export const SUPPORTED_STORYLINE_LOCALES: ReadonlyArray<{ code: string; label: s
  * (or `DEFAULT_STORYLINE_LOCALE` when blank).
  */
 export function normalizeStoryLineLocale(value: unknown): StoryLineLocale {
-    const raw = String(value ?? '').trim().toLowerCase().replace('_', '-');
+    // Only strings can meaningfully be a locale tag; anything else (objects,
+    // arrays, numbers, null/undefined) falls back to blank and then to the
+    // default locale, so we never end up stringifying `[object Object]`.
+    const raw = (typeof value === 'string' ? value : '').trim().toLowerCase().replace('_', '-');
     if (!raw) return DEFAULT_STORYLINE_LOCALE;
     if (raw === AUTO_DETECT_LOCALE) return AUTO_DETECT_LOCALE;
     const base = raw.split('-')[0];

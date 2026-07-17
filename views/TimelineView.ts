@@ -1408,16 +1408,18 @@ export class TimelineView extends ItemView {
         });
 
         const chaptersList = contentEl.createDiv('structure-list');
-        const scenesPerChapter = new Map<number, number>();
-        for (const scene of this.sceneManager.getAllScenes()) {
-            if (scene.chapter !== undefined) {
-                const n = Number(scene.chapter);
-                scenesPerChapter.set(n, (scenesPerChapter.get(n) || 0) + 1);
-            }
-        }
 
         const renderChaptersList = () => {
             chaptersList.empty();
+            // Recompute the scene-per-chapter counts each render so they
+            // stay accurate after `removeChapter()` shifts scenes down.
+            const scenesPerChapter = new Map<number, number>();
+            for (const scene of this.sceneManager.getAllScenes()) {
+                if (scene.chapter !== undefined) {
+                    const n = Number(scene.chapter);
+                    scenesPerChapter.set(n, (scenesPerChapter.get(n) || 0) + 1);
+                }
+            }
             const chapters = this.sceneManager.getDefinedChapters();
             const chapterLabels = this.sceneManager.getChapterLabels();
             const chapterDescriptions = this.sceneManager.getChapterDescriptions();
@@ -1469,6 +1471,7 @@ export class TimelineView extends ItemView {
                 removeBtn.textContent = '×';
                 removeBtn.addEventListener('click', async () => {
                     await this.sceneManager.removeChapter(ch);
+                    await this.sceneManager.initialize();
                     renderChaptersList();
                 });
 

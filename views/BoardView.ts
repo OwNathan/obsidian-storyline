@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, Modal, Setting, MarkdownRenderer } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { Scene, SceneFilter, SortConfig, BoardGroupBy, SceneStatus, SceneTemplate, BUILTIN_BEAT_SHEETS, getStatusOrder, getStatusConfig, resolveStatusCfg } from '../models/Scene';
@@ -2742,27 +2742,38 @@ export class BoardView extends ItemView {
                 item.setTitle('Delete chapter')
                     .setIcon('trash')
                     .onClick(() => {
+                        // Count chapters above this one so we can warn the
+                        // user that they'll be renumbered.
+                        const defined = this.sceneManager.getDefinedChapters();
+                        const shiftedCount = defined.filter(c => c > chNum).length;
+                        const shiftMsg = shiftedCount > 0
+                            ? ` Chapters above will be renumbered down by 1 (Chapter ${chNum + 1} becomes ${chNum}, etc.), and every scene in those chapters is updated to match.`
+                            : '';
+
+                        // Match `insertChapter`'s pattern: after the frontmatter/scene
+                        // rewrites, re-scan the vault so the in-memory scene index
+                        // reflects the new chapter numbers before we re-render.
+                        const runDelete = async () => {
+                            await this.sceneManager.deleteChapterAndShift(chNum);
+                            await this.sceneManager.initialize();
+                            this.refreshBoard();
+                            new Notice(`Deleted Chapter ${chNum}`);
+                        };
+
                         if (scenes.length > 0) {
                             openConfirmModal(this.app, {
                                 title: 'Delete Chapter',
-                                message: `Chapter ${chNum} contains ${scenes.length} scene(s). Deleting the chapter removes the column but keeps the scenes (they'll become unassigned). Continue?`,
-                                onConfirm: async () => {
-                                    for (const s of scenes) {
-                                        await this.sceneManager.updateScene(s.filePath, { chapter: undefined });
-                                    }
-                                    await this.sceneManager.removeChapter(chNum);
-                                    await this.sceneManager.setChapterLabel(chNum, '');
-                                    this.refreshBoard();
-                                    new Notice(`Deleted Chapter ${chNum}`);
-                                },
+                                message: `Chapter ${chNum} contains ${scenes.length} scene(s). Deleting the chapter removes the column but keeps those scenes (they'll become unassigned).${shiftMsg} Continue?`,
+                                onConfirm: runDelete,
+                            });
+                        } else if (shiftedCount > 0) {
+                            openConfirmModal(this.app, {
+                                title: 'Delete Chapter',
+                                message: `Delete Chapter ${chNum}?${shiftMsg}`,
+                                onConfirm: runDelete,
                             });
                         } else {
-                            this.sceneManager.removeChapter(chNum).then(() => {
-                                this.sceneManager.setChapterLabel(chNum, '').then(() => {
-                                    this.refreshBoard();
-                                    new Notice(`Deleted Chapter ${chNum}`);
-                                });
-                            });
+                            runDelete();
                         }
                     });
             });
@@ -3038,7 +3049,7 @@ export class BoardView extends ItemView {
                 });
 
             // Summary line + expandable beat list under the Setting description
-            const descFrag = activeWindow.createFragment();
+            const descFrag: DocumentFragment = createFragment();
             const summaryLine = descFrag.createDiv({ cls: 'beat-sheet-row-summary', text: `${template.summary} \u00b7 ${parts.join(' \u00b7 ')}` });
             const details = descFrag.createEl('details', { cls: 'beat-sheet-details' });
             details.createEl('summary', { cls: 'beat-sheet-details-summary', text: 'Show beats' });
@@ -3133,16 +3144,19 @@ export class BoardView extends ItemView {
         });
 
         const chaptersList = contentEl.createDiv('structure-list');
-        const scenesPerChapter = new Map<number, number>();
-        for (const scene of this.sceneManager.getAllScenes()) {
-            if (scene.chapter !== undefined) {
-                const n = Number(scene.chapter);
-                scenesPerChapter.set(n, (scenesPerChapter.get(n) || 0) + 1);
-            }
-        }
 
         const renderChaptersList = () => {
             chaptersList.empty();
+            // Recompute scene-per-chapter each render so the counts stay
+            // accurate after `removeChapter()` shifts scenes down by one.
+            const scenesPerChapter = new Map<number, number>();
+            for (const scene of this.sceneManager.getAllScenes()) {
+                if (scene.chapter !== undefined) {
+                    const n = Number(scene.chapter);
+                    scenesPerChapter.set(n, (scenesPerChapter.get(n) || 0) + 1);
+                }
+            }
+
             const chapters = this.sceneManager.getDefinedChapters();
             const chLabels = this.sceneManager.getChapterLabels();
             if (chapters.length === 0) {
@@ -3163,7 +3177,11 @@ export class BoardView extends ItemView {
                 removeBtn.textContent = '×';
                 removeBtn.addEventListener('click', async () => {
                     await this.sceneManager.removeChapter(ch);
+                    await this.sceneManager.initialize();
                     renderChaptersList();
+                    // Update the board behind the modal too so its columns
+                    // reflect the new chapter numbers when the modal closes.
+                    this.refreshBoard();
                 });
             }
         };
@@ -3923,4 +3941,4 @@ export class BoardView extends ItemView {
         });
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

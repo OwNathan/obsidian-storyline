@@ -1680,10 +1680,85 @@ export class SceneManager implements ISceneStore {
         await this.saveProjectFrontmatter(this._activeProject);
     }
 
-    /** Remove a chapter definition */
+    /**
+     * Remove a chapter. This is the mirror of `insertChapter`: every chapter
+     * above `chapterNumber` is renumbered down by one so chapter numbers
+     * stay contiguous, and every scene assigned to those chapters has its
+     * `chapter:` frontmatter field decremented to match. Scenes that lived
+     * in the deleted chapter itself have their `chapter` cleared — they
+     * become unassigned. The caller is expected to have already prompted
+     * the user about that.
+     *
+     * (Prior to 1.10.44 this was a bare list-filter that only removed the
+     * number from `definedChapters`, leaving all other chapter numbers and
+     * scene metadata untouched — so deleting Chapter 2 left Chapter 3 still
+     * numbered 3. Merged with `deleteChapterAndShift` for consistency.)
+     */
     async removeChapter(chapterNumber: number): Promise<void> {
+        return this.deleteChapterAndShift(chapterNumber);
+    }
+
+    /**
+     * Delete a chapter and renumber every chapter above it down by one, so
+     * chapter numbers stay contiguous (mirror of `insertChapter`). Every
+     * scene assigned to a chapter greater than `chapterNumber` has its
+     * `chapter` field decremented, and the chapter labels / descriptions
+     * are shifted down to match. Scenes that were in the deleted chapter
+     * itself have their `chapter` cleared (they become unassigned) — the
+     * caller is expected to have already prompted the user about that.
+     */
+    async deleteChapterAndShift(chapterNumber: number): Promise<void> {
         if (!this._activeProject) return;
-        this._activeProject.definedChapters = this._activeProject.definedChapters.filter(c => c !== chapterNumber);
+
+        // 1. Clear the chapter field on scenes that lived in the deleted chapter.
+        for (const scene of this.scenes.values()) {
+            if (Number(scene.chapter) === chapterNumber) {
+                await this.updateScene(scene.filePath, { chapter: undefined });
+            }
+        }
+
+        // 2. Shift every chapter > chapterNumber down by one. Process in
+        //    ascending order so we never overwrite a value we still need
+        //    to read (ch → ch-1, so reading ch-1 first would clobber it
+        //    on the next iteration; ascending is safe here).
+        const existing = this.getDefinedChapters();
+        const above = existing.filter(c => c > chapterNumber).sort((a, b) => a - b);
+        for (const ch of above) {
+            const newCh = ch - 1;
+
+            // Move label
+            const label = this._activeProject.chapterLabels?.[ch];
+            if (label !== undefined) {
+                this._activeProject.chapterLabels[newCh] = label;
+                delete this._activeProject.chapterLabels[ch];
+            }
+
+            // Move description
+            const desc = this._activeProject.chapterDescriptions?.[ch];
+            if (desc !== undefined) {
+                this._activeProject.chapterDescriptions[newCh] = desc;
+                delete this._activeProject.chapterDescriptions[ch];
+            }
+
+            // Move scenes
+            for (const scene of this.scenes.values()) {
+                if (Number(scene.chapter) === ch) {
+                    await this.updateScene(scene.filePath, { chapter: newCh });
+                }
+            }
+        }
+
+        // 3. Drop the deleted chapter number and any label/desc left on it.
+        this._activeProject.definedChapters = existing
+            .filter(c => c !== chapterNumber)
+            .map(c => (c > chapterNumber ? c - 1 : c))
+            .sort((a, b) => a - b);
+        if (this._activeProject.chapterLabels?.[chapterNumber] !== undefined) {
+            delete this._activeProject.chapterLabels[chapterNumber];
+        }
+        if (this._activeProject.chapterDescriptions?.[chapterNumber] !== undefined) {
+            delete this._activeProject.chapterDescriptions[chapterNumber];
+        }
         await this.saveProjectFrontmatter(this._activeProject);
     }
 
@@ -1740,9 +1815,16 @@ export class SceneManager implements ISceneStore {
             }
         }
 
-        // Register the new (now-free) chapter number and persist
-        this._activeProject.definedChapters =
-            [...this._activeProject.definedChapters, beforeChapter].sort((a, b) => a - b);
+        // Register the new (now-free) chapter number and persist.
+        // Shift every defined chapter >= beforeChapter up by one (matching
+        // the scene/label/description shift above) and then insert the new
+        // chapter number. Dedupe via Set in case beforeChapter was already
+        // present (shouldn't happen, but guards against corrupted state).
+        this._activeProject.definedChapters = Array.from(new Set(
+            this._activeProject.definedChapters
+                .map(c => (c >= beforeChapter ? c + 1 : c))
+                .concat(beforeChapter)
+        )).sort((a, b) => a - b);
         await this.saveProjectFrontmatter(this._activeProject);
         return beforeChapter;
     }

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, no-useless-escape -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { App, ButtonComponent, DropdownComponent, FuzzySuggestModal, ItemView, Modal, Notice, Platform, Plugin, Setting, TFile, TextComponent, ToggleComponent, WorkspaceLeaf, normalizePath, parseYaml, setIcon } from 'obsidian';
 import { SceneCardsSettings, SceneCardsSettingTab, DEFAULT_SETTINGS } from './settings';
-import { asRecord, asString, asNumber, asBool, isRecord } from './utils/narrow';
+import { asRecord, isRecord } from './utils/narrow';
 import type { FilterPreset } from './models/Scene';
 import { SceneManager } from './services/SceneManager';
 import { registerCustomStatuses } from './models/Scene';
@@ -1645,7 +1645,7 @@ export default class SceneCardsPlugin extends Plugin {
             if (!await adapter.exists(filePath)) return null;
             const txt = await adapter.read(filePath);
             return JSON.parse(txt) as PlotGridData;
-        } catch (e) {
+        } catch {
             return null;
         }
     }
@@ -3142,7 +3142,7 @@ class ProjectSelectModal extends Modal {
                         ? active.filePath
                         : projects[0].filePath;
                 }
-            } catch (err) {
+            } catch {
                 select.createEl('option', { text: 'Error loading projects' }).setAttribute('disabled', 'true');
             }
         })();
