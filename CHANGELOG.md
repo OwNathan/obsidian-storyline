@@ -6,6 +6,16 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.47
+
+### Bug Fixes
+
+- **Mobile: Codex/Character/Location detail forms no longer blank out when editing** — on iOS/iPadOS, tapping a field near the bottom of a Codex (Locations/Items), Character, or Location detail form could make the whole content area blank out when the soft keyboard appeared. The root cause was conflicting CSS that set the view containers to `100dvh` and then back to `100%`, causing layout thrash when the keyboard changed the dynamic viewport height. The `100dvh` sizing is now applied only to the inspector bottom-sheet panels; the view containers always stay at `100%` of their leaf so their flex children (toolbar + scroll area) keep their pinned toolbar. The detail content areas also now explicitly use `flex: 1 1 auto; min-height: 0; overflow-y: auto` so only the content scrolls, not the toolbar. *(Issue #190)*
+
+- **Mobile: toolbar stays pinned to the top while scrolling** — a strip of scrolling content could appear above the sticky toolbar on mobile because the `::before` overlay that covers the gap above the toolbar was only 24px tall (sufficient on desktop, too short for iOS WebKit's visual-viewport offset behaviour). The overlay is now 60px on mobile, and the toolbar's z-index is raised so it stays painted above form fields. *(Issue #190)*
+
+- **Mobile: corkboard note editing no longer pushes content under the toolbar depending on zoom** — `panCorkboardToRevealNote()` used a fixed 45%-of-viewport heuristic to reserve space for the keyboard, which over-scrolled when zoomed in (card larger than the safe zone) and under-scrolled when zoomed out, pushing the note under the toolbar. It now uses the actual keyboard height from the Visual Viewport API (`window.visualViewport`) so the note lands in the true visible region regardless of zoom level. *(Issue #190)*
+
 ## Version 1.10.46
 
 ### Bug Fixes

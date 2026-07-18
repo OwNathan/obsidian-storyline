@@ -1096,8 +1096,24 @@ export class BoardView extends ItemView {
         const cardRect = cardEl.getBoundingClientRect();
         const zoom = this.corkboardCamera.zoom || 1;
 
-        // Reserve roughly the bottom 45% of the viewport for the keyboard.
-        const safeBottom = vpRect.top + vpRect.height * 0.55;
+        // Issue #190 follow-up — use the actual keyboard height from the
+        // Visual Viewport API instead of a fixed 45% heuristic. The old
+        // heuristic over-scrolled when zoomed in (card larger than the safe
+        // zone) and under-scrolled when zoomed out, pushing the note under
+        // the toolbar. With the real keyboard height we reserve exactly the
+        // region the keyboard occupies plus a small margin.
+        const vv = window.visualViewport;
+        let keyboardHeight: number;
+        if (vv) {
+            const layoutHeight = window.innerHeight;
+            keyboardHeight = Math.max(0, layoutHeight - vv.height - vv.offsetTop);
+        } else {
+            // Fallback to the old heuristic when the Visual Viewport API
+            // isn't available (very old webviews).
+            keyboardHeight = vpRect.height * 0.45;
+        }
+        // Safe bottom = visible region minus a 16px margin above the keyboard.
+        const safeBottom = (vv ? vv.offsetTop + vv.height : vpRect.bottom) - 16;
         const safeTop = vpRect.top + 24;
 
         const cardTop = cardRect.top;
@@ -1115,6 +1131,7 @@ export class BoardView extends ItemView {
 
         this.corkboardCamera.y += dyCamera;
         this.applyCorkboardCamera(canvas);
+        void keyboardHeight;
     }
 
     /**

@@ -7949,6 +7949,27 @@ body /* Clamp title on mobile too, in case it's very long */
     padding: 6px 8px;
 }
 
+/*
+ * Issue #190 follow-up — on mobile, the sticky toolbar's `::before`
+ * overlay (24px on desktop) isn't tall enough to cover the gap that
+ * appears when the visual viewport offset changes (soft keyboard).
+ * iOS WebKit can render a strip of scrolling content above a sticky
+ * element when the layout viewport and visual viewport diverge. Extend
+ * the overlay upward on mobile so the toolbar always appears pinned.
+ */
+.sl-mobile .story-line-toolbar::before {
+    height: 60px;
+}
+
+/*
+ * Ensure the sticky toolbar stays above content on mobile even when
+ * the scroll container is scrolled by the keyboard-reveal handler.
+ * A higher z-index keeps it painted above the form fields.
+ */
+.sl-mobile .story-line-toolbar {
+    z-index: 20;
+}
+
 .sl-mobile .story-line-view-switcher {
     flex-wrap: wrap;
     gap: 2px;
@@ -8256,7 +8277,12 @@ body /* Clamp title on mobile too, in case it's very long */
         max-height: 100dvh;
     }
     /* But the view containers themselves should fill their leaf, not the
-       whole viewport — cap with min-height so flex children still scroll. */
+       whole viewport — cap with min-height so flex children still scroll.
+       Issue #190 follow-up: the previous block accidentally set the view
+       containers to 100dvh AND then back to 100%, which caused layout
+       thrash on iOS when the keyboard appeared (the codex/character
+       detail forms could blank out). Now only the inspector panels use
+       100dvh; the view containers always use 100% of their leaf. */
     .sl-mobile.story-line-board-container,
     .sl-mobile.story-line-timeline-container,
     .sl-mobile.story-line-storyline-container,
@@ -8266,6 +8292,16 @@ body /* Clamp title on mobile too, in case it's very long */
     .sl-mobile.story-line-stats-container {
         height: 100%;
         max-height: 100%;
+    }
+    /* Override the 100dvh above for view containers — the inspector panels
+       keep 100dvh so they shrink with the keyboard, but the view containers
+       must stay at 100% of their leaf or their flex children (toolbar +
+       scroll area) lose their pinned toolbar when the keyboard appears. */
+    .sl-mobile .sl-scene-inspector-sidebar,
+    .sl-mobile .sl-inspector-panels,
+    .sl-mobile .sl-inspector-panel.is-active {
+        height: 100dvh;
+        max-height: 100dvh;
     }
 }
 
@@ -8358,6 +8394,22 @@ body /* Clamp title on mobile too, in case it's very long */
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding-bottom: 40dvh;
+}
+
+/*
+ * Issue #190 follow-up — ensure the scrollable content area of each
+ * view fills the remaining flex space below the toolbar on mobile, so
+ * the toolbar stays pinned and only the content scrolls. Without this,
+ * iOS WebKit can let the content area expand beyond its flex allotment
+ * and push the toolbar off-screen when the keyboard appears.
+ */
+.sl-mobile .story-line-codex-content,
+.sl-mobile .story-line-character-content,
+.sl-mobile .story-line-location-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 /*
