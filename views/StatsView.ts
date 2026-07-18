@@ -780,7 +780,12 @@ export class StatsView extends ItemView {
         sec.createEl('h5', { cls: 'stats-subsection-title', text: 'Character — chapter heatmap' });
         sec.createEl('p', { cls: 'stats-hint', text: 'Darker cells = more scene appearances in that chapter.' });
 
-        const table = sec.createEl('table', { cls: 'stats-heatmap-table' });
+        // Issue #229 — wrap the heatmap in a horizontally scrollable
+        // container so wide tables (many chapters) are clipped instead of
+        // overflowing the Stats panel. A vertical max-height + scroll keeps
+        // tall tables (many characters) readable too.
+        const scrollWrap = sec.createDiv('stats-heatmap-scroll');
+        const table = scrollWrap.createEl('table', { cls: 'stats-heatmap-table' });
 
         // Header row
         const thead = table.createEl('thead');

@@ -54,6 +54,15 @@ export class ManuscriptView extends ItemView {
     private _hasActiveFocus = false;
     /** Prevents refresh() from running during initial mount sequence */
     private _isMounting = false;
+    /** True while any lazy/eager editor mount is in flight. refresh()
+     *  bails out when this is set so an in-progress openFile() doesn't
+     *  get torn down by a vault 'modify' event it itself triggered
+     *  (the root cause of the manuscript flicker loop). */
+    private _lazyMounting = false;
+    /** Monotonic token used to detect when a teardown happened during an
+     *  async mountEditor() call. detachAllEmbedded() bumps this; the
+     *  in-flight mount checks it after each await and bails if it changed. */
+    private _activeMountToken: symbol | null = null;
     /** When true, hide wiki-link/tag styling so text reads as plain prose.
      *  Persisted to localStorage so the last toolbar choice survives view
      *  switches and Obsidian restarts. Defaults to ON for first-time users. */
@@ -170,9 +179,13 @@ export class ManuscriptView extends ItemView {
 
     /** Called by refreshOpenViews() */
     refresh(): void {
-        // Don't re-render while user is editing, during mount sequence,
-        // or while the cross-scene search panel is open (Issue #195).
-        if (this._hasActiveFocus || this._isMounting || this.isSearchOpen()) {
+        // Don't re-render while user is editing, during any mount sequence
+        // (initial eager OR lazy scroll-triggered), or while the cross-scene
+        // search panel is open (Issue #195). A lazy mount in flight can fire
+        // vault 'modify' events via leaf.openFile(); tearing the view down
+        // at that point both loses the in-flight mount and re-triggers
+        // refresh() — the flicker loop users reported.
+        if (this._hasActiveFocus || this._isMounting || this._lazyMounting || this.isSearchOpen()) {
             this.updateFooter();
             return;
         }
@@ -182,6 +195,10 @@ export class ManuscriptView extends ItemView {
     }
 
     private detachAllEmbedded(): void {
+        // Bump the mount token so any in-flight mountEditor() call knows
+        // its container/leaf is being torn down and bails out instead of
+        // writing into a detached DOM tree.
+        this._activeMountToken = Symbol('detach');
         for (const [, leaf] of this.embeddedLeaves) {
             leaf.detach();
         }
@@ -191,6 +208,14 @@ export class ManuscriptView extends ItemView {
         }
         this.editorResizeObservers.clear();
         this.mountingPaths.clear();
+        this._lazyMounting = false;
+    }
+
+    /** Clear the lazy-mounting flag only if no mounts remain in flight. */
+    private _maybeClearLazyMounting(): void {
+        if (this.mountingPaths.size === 0) {
+            this._lazyMounting = false;
+        }
     }
 
     private renderView(container: HTMLElement): void {
@@ -518,10 +543,26 @@ export class ManuscriptView extends ItemView {
     private async mountEditor(container: HTMLElement, filePath: string): Promise<void> {
         if (this.embeddedLeaves.has(filePath) || this.mountingPaths.has(filePath)) return;
         this.mountingPaths.add(filePath);
+        this._lazyMounting = true;
+
+        // Capture a token for this mount so we can detect if a teardown
+        // (detachAllEmbedded) ran while we were awaiting openFile(). Without
+        // this, a refresh() triggered by the modify event from openFile()
+        // would leave us writing into a detached container.
+        const mountToken = Symbol('mount');
+        this._activeMountToken = mountToken;
 
         const file = this.app.vault.getAbstractFileByPath(filePath);
         if (!(file instanceof TFile)) {
             this.mountingPaths.delete(filePath);
+            this._maybeClearLazyMounting();
+            return;
+        }
+
+        // Bail if the container was detached while we were looking up the file.
+        if (!container.isConnected || this._activeMountToken !== mountToken) {
+            this.mountingPaths.delete(filePath);
+            this._maybeClearLazyMounting();
             return;
         }
 
@@ -531,6 +572,7 @@ export class ManuscriptView extends ItemView {
         // don't render reliably. Fall back to static rendered markdown.
         if (isPhone || isTablet) {
             this.mountingPaths.delete(filePath);
+            this._maybeClearLazyMounting();
             await this.mountReadOnlyPreview(container, filePath);
             return;
         }
@@ -552,8 +594,22 @@ export class ManuscriptView extends ItemView {
                 state: { mode: 'source', source: false },
             });
 
+            // A vault 'modify' event from openFile() (or any other source)
+            // may have triggered refreshOpenViews() → refresh() while we
+            // were awaiting. refresh() now bails on _lazyMounting, but a
+            // *previous* render cycle could still have called
+            // detachAllEmbedded(). Detect that via the mount token and
+            // bail cleanly instead of registering a detached leaf.
+            if (this._activeMountToken !== mountToken || !splitEl.isConnected) {
+                try { leaf.detach(); } catch { /* already gone */ }
+                this.mountingPaths.delete(filePath);
+                this._maybeClearLazyMounting();
+                return;
+            }
+
             this.embeddedLeaves.set(filePath, leaf);
             this.mountingPaths.delete(filePath);
+            this._maybeClearLazyMounting();
 
             // Inject the atomic-links extension into the CM6 editor
             this.injectAtomicExtension(leaf);
@@ -675,8 +731,13 @@ export class ManuscriptView extends ItemView {
             }
         } catch (err) {
             this.mountingPaths.delete(filePath);
+            this._maybeClearLazyMounting();
             console.warn('StoryLine: embedded editor failed, falling back to preview', err);
-            await this.mountReadOnlyPreview(container, filePath);
+            // Only fall back if the container is still attached — if a
+            // teardown happened, there's nothing to render into.
+            if (container.isConnected) {
+                await this.mountReadOnlyPreview(container, filePath);
+            }
         }
     }
 
@@ -1241,16 +1302,14 @@ export class ManuscriptView extends ItemView {
         if (!this.scrollArea) return;
 
         const visibleEntries = new Map<string, number>();
-
-        this.focusObserver = new IntersectionObserver(
-            (entries) => {
-                for (const entry of entries) {
-                    const path = (entry.target as HTMLElement).dataset.scenePath;
-                    if (!path) continue;
-                    visibleEntries.set(path, entry.intersectionRatio);
-                    if (!entry.isIntersecting) visibleEntries.delete(path);
-                }
-
+        // Debounce the Inspector sync so rapid scrolling (and the burst of
+        // intersection entries it produces) doesn't hammer the sidebar on
+        // every frame — a major contributor to the "flickering sidebar".
+        let focusSyncTimer: number | null = null;
+        const syncInspector = () => {
+            if (focusSyncTimer !== null) return;
+            focusSyncTimer = window.setTimeout(() => {
+                focusSyncTimer = null;
                 // Pick the scene with the highest intersection ratio
                 let best: string | null = null;
                 let bestRatio = 0;
@@ -1260,12 +1319,23 @@ export class ManuscriptView extends ItemView {
                         bestRatio = ratio;
                     }
                 }
-
                 if (best && best !== this.focusedScenePath) {
                     this.focusedScenePath = best;
                     // Notify Inspector sidebar
                     this.app.workspace.trigger('storyline:manuscript-focus', best);
                 }
+            }, 120);
+        };
+
+        this.focusObserver = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    const path = (entry.target as HTMLElement).dataset.scenePath;
+                    if (!path) continue;
+                    visibleEntries.set(path, entry.intersectionRatio);
+                    if (!entry.isIntersecting) visibleEntries.delete(path);
+                }
+                syncInspector();
             },
             {
                 root: this.scrollArea,

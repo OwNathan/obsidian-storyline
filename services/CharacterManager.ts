@@ -512,8 +512,20 @@ export class CharacterManager {
     }
 
     private async ensureFolder(folderPath: string): Promise<void> {
-        if (this.app.vault.getAbstractFileByPath(folderPath)) return;
-        await this.app.vault.createFolder(folderPath);
+        // Issue #227 — use the vault adapter (filesystem) as the source of
+        // truth rather than getAbstractFileByPath(), whose in-memory cache
+        // can lag behind the filesystem (especially on Linux). When the
+        // cache misses, createFolder() throws "Folder already exists".
+        const adapter = this.app.vault.adapter;
+        if (await adapter.exists(folderPath)) return;
+        try {
+            await this.app.vault.createFolder(folderPath);
+        } catch (e) {
+            // Race: another caller (or a synced file) created it between
+            // our exists() check and createFolder(). Treat as success.
+            if (await adapter.exists(folderPath)) return;
+            throw e;
+        }
     }
 
     private parseGallery(value: unknown): Array<{ path: string; caption: string }> | undefined {

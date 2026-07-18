@@ -202,6 +202,14 @@ export interface Character {
     modified?: string;
     /** Free-form notes (markdown body) */
     notes?: string;
+
+    // ── Linking & Matching (Issue #228) ───────────────
+    /** Optional sub-type badge (e.g. "Antagonist", "Mentor"). */
+    entryType?: string;
+    /** When true, name + nickname match only on exact case. */
+    caseSensitive?: boolean;
+    /** Comma-separated phrases that should NOT link to this character. */
+    excludeTerms?: string;
 }
 
 /**
@@ -221,6 +229,9 @@ export interface CharacterFieldDef {
     label: string;
     placeholder: string;
     multiline?: boolean;
+    /** When true, render an on/off checkbox instead of a text input
+     *  (e.g. case-sensitive matching). Stored as a boolean. */
+    toggle?: boolean;
 }
 
 /**
@@ -627,6 +638,20 @@ export const CHARACTER_CATEGORIES: CharacterFieldCategory[] = [
             { key: 'props', label: 'Props', placeholder: 'Items they frequently use or carry', multiline: true },
         ],
     },
+    // ── Linking & Matching (Issue #228) ───────────────────────────
+    // Mirrors the shared section Codex entries already have. Aliases are
+    // intentionally omitted — Characters already expose `nickname` in Basic
+    // Information, which the LinkScanner reads as a comma-separated alias
+    // list. The fields here control sub-type display and matching rules.
+    {
+        title: 'Linking & Matching',
+        icon: 'link',
+        fields: [
+            { key: 'entryType', label: 'Type', placeholder: 'Sub-type (e.g. Antagonist, Mentor, Deuteragonist…)' },
+            { key: 'caseSensitive', label: 'Case-sensitive matching', placeholder: 'Off — match regardless of case', toggle: true },
+            { key: 'excludeTerms', label: 'Exclude terms', placeholder: 'Comma-separated phrases that should NOT link here (e.g. "Saint John")', multiline: true },
+        ],
+    },
 ];
 
 /**
@@ -640,6 +665,7 @@ export const CHARACTER_FIELD_KEYS: (keyof Character)[] = [
     'startingPoint', 'goal', 'expectedChange',
     'habits', 'props',
     'books',
+    'entryType', 'caseSensitive', 'excludeTerms',
 ];
 
 export const CHARACTER_RELATION_ARRAY_FIELDS: (keyof Character)[] = [

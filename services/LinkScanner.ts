@@ -173,6 +173,32 @@ export class LinkScanner {
         this.charNames.clear();
         this.locNames.clear();
         this.charCanonical.clear();
+        // Issue #228 — character & location matching rules now share the
+        // same map codex entries use, so plain-text scanning honours
+        // caseSensitive / excludeTerms for every entity type.
+        this.codexEntryRules.clear();
+        this.codexCaseSensitiveNames = [];
+
+        /** Build a {caseSensitive, excludeTerms} rule from any entity that
+         *  exposes the Linking & Matching fields. Returns null when neither
+         *  flag is set (no rule needed). */
+        const buildRule = (e: Record<string, unknown>): { caseSensitive: boolean; excludeTerms: string[] } | null => {
+            const caseSensitive = e.caseSensitive === true;
+            const excludeRaw = typeof e.excludeTerms === 'string' ? e.excludeTerms : '';
+            const excludeTerms = excludeRaw
+                .split(/[,\n]/)
+                .map(t => t.trim().toLowerCase())
+                .filter(Boolean);
+            if (!caseSensitive && excludeTerms.length === 0) return null;
+            return { caseSensitive, excludeTerms };
+        };
+
+        /** Register a rule (if any) for a name + its original casing. */
+        const registerRule = (nameLower: string, originalName: string, rule: { caseSensitive: boolean; excludeTerms: string[] } | null) => {
+            if (!rule) return;
+            this.codexEntryRules.set(nameLower, rule);
+            if (rule.caseSensitive) this.codexCaseSensitiveNames.push(originalName);
+        };
 
         // Count first-name occurrences to avoid ambiguous auto-aliases
         const firstNameCount = new Map<string, number>();
@@ -186,11 +212,16 @@ export class LinkScanner {
             this.charNames.add(nameLower);
             this.charCanonical.set(nameLower, c.name);
 
+            // Issue #228 — Linking & Matching rules for characters.
+            const cRule = buildRule(c as unknown as Record<string, unknown>);
+            registerRule(nameLower, c.name, cRule);
+
             // Auto-add first name as alias (only if unique across characters)
             const firstName = c.name.split(/\s+/)[0]?.toLowerCase();
             if (firstName && firstName !== nameLower && (firstNameCount.get(firstName) || 0) <= 1) {
                 this.charNames.add(firstName);
                 this.charCanonical.set(firstName, c.name);
+                if (cRule) registerRule(firstName, c.name, cRule);
             }
 
             if ((c as unknown as Record<string, unknown>).nickname) {
@@ -203,6 +234,7 @@ export class LinkScanner {
                     const nickLower = nick.toLowerCase();
                     this.charNames.add(nickLower);
                     this.charCanonical.set(nickLower, c.name);
+                    if (cRule) registerRule(nickLower, nick, cRule);
                 }
             }
         }
@@ -218,31 +250,41 @@ export class LinkScanner {
 
         for (const l of this.locationManager.getAllLocations()) {
             this.locNames.add(l.name.toLowerCase());
+            // Issue #228 — Linking & Matching rules for locations.
+            const lRule = buildRule(l as unknown as Record<string, unknown>);
+            registerRule(l.name.toLowerCase(), l.name, lRule);
             // Support comma-separated nicknames for locations
             if (l.nickname) {
                 const nicks = String(l.nickname).split(',').map(n => n.trim()).filter(Boolean);
                 for (const nick of nicks) {
-                    this.locNames.add(nick.toLowerCase());
+                    const nickLower = nick.toLowerCase();
+                    this.locNames.add(nickLower);
+                    if (lRule) registerRule(nickLower, nick, lRule);
                 }
             }
         }
         // Also include worlds
         for (const w of this.locationManager.getAllWorlds()) {
             this.locNames.add(w.name.toLowerCase());
+            // Issue #228 — Linking & Matching rules for worlds.
+            const wRule = buildRule(w as unknown as Record<string, unknown>);
+            registerRule(w.name.toLowerCase(), w.name, wRule);
             // Support comma-separated nicknames for worlds
             if (w.nickname) {
                 const nicks = String(w.nickname).split(',').map(n => n.trim()).filter(Boolean);
                 for (const nick of nicks) {
-                    this.locNames.add(nick.toLowerCase());
+                    const nickLower = nick.toLowerCase();
+                    this.locNames.add(nickLower);
+                    if (wRule) registerRule(nickLower, nick, wRule);
                 }
             }
         }
 
         // Codex entry names
         this.codexNames.clear();
-        // Issue #223 — reset per-entry matching rules
-        this.codexEntryRules.clear();
-        this.codexCaseSensitiveNames = [];
+        // Note: codexEntryRules / codexCaseSensitiveNames are shared with
+        // character & location rules (Issue #228) and were reset at the top
+        // of rebuildLookups() — do NOT clear them again here.
         if (this.codexManager) {
             for (const entry of this.codexManager.getAllEntries()) {
                 const lower = entry.name.toLowerCase();
@@ -333,21 +375,20 @@ export class LinkScanner {
 
         for (const [key, name] of seen) {
             let type: DetectedLink['type'] = 'other';
-            // Issue #223 — case-sensitive codex entries only match when the
-            // original text casing equals the registered name's casing.
-            if (this.codexNames.has(key)) {
-                const rules = this.codexEntryRules.get(key);
-                if (rules?.caseSensitive) {
-                    // The registered case-sensitive names are stored in
-                    // `codexCaseSensitiveNames` in their original casing. The
-                    // current `name` preserves the first-seen casing from the
-                    // text. Only keep the match if that casing is registered.
-                    if (!this.codexCaseSensitiveNames.some(cs => cs.toLowerCase() === key && cs === name)) {
-                        // Casing mismatch — treat as a non-match for this entry.
-                        other.push(name);
-                        links.push({ name, type: 'other' });
-                        continue;
-                    }
+            // Issue #223 / #228 — case-sensitive entries (codex, character,
+            // or location) only match when the original text casing equals
+            // the registered name's casing.
+            const rules = this.codexEntryRules.get(key);
+            if (rules?.caseSensitive) {
+                // The registered case-sensitive names are stored in
+                // `codexCaseSensitiveNames` in their original casing. The
+                // current `name` preserves the first-seen casing from the
+                // text. Only keep the match if that casing is registered.
+                if (!this.codexCaseSensitiveNames.some(cs => cs.toLowerCase() === key && cs === name)) {
+                    // Casing mismatch — treat as a non-match for this entry.
+                    other.push(name);
+                    links.push({ name, type: 'other' });
+                    continue;
                 }
             }
             if (this.charNames.has(key)) {

@@ -863,6 +863,19 @@ export class LocationView extends ItemView {
 
         const value = coerceString((draft as unknown as Record<string, unknown>)[field.key]);
 
+        // Issue #228 — render an on/off toggle for boolean fields (e.g.
+        // case-sensitive matching). Stored as a boolean in frontmatter.
+        if (field.toggle) {
+            const toggleWrap = row.createDiv({ cls: 'codex-field-toggle-wrap' });
+            const cb = toggleWrap.createEl('input', { type: 'checkbox' });
+            cb.checked = (draft as unknown as Record<string, unknown>)[field.key] === true || value === 'true';
+            cb.addEventListener('change', () => {
+                (draft as unknown as Record<string, unknown>)[field.key] = cb.checked;
+                this.scheduleSave(draft);
+            });
+            return;
+        }
+
         if (field.key === 'locationType') {
             const select = row.createEl('select', { cls: 'location-field-input dropdown' });
             select.createEl('option', { text: field.placeholder, value: '' });

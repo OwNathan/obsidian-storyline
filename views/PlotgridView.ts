@@ -142,8 +142,9 @@ export class PlotgridView extends ItemView {
             } else {
                 this.data = { rows: [], columns: [], cells: {}, zoom: 1 };
             }
-            // Auto-repair broken linkedSceneId paths (e.g. after project migration)
-            this.repairLinkedScenePaths();
+            // Auto-repair broken linkedSceneId paths (e.g. after project migration).
+            // Must run AFTER scenes are loaded — see repairLinkedScenePaths().
+            await this.repairLinkedScenePaths();
             // Strip legacy auto-sync markers ("✓", "★ POV", "POV: …") that
             // older builds wrote into cell.content. The pill row inside each
             // cell now carries that information instead, so the marker text
@@ -178,10 +179,41 @@ export class PlotgridView extends ItemView {
     /**
      * Repair linkedSceneId references that point to non-existent files.
      * Tries to find the correct file by matching the filename portion.
+     *
+     * CRITICAL (data-loss bug): this must NOT run until SceneManager has
+     * finished loading the project's scenes. If it runs while the scene
+     * list is empty or partial, every link is treated as "scene no longer
+     * exists" and cleared — and the cleared state is then saved to disk
+     * and captured by ViewSnapshotService.autoSave(), destroying the links
+     * in snapshots too. We therefore wait for scenes to be loaded and bail
+     * entirely if the scene list is empty (defensive — never clear links
+     * we can't verify).
      */
-    private repairLinkedScenePaths(): void {
+    private async repairLinkedScenePaths(): Promise<void> {
         const scMgr = this.plugin?.sceneManager as SceneManager | undefined;
         if (!scMgr) return;
+
+        // Wait for SceneManager to finish loading scenes for the active
+        // project. Without this, getAllScenes() returns [] and we'd clear
+        // every link. The manager exposes getAllScenes(); we treat a stable
+        // non-empty list as "loaded". If it stays empty, bail without
+        // touching anything — it's safer to leave stale links than to wipe
+        // good ones.
+        let allScenes = scMgr.getAllScenes();
+        if (allScenes.length === 0) {
+            // Give the loader a chance. The plugin's bootstrap is awaited
+            // before the view opens, but external/synced folders may still
+            // be scanning. Wait briefly, then bail if still empty.
+            for (let i = 0; i < 20; i++) {
+                await new Promise<void>(r => window.setTimeout(r, 100));
+                allScenes = scMgr.getAllScenes();
+                if (allScenes.length > 0) break;
+            }
+            if (allScenes.length === 0) {
+                // No scenes loaded — do NOT clear any links.
+                return;
+            }
+        }
 
         let dirty = false;
         for (const key of Object.keys(this.data.cells)) {
@@ -195,13 +227,13 @@ export class PlotgridView extends ItemView {
             const fileName = cell.linkedSceneId.split('/').pop();
             if (!fileName) { cell.linkedSceneId = undefined; dirty = true; continue; }
 
-            const allScenes = scMgr.getAllScenes();
             const match = allScenes.find(s => s.filePath.endsWith('/' + fileName) || s.filePath === fileName);
             if (match) {
                 cell.linkedSceneId = match.filePath;
                 dirty = true;
             } else {
-                // Scene no longer exists — clear stale link
+                // Scene genuinely no longer exists — clear stale link.
+                // (Only reached after confirming the scene list is loaded.)
                 cell.linkedSceneId = undefined;
                 dirty = true;
             }

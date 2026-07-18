@@ -5972,6 +5972,14 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
 }
 
 /* ── Character × Chapter Heatmap ── */
+.stats-heatmap-scroll {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 60vh;
+    /* Keep the first column (character names) visible while scrolling
+       horizontally — issue #229. */
+    position: relative;
+}
 .stats-heatmap-table {
     width: 100%;
     border-collapse: collapse;
@@ -5996,6 +6004,11 @@ body.sl-auto-hide-tab-labels .story-line-view-switcher.sl-collapsed .story-line-
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Sticky so the name column stays in view while scrolling chapters. */
+    position: sticky;
+    left: 0;
+    background: var(--background-primary);
+    z-index: 1;
 }
 .stats-heatmap-cell {
     min-width: 28px;

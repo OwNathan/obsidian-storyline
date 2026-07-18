@@ -47,6 +47,14 @@ interface LocationBase {
      * belongs to a series.
      */
     books?: string[];
+
+    // ── Linking & Matching (Issue #228) ───────────────
+    /** Optional sub-type badge (e.g. "City", "Stronghold"). */
+    entryType?: string;
+    /** When true, name + nickname match only on exact case. */
+    caseSensitive?: boolean;
+    /** Comma-separated phrases that should NOT link to this location. */
+    excludeTerms?: string;
 }
 
 // ── World ──────────────────────────────────────────
@@ -136,6 +144,9 @@ export interface LocationFieldDef {
     label: string;
     placeholder: string;
     multiline?: boolean;
+    /** When true, render an on/off checkbox instead of a text input
+     *  (e.g. case-sensitive matching). Stored as a boolean. */
+    toggle?: boolean;
 }
 
 /** Categories for World editing */
@@ -241,6 +252,19 @@ export const LOCATION_CATEGORIES: LocationFieldCategory[] = [
             { key: 'mapNotes', label: 'Map Notes', placeholder: 'Coordinates, spatial relationships, layout notes', multiline: true },
         ],
     },
+    // ── Linking & Matching (Issue #228) ───────────────────────────
+    // Aliases are intentionally omitted — Locations already expose
+    // `nickname` in Overview, which the LinkScanner reads as a
+    // comma-separated alias list.
+    {
+        title: 'Linking & Matching',
+        icon: 'link',
+        fields: [
+            { key: 'entryType', label: 'Type', placeholder: 'Sub-type (e.g. Stronghold, Landmark, Region…)' },
+            { key: 'caseSensitive', label: 'Case-sensitive matching', placeholder: 'Off — match regardless of case', toggle: true },
+            { key: 'excludeTerms', label: 'Exclude terms', placeholder: 'Comma-separated phrases that should NOT link here', multiline: true },
+        ],
+    },
 ];
 
 /** Location type options for the dropdown */
@@ -271,6 +295,7 @@ export const WORLD_FIELD_KEYS: (keyof StoryWorld)[] = [
     'name', 'image', 'gallery', 'nickname', 'description', 'geography', 'culture', 'politics',
     'magicTechnology', 'beliefs', 'economy', 'history',
     'books',
+    'entryType', 'caseSensitive', 'excludeTerms',
 ];
 
 /** Frontmatter keys for Location */
@@ -278,5 +303,6 @@ export const LOCATION_FIELD_KEYS: (keyof StoryLocation)[] = [
     'name', 'image', 'gallery', 'nickname', 'locationType', 'world', 'parent', 'description',
     'atmosphere', 'significance', 'inhabitants', 'connectedLocations', 'mapNotes',
     'books',
+    'entryType', 'caseSensitive', 'excludeTerms',
 ];
 /* eslint-enable @typescript-eslint/no-redundant-type-constituents -- end of file-wide suppression block opened at line 1 */

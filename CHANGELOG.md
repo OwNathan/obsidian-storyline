@@ -6,6 +6,22 @@ If StoryLine helps your writing, please consider buying me a coffee. Donations k
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif)](https://www.paypal.com/donate?hosted_button_id=A2N2LE7EUBL3A)
 
+## Version 1.10.46
+
+### Bug Fixes
+
+- **Plotgrid no longer loses linked scenes (data-loss fix)** — opening the Plotgrid view could silently clear every cell's linked scene, and the cleared state was then captured by View Snapshot auto-save, so restoring a previous snapshot didn't bring the links back either. The root cause was `repairLinkedScenePaths()` running on every view open *before* SceneManager had finished loading the project's scenes: with an empty scene list, every link was treated as "scene no longer exists" and wiped, then saved to disk. The repair pass is now async, waits for scenes to load, and bails entirely (touching nothing) if the scene list is still empty — it's safer to leave a stale link than to wipe a good one. Links are only cleared once the scene list is confirmed complete and the referenced file genuinely can't be found.
+
+- **Manuscript view no longer flickers / refreshes in a loop** — scrolling the Manuscript view, clicking filters, or using the scene navigator could trigger a re-render loop where the manuscript section kept refreshing and the scene details sidebar flickered, making the view almost unusable. The root cause was a feedback loop: lazy-mounting an editor via `IntersectionObserver` called `leaf.openFile()`, which fired a vault `modify` event, which triggered `refreshOpenViews()` → `refresh()`, which tore down every embedded editor (including the one mid-mount) and re-rendered the whole manuscript — which could fire another modify event. Three fixes: (1) `refresh()` now bails when any editor mount is in flight (`_lazyMounting` flag), so an in-progress `openFile()` can't be torn down by the event it triggers; (2) `mountEditor()` captures a mount token and checks it after each `await`, bailing cleanly if `detachAllEmbedded()` ran in between instead of registering a detached leaf; (3) the focus-tracking `IntersectionObserver` that syncs the Inspector sidebar is now debounced (120 ms) so rapid scrolling no longer hammers the sidebar on every frame. Lazy loading is preserved — big projects still get the performance benefit.
+
+- **Creating a second character/location no longer fails with "Folder already exists"** — on Linux (and occasionally other platforms) creating the first character worked but the second threw `Error: Folder already exists` and no entry was created. The cause was `ensureFolder()` using `getAbstractFileByPath()` (Obsidian's in-memory cache), which can lag behind the filesystem and report an existing folder as missing — `createFolder()` then threw because the folder already existed on disk. `CharacterManager` and `LocationManager` now use `vault.adapter.exists()` (the filesystem source of truth) and wrap `createFolder()` in a try/catch that treats an existing folder as success. *(Issue #227)*
+
+- **Character × Chapter heatmap is no longer cut off** — with many chapters (~20+) the character heatmap in Stats → Characters & World overflowed the panel with no way to see the rest. The table is now wrapped in a scrollable container (`overflow-x/y: auto`, `max-height: 60vh`) and the character-name column is sticky so it stays visible while scrolling across chapters. *(Issue #229)*
+
+### New Features
+
+- **Linking & Matching section for Characters and Locations** — Characters and Locations now have the same **Linking & Matching** section at the bottom of their detail page that Codex entries already had: **Type** (a free-form sub-type badge), **Case-sensitive matching** (on/off toggle), and **Exclude terms** (comma-separated phrases that should NOT link to this entry). The **Aliases** field is intentionally omitted because Characters and Locations already expose a Nickname / Alias field in their Basic Information / Overview section, which the Link Scanner already reads as a comma-separated alias list. The Link Scanner now honours `caseSensitive` and `excludeTerms` for Characters, Locations, and Worlds — not just Codex entries — so plain-text mentions respect per-entity matching rules across every entity type. *(Issue #228)*
+
 ## Version 1.10.45
 
 ### Bug Fixes

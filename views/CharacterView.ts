@@ -1067,6 +1067,19 @@ export class CharacterView extends ItemView {
         let value: string = coerceString(rawValue);
         if (Array.isArray(rawValue)) value = rawValue.map(v => coerceString(v).trim()).filter(Boolean).join(', ');
 
+        // Issue #228 — render an on/off toggle for boolean fields (e.g.
+        // case-sensitive matching). Stored as a boolean in frontmatter.
+        if (field.toggle) {
+            const toggleWrap = row.createDiv({ cls: 'codex-field-toggle-wrap' });
+            const cb = toggleWrap.createEl('input', { type: 'checkbox' });
+            cb.checked = (draft as unknown as Record<string, unknown>)[field.key] === true || value === 'true';
+            cb.addEventListener('change', () => {
+                (draft as unknown as Record<string, unknown>)[field.key] = cb.checked;
+                this.scheduleSave(draft);
+            });
+            return;
+        }
+
         if (field.key === 'relations') {
             this.renderRelationsField(row, draft);
             return;
