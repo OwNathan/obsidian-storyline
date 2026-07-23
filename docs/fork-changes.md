@@ -3,7 +3,7 @@
 Tracks all modifications to the shared obsidian-storyline codebase. Use this when rebasing/merging upstream changes.
 
 ## Last Updated
-2026-06-28
+2026-06-29
 
 ## Modified Files
 
@@ -34,6 +34,61 @@ Tracks all modifications to the shared obsidian-storyline codebase. Use this whe
 - **Removed `dnInspectorWidth`** — inspector width is now session-only (stored in-memory on the view), not persisted to settings
 - **Added `mirroredFields: Record<string, string[]>`** — per-category list of textarea field keys whose content is synced to the md body as H1/H2 sections
 - `DEFAULT_SETTINGS`: Added `mirroredFields: {}`
+- **Added `sceneCategoriesEnabled: boolean`** — opt-in toggle for scene categories feature
+- **Added `sceneCategories: SceneCategoryDef[]`** — user-defined scene category definitions (id, label, color, icon)
+- **Added `defaultSceneCategory: string`** — default category assigned to new scenes
+- `DEFAULT_SETTINGS`: Added `sceneCategoriesEnabled: false`, `sceneCategories: [{ id: 'generic', label: 'Generic', color: '#9E9E9E', icon: 'folder' }]`, `defaultSceneCategory: 'generic'`
+- **Settings tab: Scene Categories section** — toggle, default dropdown, inline category rows (color, label, icon, remove), add button; all with `registerSceneCategories()` + `refreshOpenViews()`
+- **Color coding dropdown** — added "By Category" option (`'category'`)
+
+### models/Scene.ts
+- **Added `SceneCategoryDef` interface** — `{ id, label, color, icon }`
+- **Added `SceneCategory` type** — `string`
+- **Added `category` field** to `Scene` interface (`category?: SceneCategory`)
+- **ColorCodingMode** — added `'category'` to the union type
+- **Added `registerSceneCategories(defs)`** — module-level registry function
+- **Added `getSceneCategoryConfig()`** — returns `Record<string, SceneCategoryDef>`
+- **Added `getSceneCategoryOrder()`** — returns ordered `string[]` of category IDs
+- **Added `resolveSceneCategoryCfg(id)`** — safe resolver with fallback
+
+### services/MetadataParser.ts
+- **`parseContent()`** — added `category: this.normalizeFrontmatterString(frontmatter.category)` to parse output
+- **`generateSceneContent()`** — added `if (scene.category) fm.category = scene.category;` after status
+- **`updateFrontmatter()`** — added `category` cleanup: `if (key === 'category' && !value) { delete frontmatter[key]; continue; }`
+
+### components/SceneCard.ts
+- Import: Added `resolveSceneCategoryCfg`
+- **Icon rendering** — when `sceneCategoriesEnabled`, uses category icon+label instead of status icon+label
+- **`getCardColor()`** — added `case 'category':` returning `resolveSceneCategoryCfg(...).color`
+
+### components/Inspector.ts
+- Import: Added `SceneCategory`, `getSceneCategoryOrder`, `resolveSceneCategoryCfg`
+- **Added `onCategoryChange` callback** to constructor class property and `callbacks` interface
+- **Status + Category dropdowns** — refactored into a single `inspector-section` flex row when categories enabled; category dropdown renders only when `sceneCategoriesEnabled` is true
+- Both dropdowns reuse existing `.inspector-status-dropdown` / `.inspector-status-button` / `.inspector-status-item` CSS classes
+
+### views/BoardView.ts
+- **Added `onCategoryChange` callback** in both mobile and desktop InspectorComponent instantiations — calls `updateScene({ category })` + `refreshBoard()`
+
+### views/DetailsView.ts
+- **Added `onCategoryChange` callback** — calls `updateScene({ category })` + `refreshCurrentScene()`
+
+### views/PlotgridView.ts
+- **Added `onCategoryChange` callback** in both InspectorComponent instantiations (main inspector + cell inspector) — calls `updateScene({ category })` + `renderGrid()`
+
+### views/SceneInspectorView.ts
+- **Added `onCategoryChange` callback** — calls `updateScene({ category })` + `refreshCurrentScene()`
+
+### views/TimelineView.ts
+- **Added `onCategoryChange` callback** — calls `updateScene({ category })` + `refresh()`
+
+### main.ts
+- Import: Added `registerSceneCategories` from `models/Scene`
+- **`onload()`** — added `registerSceneCategories(this.settings.sceneCategories || [])` after `registerCustomStatuses`
+- **`saveSettings()`** — added `registerSceneCategories(this.settings.sceneCategories || [])` after `registerCustomStatuses`
+
+### styles.css
+- **Added `.inspector-dropdown-wrap`** style (`white-space: nowrap`) for side-by-side dropdown layout
 
 ### styles.css
 - End of file: Added all `dn-*` prefixed styles (~600 lines covering view layout, tabs, inspector, overview, kanban, quest grid, cards, modals, phases, fields, empty states)
@@ -144,6 +199,7 @@ Tracks all modifications to the shared obsidian-storyline codebase. Use this whe
 
 ## Integration Boundaries
 - DN touches exactly 6 existing files: `constants.ts`, `main.ts`, `settings.ts`, `styles.css`, `components/ViewSwitcher.ts`, `services/SceneManager.ts`
+- Scene categories touches 11 existing files: `models/Scene.ts`, `settings.ts`, `services/MetadataParser.ts`, `components/SceneCard.ts`, `components/Inspector.ts`, `styles.css`, `main.ts`, `views/BoardView.ts`, `views/DetailsView.ts`, `views/PlotgridView.ts`, `views/SceneInspectorView.ts`, `views/TimelineView.ts`
 - Body mirroring touches these existing files: `settings.ts`, `services/CodexManager.ts`, `services/CharacterManager.ts`, `services/LocationManager.ts`, `main.ts`, `views/CodexView.ts`, `views/CharacterView.ts`, `views/LocationView.ts`, `components/CustomSectionsRenderer.ts`, `styles.css`
 - View modify handlers patched in 4 views: `DetailsView.ts`, `NotesView.ts`, `SceneInspectorView.ts`, `SynopsisView.ts`
 - DN Inspector button styling patched in `dynamic-narrative/components/DNInspector.ts`
@@ -187,6 +243,16 @@ Tracks all modifications to the shared obsidian-storyline codebase. Use this whe
 - [ ] Check `views/CharacterView.ts` — re-add `MirroredSection`/`CUSTOM_SECTION_KEY_SEP` imports, mirror toggle (with force-save) in `renderField()` multiline, `categoryId` param + mirror toggle (with force-save) in `renderUniversalField()`, `resolveMirroredSectionInfo()`, mirrored section building in `scheduleSave()`/`flushPendingSave()`, mirror callbacks (with force-save) in `buildCustomSectionsHost()`, `renderView()` in toggle re-render
 - [ ] Check `views/LocationView.ts` — re-add `MirroredSection`/`CUSTOM_SECTION_KEY_SEP` imports, mirror toggle (with force-save) in `renderField()` multiline, `categoryId` param + mirror toggle (with force-save) in `renderUniversalField()`, `resolveMirroredSectionInfo()`, mirrored section building in `scheduleSave()`/`flushPendingSave()`, mirror callbacks (with force-save) in `buildCustomSectionsHost()`, `renderView()` in toggle re-render
 - [ ] Check `components/CustomSectionsRenderer.ts` — re-add `isFieldMirrored`/`toggleFieldMirror` in `CustomSectionsHost` interface, mirror toggle in textarea case
+- [ ] Check `models/Scene.ts` — re-add `SceneCategoryDef` interface, `SceneCategory` type, `category` field on `Scene`, `'category'` in `ColorCodingMode`, `registerSceneCategories()`, `getSceneCategoryConfig()`, `getSceneCategoryOrder()`, `resolveSceneCategoryCfg()`
+- [ ] Check `settings.ts` interface/defaults — re-add `sceneCategoriesEnabled`, `sceneCategories`, `defaultSceneCategory`
+- [ ] Check `settings.ts` settings tab — re-add Scene Categories section (toggle, default dropdown, inline rows, add button)
+- [ ] Check `settings.ts` color coding dropdown — re-add "By Category" option
+- [ ] Check `services/MetadataParser.ts` — re-add `category` in `parseContent()`, `generateSceneContent()`, and cleanup in `updateFrontmatter()`
+- [ ] Check `components/SceneCard.ts` — re-add `resolveSceneCategoryCfg` import, category-based icon rendering, `'category'` case in `getCardColor()`
+- [ ] Check `components/Inspector.ts` — re-add `onCategoryChange` callback, category dropdown rendering in flex row
+- [ ] Check `main.ts` — re-add `registerSceneCategories` import and registration calls in `onload()` and `saveSettings()`
+- [ ] Check `styles.css` — re-add `.inspector-dropdown-wrap`
+- [ ] Check view files — re-add `onCategoryChange` in `BoardView.ts` (both instances), `DetailsView.ts`, `PlotgridView.ts` (both instances), `SceneInspectorView.ts`, `TimelineView.ts`
 
 ---
 

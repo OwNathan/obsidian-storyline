@@ -80,6 +80,12 @@ export class DetailsView extends ItemView {
                     await this.sceneManager.updateScene(scene.filePath, { status });
                     this.refreshCurrentScene();
                 },
+                onCategoryChange: async (scene, category) => {
+                    this.lastEditTime = Date.now();
+                    await this.sceneManager.updateScene(scene.filePath, { category });
+                    scene.category = category;
+                    this.refreshCurrentScene();
+                },
             },
         );
 

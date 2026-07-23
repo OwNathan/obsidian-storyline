@@ -14,6 +14,7 @@ import {
     DEFAULT_DN_PHASES,
     DEFAULT_SCENARIO_CATEGORIES,
     DEFAULT_OBJECTIVE_CATEGORIES,
+    DEFAULT_OBJECTIVE_VARIANTS,
     DEFAULT_ARC_CATEGORIES,
     DEFAULT_QUEST_CATEGORIES,
     createDefaultPhases,
@@ -245,6 +246,8 @@ export class DynamicNarrativeManager {
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
             type: 'objective',
+            variant: (fm['objective-variant'] as string) || '',
+            priority: (fm['objective-priority'] as string) || '',
             category: (fm['objective-category'] as string) || '',
             linkedLocations: this.parseStringList(fm['linked-locations']),
             linkedCharacters: this.parseStringList(fm['linked-characters']),
@@ -399,6 +402,8 @@ export class DynamicNarrativeManager {
                 fm.tags = ['storyline-objective'];
                 fm.title = o.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
+                if (o.variant) fm['objective-variant'] = o.variant;
+                if (o.priority) fm['objective-priority'] = o.priority;
                 fm['objective-category'] = o.category;
                 if (o.linkedLocations.length > 0) fm['linked-locations'] = o.linkedLocations;
                 if (o.linkedCharacters.length > 0) fm['linked-characters'] = o.linkedCharacters;
@@ -1249,6 +1254,12 @@ export class DynamicNarrativeManager {
                     ? this.plugin.settings.dnQuestCategories
                     : DEFAULT_QUEST_CATEGORIES;
         }
+    }
+
+    getVariants(): string[] {
+        return this.plugin.settings.dnObjectiveVariants?.length
+            ? this.plugin.settings.dnObjectiveVariants
+            : DEFAULT_OBJECTIVE_VARIANTS;
     }
 
     addCategory(entityType: DNEntityType, name: string): void {

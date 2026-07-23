@@ -71,6 +71,11 @@ export class DNInspector {
             await this.updateEntity({ title: val });
         });
 
+        if (entity.type === 'objective') {
+            this.renderVariantField(form, entity as Objective);
+            this.renderPriorityField(form, entity as Objective);
+        }
+
         this.renderCategoryField(form, entity);
 
         if (entity.type === 'quest') {
@@ -140,6 +145,47 @@ export class DNInspector {
 
         select.addEventListener('change', async () => {
             await this.updateEntity({ category: select.value });
+        });
+    }
+
+    private renderVariantField(container: HTMLElement, objective: Objective): void {
+        const variants = this.manager.getVariants();
+        const field = container.createDiv('dn-field');
+        field.createEl('label', { text: 'Variant', cls: 'dn-field-label' });
+        const select = field.createEl('select', { cls: 'dn-field-select' });
+
+        const emptyOpt = select.createEl('option', { text: '— Select —' });
+        emptyOpt.value = '';
+        if (!objective.variant) emptyOpt.selected = true;
+
+        for (const v of variants) {
+            const opt = select.createEl('option', { text: v });
+            opt.value = v;
+            if (v === objective.variant) opt.selected = true;
+        }
+
+        select.addEventListener('change', async () => {
+            await this.updateEntity({ variant: select.value });
+        });
+    }
+
+    private renderPriorityField(container: HTMLElement, objective: Objective): void {
+        const field = container.createDiv('dn-field');
+        field.createEl('label', { text: 'Priority', cls: 'dn-field-label' });
+        const select = field.createEl('select', { cls: 'dn-field-select' });
+
+        const emptyOpt = select.createEl('option', { text: '— Select —' });
+        emptyOpt.value = '';
+        if (!objective.priority) emptyOpt.selected = true;
+
+        for (const p of ['Primary', 'Secondary']) {
+            const opt = select.createEl('option', { text: p });
+            opt.value = p;
+            if (p === objective.priority) opt.selected = true;
+        }
+
+        select.addEventListener('change', async () => {
+            await this.updateEntity({ priority: select.value });
         });
     }
 

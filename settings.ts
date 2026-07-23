@@ -4,7 +4,7 @@ import { SLDocxSettings, SL_DEFAULT_DOCX_SETTINGS } from './services/DocxConvert
 import { SLPdfSettings, SL_DEFAULT_PDF_SETTINGS } from './services/PdfConverter';
 import { AddFieldModal } from './components/AddFieldModal';
 import type { UniversalFieldTemplate } from './services/FieldTemplateService';
-import { ColorCodingMode, CustomStatusDef, SceneStatus, SceneTemplate, ViewType, getStatusConfig, getStatusOrder, registerCustomStatuses } from './models/Scene';
+import { ColorCodingMode, CustomStatusDef, SceneStatus, SceneTemplate, ViewType, SceneCategoryDef, getStatusConfig, getStatusOrder, registerCustomStatuses, registerSceneCategories, getSceneCategoryConfig, getSceneCategoryOrder } from './models/Scene';
 import { App, Modal, Notice, PluginSettingTab, Setting, TFolder, TextAreaComponent, AbstractInputSuggest } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { SUPPORTED_STORYLINE_LOCALES, normalizeStoryLineLocale } from './utils/locale';
@@ -598,6 +598,12 @@ export interface SceneCardsSettings {
     defaultTargetWordCount: number;
     /** User-defined custom statuses appended after the built-in six */
     customStatuses: CustomStatusDef[];
+    /** Opt-in toggle for scene categories replacing status icon/ribbon */
+    sceneCategoriesEnabled: boolean;
+    /** User-defined scene categories */
+    sceneCategories: SceneCategoryDef[];
+    /** Default category for newly created scenes */
+    defaultSceneCategory: string;
 
     // Display
     defaultView: ViewType;
@@ -887,6 +893,7 @@ export interface SceneCardsSettings {
     // ── Dynamic Narrative settings ─────────────────────
     dnScenarioCategories: string[];
     dnObjectiveCategories: string[];
+    dnObjectiveVariants: string[];
     dnArcCategories: string[];
     dnQuestCategories: string[];
     dnKanbanShowFullHeader: boolean;
@@ -903,6 +910,9 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
     autoGenerateSequence: true,
     defaultTargetWordCount: 800,
     customStatuses: [],
+    sceneCategoriesEnabled: false,
+    sceneCategories: [{ id: 'generic', label: 'Generic', color: '#9E9E9E', icon: 'folder' }],
+    defaultSceneCategory: 'generic',
 
     defaultView: 'board',
     defaultBoardMode: 'corkboard',
@@ -1016,6 +1026,7 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
 
     dnScenarioCategories: ['Main Plot', 'Core', 'Minor', 'Dynamic'],
     dnObjectiveCategories: ['Structured', 'Dynamic', 'Procedural'],
+    dnObjectiveVariants: [],
     dnArcCategories: ['Primary', 'Secondary'],
     dnQuestCategories: ['Goal', 'Limit', 'Event', 'Modifier'],
     dnKanbanShowFullHeader: true,
@@ -1143,6 +1154,144 @@ export class SceneCardsSettingTab extends PluginSettingTab {
                     this.plugin.settings.defaultTargetWordCount = Number(value) || 800;
                     await this.plugin.saveSettings();
                 }));
+
+        // ── Scene Categories ──
+        new Setting(containerEl).setName('Scene Categories').setHeading();
+        containerEl.createEl('p', {
+            cls: 'setting-item-description',
+            text: 'Assign scenes to customizable categories with their own icon and ribbon color. When enabled, categories replace the status icon and color on scene cards.'
+        });
+
+        new Setting(containerEl)
+            .setName('Enable scene categories')
+            .setDesc('Replace status icon and ribbon color with the scene category.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.sceneCategoriesEnabled)
+                .onChange(async (value) => {
+                    this.plugin.settings.sceneCategoriesEnabled = value;
+                    if (value) {
+                        this.plugin.settings.colorCoding = 'category';
+                    }
+                    registerSceneCategories(this.plugin.settings.sceneCategories);
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshOpenViews();
+                }));
+
+        const categorySectionWrapper = containerEl.createDiv('sl-category-section');
+
+        const renderCategorySection = () => {
+            categorySectionWrapper.empty();
+
+            new Setting(categorySectionWrapper)
+                .setName('Default category')
+                .setDesc('Category assigned to newly created scenes.')
+                .addDropdown(dropdown => {
+                    const cats = this.plugin.settings.sceneCategories || [];
+                    cats.forEach(c => dropdown.addOption(c.id, c.label));
+                    dropdown.setValue(this.plugin.settings.defaultSceneCategory || 'generic');
+                    dropdown.onChange(async (value) => {
+                        this.plugin.settings.defaultSceneCategory = value;
+                        await this.plugin.saveSettings();
+                    });
+                });
+
+            const categoryList = categorySectionWrapper.createDiv('sl-custom-status-list');
+            const defs = this.plugin.settings.sceneCategories || [];
+            if (defs.length === 0) {
+                categoryList.createEl('p', { cls: 'setting-item-description', text: 'No categories defined.' });
+            }
+            for (let i = 0; i < defs.length; i++) {
+                const def = defs[i];
+                const row = categoryList.createDiv('sl-custom-status-row');
+                row.setCssStyles({
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '4px',
+                });
+
+                const colorSwatch = row.createEl('input', { type: 'color' });
+                colorSwatch.value = def.color;
+                colorSwatch.setCssStyles({
+                    width: '32px',
+                    height: '28px',
+                    border: 'none',
+                    cursor: 'pointer',
+                });
+                colorSwatch.addEventListener('change', async () => {
+                    def.color = colorSwatch.value;
+                    registerSceneCategories(this.plugin.settings.sceneCategories);
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshOpenViews();
+                });
+
+                const labelInput = row.createEl('input', { type: 'text', value: def.label });
+                labelInput.placeholder = 'Label';
+                labelInput.setCssStyles({ flex: '1' });
+                labelInput.addEventListener('change', async () => {
+                    def.label = labelInput.value.trim() || def.id;
+                    registerSceneCategories(this.plugin.settings.sceneCategories);
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshOpenViews();
+                });
+
+                const iconInput = row.createEl('input', { type: 'text', value: def.icon, attr: { placeholder: 'icon name' } });
+                iconInput.setCssStyles({ width: '110px' });
+                iconInput.addEventListener('change', async () => {
+                    def.icon = iconInput.value.trim() || 'folder';
+                    registerSceneCategories(this.plugin.settings.sceneCategories);
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshOpenViews();
+                });
+
+                const removeBtn = row.createEl('button', { text: '\u00d7', cls: 'clickable-icon' });
+                if (defs.length <= 1) {
+                    removeBtn.setCssStyles({ visibility: 'hidden' });
+                }
+                removeBtn.addEventListener('click', async () => {
+                    defs.splice(i, 1);
+                    registerSceneCategories(this.plugin.settings.sceneCategories);
+                    await this.plugin.saveSettings();
+                    this.plugin.refreshOpenViews();
+                    renderCategorySection();
+                });
+            }
+
+            new Setting(categorySectionWrapper)
+                .setName('Add category')
+                .setDesc('Enter a name for the new category (e.g. "Action")')
+                .addText(text => {
+                    text.setPlaceholder('Category name\u2026');
+                    (text.inputEl as unknown as Record<string, unknown>)._ref = text;
+                })
+                .addButton(btn => {
+                    btn.setButtonText('Add').setCta().onClick(async () => {
+                        const input = btn.buttonEl.parentElement?.parentElement?.querySelector('input[type="text"]') as HTMLInputElement;
+                        const name = input?.value?.trim();
+                        if (!name) return;
+                        const id = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                        if (!id) return;
+                        const existing = getSceneCategoryOrder();
+                        if (existing.includes(id)) {
+                            new Notice(`Category "${id}" already exists.`);
+                            return;
+                        }
+                        if (!this.plugin.settings.sceneCategories) this.plugin.settings.sceneCategories = [];
+                        this.plugin.settings.sceneCategories.push({
+                            id,
+                            label: name,
+                            color: '#607D8B',
+                            icon: 'tag',
+                        });
+                        registerSceneCategories(this.plugin.settings.sceneCategories);
+                        await this.plugin.saveSettings();
+                        this.plugin.refreshOpenViews();
+                        input.value = '';
+                        renderCategorySection();
+                    });
+                });
+        };
+        renderCategorySection();
 
         // ── Custom Statuses ──
         new Setting(containerEl).setName('Custom statuses').setHeading();
@@ -1291,11 +1440,12 @@ export class SceneCardsSettingTab extends PluginSettingTab {
             .setName('Color coding')
             .setDesc('How to color-code scene cards')
             .addDropdown(dropdown => {
-                dropdown.addOption('status', 'By status');
-                dropdown.addOption('pov', 'By pov character');
-                dropdown.addOption('emotion', 'By emotion');
-                dropdown.addOption('act', 'By act');
-                dropdown.addOption('tag', 'By tag / plotline');
+                dropdown.addOption('status', 'By Status');
+                dropdown.addOption('category', 'By Category');
+                dropdown.addOption('pov', 'By POV Character');
+                dropdown.addOption('emotion', 'By Emotion');
+                dropdown.addOption('act', 'By Act');
+                dropdown.addOption('tag', 'By Tag / Plotline');
                 dropdown.setValue(this.plugin.settings.colorCoding);
                 dropdown.onChange(async (value) => {
                     this.plugin.settings.colorCoding = value as ColorCodingMode;
@@ -2506,6 +2656,17 @@ export class SceneCardsSettingTab extends PluginSettingTab {
                 .setValue((this.plugin.settings.dnObjectiveCategories || []).join(', '))
                 .onChange(async (value) => {
                     this.plugin.settings.dnObjectiveCategories = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Objective variants')
+            .setDesc('Comma-separated list of variants for Objectives')
+            .addText(text => text
+                .setPlaceholder('e.g. Fetch, Escort, Kill, Deliver')
+                .setValue((this.plugin.settings.dnObjectiveVariants || []).join(', '))
+                .onChange(async (value) => {
+                    this.plugin.settings.dnObjectiveVariants = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
                     await this.plugin.saveSettings();
                 }));
 

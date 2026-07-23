@@ -168,8 +168,8 @@ export class DNKanban {
         this.setupDropZone(columnBody, parentEntity, phase);
     }
 
-    private getChildCardsForPhase(parentEntity: Scenario | Objective | Arc, phase: DNPhase): Array<{ path: string; title: string; category: string; isPrimary: boolean; mandatory: boolean }> {
-        const results: Array<{ path: string; title: string; category: string; isPrimary: boolean; mandatory: boolean }> = [];
+    private getChildCardsForPhase(parentEntity: Scenario | Objective | Arc, phase: DNPhase): Array<{ path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean }> {
+        const results: Array<{ path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean }> = [];
 
         switch (this.entityType) {
             case 'scenario': {
@@ -182,6 +182,7 @@ export class DNKanban {
                             path: obj.filePath,
                             title: obj.title,
                             category: obj.category,
+                            variant: obj.variant,
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
                         });
@@ -245,7 +246,7 @@ export class DNKanban {
 
     private renderCard(
         container: HTMLElement,
-        card: { path: string; title: string; category: string; isPrimary: boolean; mandatory: boolean },
+        card: { path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean },
         parentEntity: Scenario | Objective | Arc,
         phase: DNPhase,
     ): void {
@@ -258,6 +259,10 @@ export class DNKanban {
         titleEl.setText(card.title);
 
         const metaEl = cardEl.createDiv('dn-card-meta');
+        if (card.variant) {
+            const variantEl = metaEl.createSpan('dn-card-variant');
+            variantEl.setText(card.variant);
+        }
         if (card.category) {
             const catBadge = metaEl.createSpan('dn-card-category');
             catBadge.setText(card.category);

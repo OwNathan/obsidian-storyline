@@ -247,6 +247,11 @@ export class TimelineView extends ItemView {
                     await this.sceneManager.updateScene(scene.filePath, { status });
                     this.refresh();
                 },
+                onCategoryChange: async (scene, category) => {
+                    await this.sceneManager.updateScene(scene.filePath, { category });
+                    scene.category = category;
+                    this.refresh();
+                },
             }
         );
     }

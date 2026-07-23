@@ -1842,6 +1842,10 @@ body.sl-inspector-resizing {
 }
 
 /* Custom status dropdown with Lucide icons */
+.inspector-dropdown-wrap {
+    white-space: nowrap;
+}
+
 .inspector-status-dropdown {
     display: inline-block;
     position: relative;
@@ -13157,6 +13161,13 @@ body.dn-resizing .dn-resize-handle::after {
     background: var(--background-secondary);
     padding: 0 6px;
     border-radius: var(--radius-s);
+}
+
+.dn-card-variant {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    font-style: italic;
+    padding: 0 6px;
 }
 
 .dn-card-badge-primary,

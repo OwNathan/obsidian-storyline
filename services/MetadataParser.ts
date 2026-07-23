@@ -133,6 +133,7 @@ export class MetadataParser {
             storyDate: this.normalizeFrontmatterString(frontmatter.storyDate ?? frontmatter.story_date),
             storyTime: this.normalizeFrontmatterString(frontmatter.storyTime ?? frontmatter.story_time),
             status: this.parseStatus(frontmatter.status),
+            category: this.normalizeFrontmatterString(frontmatter.category),
             conflict: frontmatter.conflict,
             emotion: frontmatter.emotion,
             intensity: frontmatter.intensity,
@@ -239,6 +240,7 @@ export class MetadataParser {
             if (key === 'plotgridOrigin' && !value) { delete frontmatter[key]; continue; }
             if (key === 'subtitle' && !value) { delete frontmatter[key]; continue; }
             if (key === 'color' && !value) { delete frontmatter[key]; continue; }
+            if (key === 'category' && !value) { delete frontmatter[key]; continue; }
             if (key === 'beatsheet' && !value) { delete frontmatter[key]; continue; }
             if (key === 'arcAnchor' && !value) { delete frontmatter[key]; continue; }
             if (key === 'inactive' && !value) { delete frontmatter[key]; continue; }
@@ -335,6 +337,7 @@ export class MetadataParser {
         if (scene.storyDate) fm.storyDate = scene.storyDate;
         if (scene.storyTime) fm.storyTime = scene.storyTime;
         fm.status = scene.status || 'idea';
+        if (scene.category) fm.category = scene.category;
         if (scene.conflict) fm.conflict = scene.conflict;
         if (scene.emotion) fm.emotion = scene.emotion;
         if (scene.tags?.length) fm.tags = scene.tags;

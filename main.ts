@@ -4,7 +4,7 @@ import { SceneCardsSettings, SceneCardsSettingTab, DEFAULT_SETTINGS } from './se
 import { asRecord, isRecord } from './utils/narrow';
 import type { FilterPreset } from './models/Scene';
 import { SceneManager } from './services/SceneManager';
-import { registerCustomStatuses } from './models/Scene';
+import { registerCustomStatuses, registerSceneCategories } from './models/Scene';
 import { setWriteSceneFieldsAsWikilinks, setWordcountExclusions, setWordcountLocale } from './services/MetadataParser';
 import { normalizeStoryLineLocale } from './utils/locale';
 import { setActiveTemplatesProvider, setTopLevelMirrorEnabled, mirrorUniversalFieldsToTopLevel, hydrateUniversalFieldsFromTopLevel, isReservedTopLevelKey, type FieldTemplateChange } from './services/FieldTemplateService';
@@ -100,6 +100,7 @@ export default class SceneCardsPlugin extends Plugin {
     async onload(): Promise<void> {
         await this.loadSettings();
         registerCustomStatuses(this.settings.customStatuses || []);
+        registerSceneCategories(this.settings.sceneCategories || []);
         this.applyImageSizingVariables();
 
         // Issue #189 — disable native spell-check in all StoryLine UI inputs,
@@ -1151,6 +1152,7 @@ export default class SceneCardsPlugin extends Plugin {
     async saveSettings(): Promise<void> {
         this.applyImageSizingVariables();
         registerCustomStatuses(this.settings.customStatuses || []);
+        registerSceneCategories(this.settings.sceneCategories || []);
         setWriteSceneFieldsAsWikilinks(this.settings.writeFieldsAsWikilinks !== false);
         setTopLevelMirrorEnabled(this.settings.universalFieldsMirrorTopLevel !== false);
         setWordcountExclusions({

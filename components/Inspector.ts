@@ -11,7 +11,7 @@ import { renderTagPillInput, renderAutocompleteInput } from './InlineSuggest';
 import { AddFieldModal } from './AddFieldModal';
 import { UniversalFieldTemplate } from '../services/FieldTemplateService';
 import { parseActChapterInput, actChapterHasIllegalPathChars, isPrologueAct, isEpilogueAct, PROLOGUE_ACT, EPILOGUE_ACT } from '../utils/actChapter';
-import { Scene, SceneStatus, TIMELINE_MODES, TIMELINE_MODE_LABELS, TimelineMode, getStatusOrder, resolveStatusCfg } from '../models/Scene';
+import { Scene, SceneStatus, TIMELINE_MODES, TIMELINE_MODE_LABELS, TimelineMode, getStatusOrder, resolveStatusCfg, SceneCategory, getSceneCategoryOrder, resolveSceneCategoryCfg } from '../models/Scene';
 
 /**
  * Scene inspector sidebar component
@@ -25,6 +25,7 @@ export class InspectorComponent {
     private onDelete: (scene: Scene) => void;
     private onRefresh: () => void;
     private onStatusChange: (scene: Scene, newStatus: SceneStatus) => void;
+    private onCategoryChange: (scene: Scene, newCategory: SceneCategory) => void;
     private onShow: (() => void) | undefined;
     private onHide: (() => void) | undefined;
 
@@ -46,6 +47,7 @@ export class InspectorComponent {
             onDelete: (scene: Scene) => void;
             onRefresh: () => void;
             onStatusChange: (scene: Scene, newStatus: SceneStatus) => void;
+            onCategoryChange: (scene: Scene, newCategory: SceneCategory) => void;
             onShow?: () => void;
             onHide?: () => void;
         }
@@ -57,6 +59,7 @@ export class InspectorComponent {
         this.onDelete = callbacks.onDelete;
         this.onRefresh = callbacks.onRefresh;
         this.onStatusChange = callbacks.onStatusChange;
+        this.onCategoryChange = callbacks.onCategoryChange;
         this.onShow = callbacks.onShow;
         this.onHide = callbacks.onHide;
     }
@@ -304,14 +307,21 @@ export class InspectorComponent {
             scene.chronologicalOrder = val;
         });
 
-        // ── Status dropdown (custom with Lucide icons) ──
+        // ── Status + Category dropdowns (side-by-side when categories enabled) ──
         const statusSection = this.container.createDiv('inspector-section');
-        statusSection.createSpan({ cls: 'inspector-label', text: 'Status: ' });
-        
-        const statusDropdown = statusSection.createDiv('inspector-status-dropdown');
+        if (this.plugin.settings.sceneCategoriesEnabled) {
+            statusSection.setCssStyles({ display: 'flex', alignItems: 'center', gap: '16px' });
+        }
+
+        // Status dropdown
+        const statusWrap = statusSection.createSpan({ cls: 'inspector-dropdown-wrap' });
+        statusWrap.setCssStyles({ display: 'inline-flex', alignItems: 'center', gap: '4px' });
+        statusWrap.createSpan({ cls: 'inspector-label', text: 'Status: ' });
+
+        const statusDropdown = statusWrap.createDiv('inspector-status-dropdown');
         const currentStatus = scene.status || 'idea';
         const currentCfg = resolveStatusCfg(currentStatus);
-        
+
         const statusButton = statusDropdown.createEl('button', {
             cls: 'inspector-status-button',
         });
@@ -345,7 +355,6 @@ export class InspectorComponent {
             statusMenu.setCssStyles({ display: isVisible ? 'none' : 'block' });
         });
 
-        // Close menu when clicking outside
         const closeMenu = (e: MouseEvent) => {
             if (!statusDropdown.contains(e.target as Node)) {
                 statusMenu.setCssStyles({ display: 'none' });
@@ -355,6 +364,60 @@ export class InspectorComponent {
         statusButton.addEventListener('click', () => {
             window.setTimeout(() => activeDocument.addEventListener('click', closeMenu), 0);
         });
+
+        // Category dropdown (visible only when scene categories are enabled)
+        if (this.plugin.settings.sceneCategoriesEnabled) {
+            const catWrap = statusSection.createSpan({ cls: 'inspector-dropdown-wrap' });
+            catWrap.setCssStyles({ display: 'inline-flex', alignItems: 'center', gap: '4px' });
+            catWrap.createSpan({ cls: 'inspector-label', text: 'Category: ' });
+
+            const categoryDropdown = catWrap.createDiv('inspector-status-dropdown');
+            const currentCategory = scene.category || this.plugin.settings.defaultSceneCategory || 'generic';
+            const currentCatCfg = resolveSceneCategoryCfg(currentCategory);
+
+            const catButton = categoryDropdown.createEl('button', {
+                cls: 'inspector-status-button',
+            });
+            const catBtnIcon = catButton.createSpan({ cls: 'inspector-status-icon' });
+            obsidian.setIcon(catBtnIcon, currentCatCfg.icon);
+            const catBtnChevron = catButton.createSpan({ cls: 'inspector-status-chevron' });
+            obsidian.setIcon(catBtnChevron, 'chevron-down');
+
+            const catMenu = categoryDropdown.createDiv('inspector-status-menu');
+            catMenu.setCssStyles({ display: 'none' });
+
+            const catValues = getSceneCategoryOrder();
+            catValues.forEach(cat => {
+                const cfg = resolveSceneCategoryCfg(cat);
+                const item = catMenu.createDiv({
+                    cls: `inspector-status-item ${cat === currentCategory ? 'active' : ''}`
+                });
+                const itemIcon = item.createSpan({ cls: 'inspector-status-icon' });
+                obsidian.setIcon(itemIcon, cfg.icon);
+                item.createSpan({ text: cfg.label });
+
+                item.addEventListener('click', () => {
+                    catMenu.setCssStyles({ display: 'none' });
+                    this.onCategoryChange(scene, cat);
+                });
+            });
+
+            catButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isVisible = catMenu.style.display !== 'none';
+                catMenu.setCssStyles({ display: isVisible ? 'none' : 'block' });
+            });
+
+            const closeCatMenu = (e: MouseEvent) => {
+                if (!categoryDropdown.contains(e.target as Node)) {
+                    catMenu.setCssStyles({ display: 'none' });
+                    activeDocument.removeEventListener('click', closeCatMenu);
+                }
+            };
+            catButton.addEventListener('click', () => {
+                window.setTimeout(() => activeDocument.addEventListener('click', closeCatMenu), 0);
+            });
+        }
 
         // ── Active / inactive ──
         const inactiveSection = this.container.createDiv('inspector-section inspector-inactive-section');

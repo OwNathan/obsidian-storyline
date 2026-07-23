@@ -237,6 +237,11 @@ export class BoardView extends ItemView {
                         await this.sceneManager.updateScene(scene.filePath, { status });
                         this.refreshBoard();
                     },
+                    onCategoryChange: async (scene, category) => {
+                        await this.sceneManager.updateScene(scene.filePath, { category });
+                        scene.category = category;
+                        this.refreshBoard();
+                    },
                 }
             );
         } else {
@@ -264,6 +269,11 @@ export class BoardView extends ItemView {
                     onRefresh: () => this.refreshBoard(),
                     onStatusChange: async (scene, status) => {
                         await this.sceneManager.updateScene(scene.filePath, { status });
+                        this.refreshBoard();
+                    },
+                    onCategoryChange: async (scene, category) => {
+                        await this.sceneManager.updateScene(scene.filePath, { category });
+                        scene.category = category;
                         this.refreshBoard();
                     },
                     onShow: () => {

@@ -353,6 +353,11 @@ export class PlotgridView extends ItemView {
                         await sceneManager.updateScene(scene.filePath, { status });
                         this.renderGrid();
                     },
+                    onCategoryChange: async (scene, category) => {
+                        await sceneManager.updateScene(scene.filePath, { category });
+                        scene.category = category;
+                        this.renderGrid();
+                    },
                 }
             );
         }
@@ -3225,6 +3230,11 @@ export class PlotgridView extends ItemView {
                                 onRefresh: () => this.renderGrid(),
                                 onStatusChange: async (scene, status) => {
                                     await scMgr.updateScene(scene.filePath, { status });
+                                    this.renderGrid();
+                                },
+                                onCategoryChange: async (scene, category) => {
+                                    await scMgr.updateScene(scene.filePath, { category });
+                                    scene.category = category;
                                     this.renderGrid();
                                 },
                             }

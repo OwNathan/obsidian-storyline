@@ -5,7 +5,7 @@ import type SceneCardsPlugin from '../main';
 import { resolveTagColor, getPlotlineHSL, resolveStickyNoteColors, resolveStickyNoteFontColor } from '../settings';
 import type { SceneManager } from '../services/SceneManager';
 import { formatActChapterPrefix } from '../utils/actChapter';
-import { ColorCodingMode, Scene, SceneStatus, TIMELINE_MODE_ICONS, TIMELINE_MODE_LABELS, formatSceneLength, getStatusOrder, resolveStatusCfg } from '../models/Scene';
+import { ColorCodingMode, Scene, SceneStatus, TIMELINE_MODE_ICONS, TIMELINE_MODE_LABELS, formatSceneLength, getStatusOrder, resolveStatusCfg, resolveSceneCategoryCfg } from '../models/Scene';
 
 /**
  * Renders a single scene card element
@@ -68,11 +68,14 @@ export class SceneCardComponent {
             });
         }
         const statusCfg = resolveStatusCfg(scene.status || 'idea');
+        const iconCfg = this.plugin.settings.sceneCategoriesEnabled
+            ? resolveSceneCategoryCfg(scene.category || this.plugin.settings.defaultSceneCategory || 'generic')
+            : statusCfg;
         const statusIconEl = header.createSpan({
             cls: 'scene-card-status-icon',
-            attr: { title: statusCfg.label }
+            attr: { title: iconCfg.label }
         });
-        obsidian.setIcon(statusIconEl, statusCfg.icon);
+        obsidian.setIcon(statusIconEl, iconCfg.icon);
 
         // Title
         const displayTitle = this.getDisplayTitle(scene);
@@ -366,6 +369,8 @@ export class SceneCardComponent {
         switch (mode) {
             case 'status':
                 return resolveStatusCfg(scene.status || 'idea').color;
+            case 'category':
+                return resolveSceneCategoryCfg(scene.category || this.plugin.settings.defaultSceneCategory || 'generic').color;
             case 'pov':
                 return this.stringToColor(scene.pov || 'none');
             case 'emotion':

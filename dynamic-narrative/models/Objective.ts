@@ -8,6 +8,8 @@ export interface ObjectivePhase extends DNPhase {
 
 export interface Objective extends DNBase {
     type: 'objective';
+    variant: string;
+    priority: string;
     category: string;
     linkedLocations: string[];
     linkedCharacters: string[];
@@ -24,6 +26,8 @@ export function createEmptyObjective(title: string): Objective {
         created: now,
         modified: now,
         type: 'objective',
+        variant: '',
+        priority: '',
         category: '',
         linkedLocations: [],
         linkedCharacters: [],

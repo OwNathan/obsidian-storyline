@@ -19,9 +19,24 @@ export interface CustomStatusDef {
 }
 
 /**
+ * Scene category definition (user-configurable)
+ */
+export interface SceneCategoryDef {
+    id: string;
+    label: string;
+    color: string;
+    icon: string;
+}
+
+/**
+ * Scene category identifier (string union with literal fallback)
+ */
+export type SceneCategory = string;
+
+/**
  * Color coding mode for scene cards
  */
-export type ColorCodingMode = 'pov' | 'status' | 'emotion' | 'act' | 'tag';
+export type ColorCodingMode = 'pov' | 'status' | 'emotion' | 'act' | 'tag' | 'category';
 
 /**
  * Timeline mode — tells the plugin how to handle this scene's temporal position.
@@ -115,6 +130,8 @@ export interface Scene {
     storyTime?: string;
     /** Scene completion status */
     status?: SceneStatus;
+    /** Scene category (user-configurable, replaces status display when enabled) */
+    category?: SceneCategory;
     /** Main conflict */
     conflict?: string;
     /** Emotional tone */
@@ -792,4 +809,37 @@ export function isWrittenLikeStatus(status: string | undefined): boolean {
     if (status === 'written' || status === 'revised' || status === 'final') return true;
     return _customStatuses.some(cs => cs.id === status && cs.countsAsWritten === true);
 }
- 
+
+
+// ── Runtime scene-category registry ──
+// Populated by the plugin on startup / when settings change.
+
+const DEFAULT_CATEGORY_CFG = { label: '?', color: '#888', icon: 'folder' };
+
+let _sceneCategories: SceneCategoryDef[] = [];
+
+/** Register scene categories (called from plugin settings load). */
+export function registerSceneCategories(defs: SceneCategoryDef[]): void {
+    _sceneCategories = defs;
+}
+
+/** Get the full scene category config. */
+export function getSceneCategoryConfig(): Record<string, SceneCategoryDef> {
+    const merged: Record<string, SceneCategoryDef> = {};
+    for (const sc of _sceneCategories) {
+        merged[sc.id] = sc;
+    }
+    return merged;
+}
+
+/** Get the scene category order. */
+export function getSceneCategoryOrder(): string[] {
+    return _sceneCategories.map(sc => sc.id);
+}
+
+/** Safely resolve a scene category config entry, returning a fallback for unknown categories. */
+export function resolveSceneCategoryCfg(id: string): SceneCategoryDef {
+    const cfg = getSceneCategoryConfig();
+    return cfg[id] ?? { id, label: id.charAt(0).toUpperCase() + id.slice(1), color: DEFAULT_CATEGORY_CFG.color, icon: DEFAULT_CATEGORY_CFG.icon };
+}
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */

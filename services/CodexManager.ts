@@ -565,10 +565,22 @@ export function buildMirroredBody(notes: string, mirrored: MirroredSection[]): s
     let body = notes.trimEnd();
     if (mirrored.length === 0) return body;
 
-    const sections = mirrored.map(ms =>
-        `# ${ms.sectionTitle}\n## ${ms.fieldLabel}\n${ms.value || ''}`
-    ).join('\n\n');
+    const sectionMap = new Map<string, string[]>();
+    for (const ms of mirrored) {
+        const fields = sectionMap.get(ms.sectionTitle);
+        if (fields) {
+            fields.push(`## ${ms.fieldLabel}\n${ms.value || ''}`);
+        } else {
+            sectionMap.set(ms.sectionTitle, [`## ${ms.fieldLabel}\n${ms.value || ''}`]);
+        }
+    }
 
+    const sectionBlocks: string[] = [];
+    for (const [sectionTitle, fields] of sectionMap) {
+        sectionBlocks.push(`# ${sectionTitle}\n${fields.join('\n')}`);
+    }
+
+    const sections = sectionBlocks.join('\n\n');
     return body
         ? `${body}\n\n${MIRROR_SEPARATOR}\n\n${sections}`
         : `${MIRROR_SEPARATOR}\n\n${sections}`;
@@ -603,7 +615,17 @@ export function parseMirroredBody(body: string): {
         const h2Match = line.match(/^## (.+)/);
         const h1Match = line.match(/^# (.+)/);
 
-        if (h1Match) {
+        if (h2Match && currentSection) {
+            if (currentField) {
+                sections.push({
+                    sectionTitle: currentSection,
+                    fieldLabel: currentField,
+                    value: currentValue.trim(),
+                });
+            }
+            currentField = h2Match[1].trim();
+            currentValue = '';
+        } else if (h1Match) {
             if (currentSection && currentField) {
                 sections.push({
                     sectionTitle: currentSection,
@@ -613,16 +635,6 @@ export function parseMirroredBody(body: string): {
             }
             currentSection = h1Match[1].trim();
             currentField = null;
-            currentValue = '';
-        } else if (h2Match && currentSection) {
-            if (currentField) {
-                sections.push({
-                    sectionTitle: currentSection,
-                    fieldLabel: currentField,
-                    value: currentValue.trim(),
-                });
-            }
-            currentField = h2Match[1].trim();
             currentValue = '';
         } else if (currentField) {
             currentValue += (currentValue ? '\n' : '') + line;

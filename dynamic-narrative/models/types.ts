@@ -49,6 +49,8 @@ export const DEFAULT_OBJECTIVE_CATEGORIES: string[] = [
     'Procedural',
 ];
 
+export const DEFAULT_OBJECTIVE_VARIANTS: string[] = [];
+
 export const DEFAULT_ARC_CATEGORIES: string[] = [
     'Primary',
     'Secondary',
