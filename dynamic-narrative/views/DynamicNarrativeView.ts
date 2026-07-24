@@ -81,6 +81,15 @@ export class DynamicNarrativeView extends ItemView {
         this.setupResizeHandle();
 
         this.inspector = new DNInspector(this.inspectorEl, this.manager, this.plugin);
+        this.inspector.setOnChange(() => {
+            if (this.activeTab === 'overview') {
+                this.overview?.render();
+            } else if (this.activeTab === 'quests') {
+                this.questGrid?.render();
+            } else {
+                this.kanban?.render(this.selectedEntityPath);
+            }
+        });
 
         this.switchTab(this.activeTab);
     }

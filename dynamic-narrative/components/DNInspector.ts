@@ -26,6 +26,7 @@ export class DNInspector {
     private plugin: SceneCardsPlugin;
     private currentEntity: DNEntity | null = null;
     private saveTimer: number | null = null;
+    private onChangeCallback: (() => void) | null = null;
 
     constructor(
         containerEl: HTMLElement,
@@ -73,7 +74,6 @@ export class DNInspector {
 
         if (entity.type === 'objective') {
             this.renderVariantField(form, entity as Objective);
-            this.renderPriorityField(form, entity as Objective);
         }
 
         this.renderCategoryField(form, entity);
@@ -112,6 +112,10 @@ export class DNInspector {
         }
 
         this.renderPhasesSection(form, entity);
+    }
+
+    setOnChange(callback: () => void): void {
+        this.onChangeCallback = callback;
     }
 
     clear(): void {
@@ -166,26 +170,6 @@ export class DNInspector {
 
         select.addEventListener('change', async () => {
             await this.updateEntity({ variant: select.value });
-        });
-    }
-
-    private renderPriorityField(container: HTMLElement, objective: Objective): void {
-        const field = container.createDiv('dn-field');
-        field.createEl('label', { text: 'Priority', cls: 'dn-field-label' });
-        const select = field.createEl('select', { cls: 'dn-field-select' });
-
-        const emptyOpt = select.createEl('option', { text: '— Select —' });
-        emptyOpt.value = '';
-        if (!objective.priority) emptyOpt.selected = true;
-
-        for (const p of ['Primary', 'Secondary']) {
-            const opt = select.createEl('option', { text: p });
-            opt.value = p;
-            if (p === objective.priority) opt.selected = true;
-        }
-
-        select.addEventListener('change', async () => {
-            await this.updateEntity({ priority: select.value });
         });
     }
 
@@ -451,6 +435,7 @@ export class DNInspector {
         }
         const updated = this.manager.getEntity(this.currentEntity.filePath);
         if (updated) this.currentEntity = updated;
+        this.onChangeCallback?.();
     }
 
     private async persistEntity(): Promise<void> {

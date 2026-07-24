@@ -247,7 +247,6 @@ export class DynamicNarrativeManager {
             modified: (fm.modified as string) || new Date().toISOString(),
             type: 'objective',
             variant: (fm['objective-variant'] as string) || '',
-            priority: (fm['objective-priority'] as string) || '',
             category: (fm['objective-category'] as string) || '',
             linkedLocations: this.parseStringList(fm['linked-locations']),
             linkedCharacters: this.parseStringList(fm['linked-characters']),
@@ -403,7 +402,6 @@ export class DynamicNarrativeManager {
                 fm.title = o.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
                 if (o.variant) fm['objective-variant'] = o.variant;
-                if (o.priority) fm['objective-priority'] = o.priority;
                 fm['objective-category'] = o.category;
                 if (o.linkedLocations.length > 0) fm['linked-locations'] = o.linkedLocations;
                 if (o.linkedCharacters.length > 0) fm['linked-characters'] = o.linkedCharacters;
@@ -1175,6 +1173,35 @@ export class DynamicNarrativeManager {
                         break;
                     }
                 }
+                break;
+            }
+        }
+
+        await this.writeEntityFile(parent);
+        await this.saveSystemJson();
+    }
+
+    async toggleLinkPriority(parentPath: string, childPath: string, phaseName: string, isPrimary: boolean): Promise<void> {
+        const parent = this.getEntity(parentPath);
+        if (!parent) return;
+
+        const childWikilink = `[[${childPath}]]`;
+
+        switch (parent.type) {
+            case 'scenario': {
+                const scenario = parent as Scenario;
+                const phase = scenario.phases.find(p => p.name === phaseName);
+                if (!phase) return;
+                const link = phase.linkedObjectives.find(c => resolveWikilinkPath(c.id) === childPath);
+                if (link) link.isPrimary = isPrimary;
+                break;
+            }
+            case 'objective': {
+                const objective = parent as Objective;
+                const phase = objective.phases.find(p => p.name === phaseName);
+                if (!phase) return;
+                const link = phase.linkedArcs.find(c => resolveWikilinkPath(c.id) === childPath);
+                if (link) link.isPrimary = isPrimary;
                 break;
             }
         }

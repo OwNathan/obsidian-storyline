@@ -138,6 +138,47 @@ export class DNKanban {
         return this.manager.getOrderedPhasesForEntity(entity);
     }
 
+    private hasPhaseMetadata(phase: DNPhase): boolean {
+        return !!(phase.description || phase.startConditions || phase.startCommands || phase.endConditions || phase.endCommands);
+    }
+
+    private renderCapsules(container: HTMLElement, phase: DNPhase): void {
+        const hasRow1 = !!(phase.startConditions || phase.startCommands);
+        const hasRow2 = !!(phase.endConditions || phase.endCommands);
+
+        if (!hasRow1 && !hasRow2) return;
+
+        const capsulesEl = container.createDiv('dn-phase-capsules');
+
+        if (hasRow1) {
+            const row1 = capsulesEl.createDiv('dn-capsule-row');
+            if (phase.startConditions) {
+                const cap = row1.createDiv('dn-phase-capsule');
+                cap.createSpan('dn-capsule-label').setText('Start:');
+                cap.createSpan('dn-capsule-value').setText(phase.startConditions);
+            }
+            if (phase.startCommands) {
+                const cap = row1.createDiv('dn-phase-capsule');
+                cap.createSpan('dn-capsule-label').setText('Do:');
+                cap.createSpan('dn-capsule-value').setText(phase.startCommands);
+            }
+        }
+
+        if (hasRow2) {
+            const row2 = capsulesEl.createDiv('dn-capsule-row');
+            if (phase.endConditions) {
+                const cap = row2.createDiv('dn-phase-capsule');
+                cap.createSpan('dn-capsule-label').setText('End:');
+                cap.createSpan('dn-capsule-value').setText(phase.endConditions);
+            }
+            if (phase.endCommands) {
+                const cap = row2.createDiv('dn-phase-capsule');
+                cap.createSpan('dn-capsule-label').setText('Do:');
+                cap.createSpan('dn-capsule-value').setText(phase.endCommands);
+            }
+        }
+    }
+
     private renderColumn(container: HTMLElement, parentEntity: Scenario | Objective | Arc, phase: DNPhase): void {
         const column = container.createDiv('dn-kanban-column');
         if (!phase.isDefault) column.addClass('dn-column-custom');
@@ -157,15 +198,59 @@ export class DNKanban {
             this.openCreateModal(parentEntity.filePath, phase.name);
         });
 
-        const columnBody = column.createDiv('dn-column-body');
-        columnBody.setAttribute('data-phase', phase.name);
-        columnBody.setAttribute('data-parent', parentEntity.filePath);
-
-        for (const card of childCards) {
-            this.renderCard(columnBody, card, parentEntity, phase);
+        if (phase.description) {
+            const descEl = column.createDiv('dn-phase-desc');
+            descEl.setText(phase.description);
         }
 
-        this.setupDropZone(columnBody, parentEntity, phase);
+        this.renderCapsules(column, phase);
+
+        const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective';
+
+        if (splitsPriority) {
+            const primaryCards = childCards.filter(c => c.isPrimary);
+            const secondaryCards = childCards.filter(c => !c.isPrimary);
+
+            const primaryRow = column.createDiv('dn-column-row');
+            primaryRow.addClass('dn-row-primary');
+            const primaryLabel = primaryRow.createDiv('dn-column-row-label');
+            primaryLabel.setText(`Primary (${primaryCards.length})`);
+            const primaryBody = primaryRow.createDiv('dn-column-row-body');
+            primaryBody.setAttribute('data-phase', phase.name);
+            primaryBody.setAttribute('data-parent', parentEntity.filePath);
+            primaryBody.setAttribute('data-priority', 'primary');
+
+            for (const card of primaryCards) {
+                this.renderCard(primaryBody, card, parentEntity, phase);
+            }
+
+            this.setupDropZone(primaryBody, parentEntity, phase, true);
+
+            const secondaryRow = column.createDiv('dn-column-row');
+            secondaryRow.addClass('dn-row-secondary');
+            const secondaryLabel = secondaryRow.createDiv('dn-column-row-label');
+            secondaryLabel.setText(`Secondary (${secondaryCards.length})`);
+            const secondaryBody = secondaryRow.createDiv('dn-column-row-body');
+            secondaryBody.setAttribute('data-phase', phase.name);
+            secondaryBody.setAttribute('data-parent', parentEntity.filePath);
+            secondaryBody.setAttribute('data-priority', 'secondary');
+
+            for (const card of secondaryCards) {
+                this.renderCard(secondaryBody, card, parentEntity, phase);
+            }
+
+            this.setupDropZone(secondaryBody, parentEntity, phase, false);
+        } else {
+            const columnBody = column.createDiv('dn-column-row-body');
+            columnBody.setAttribute('data-phase', phase.name);
+            columnBody.setAttribute('data-parent', parentEntity.filePath);
+
+            for (const card of childCards) {
+                this.renderCard(columnBody, card, parentEntity, phase);
+            }
+
+            this.setupDropZone(columnBody, parentEntity, phase, true);
+        }
     }
 
     private getChildCardsForPhase(parentEntity: Scenario | Objective | Arc, phase: DNPhase): Array<{ path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean }> {
@@ -254,6 +339,7 @@ export class DNKanban {
         cardEl.setAttribute('draggable', 'true');
         cardEl.setAttribute('data-path', card.path);
         cardEl.setAttribute('data-phase', phase.name);
+        cardEl.setAttribute('data-priority', card.isPrimary ? 'primary' : 'secondary');
 
         const titleEl = cardEl.createDiv('dn-card-title');
         titleEl.setText(card.title);
@@ -266,9 +352,6 @@ export class DNKanban {
         if (card.category) {
             const catBadge = metaEl.createSpan('dn-card-category');
             catBadge.setText(card.category);
-        }
-        if (card.isPrimary) {
-            metaEl.createSpan('dn-card-badge-primary').setText('Primary');
         }
         if (card.mandatory) {
             metaEl.createSpan('dn-card-badge-mandatory').setText('Mandatory');
@@ -286,6 +369,20 @@ export class DNKanban {
                 item.setIcon('pencil');
                 item.onClick(() => this.onOpenInspector(card.path));
             });
+
+            const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective';
+            if (splitsPriority) {
+                const label = card.isPrimary ? 'Set as Secondary' : 'Set as Primary';
+                menu.addItem(item => {
+                    item.setTitle(label);
+                    item.setIcon(card.isPrimary ? 'arrow-down' : 'arrow-up');
+                    item.onClick(async () => {
+                        await this.manager.toggleLinkPriority(parentEntity.filePath, card.path, phase.name, !card.isPrimary);
+                        this.render();
+                    });
+                });
+            }
+
             menu.addItem(item => {
                 item.setTitle('Unlink from phase');
                 item.setIcon('unlink');
@@ -301,6 +398,7 @@ export class DNKanban {
             e.dataTransfer?.setData('text/dn-card-path', card.path);
             e.dataTransfer?.setData('text/dn-card-phase', phase.name);
             e.dataTransfer?.setData('text/dn-card-parent', parentEntity.filePath);
+            e.dataTransfer?.setData('text/dn-card-priority', card.isPrimary ? 'primary' : 'secondary');
             cardEl.addClass('dn-card-dragging');
         });
 
@@ -309,7 +407,7 @@ export class DNKanban {
         });
     }
 
-    private setupDropZone(columnBody: HTMLElement, parentEntity: Scenario | Objective | Arc, targetPhase: DNPhase): void {
+    private setupDropZone(columnBody: HTMLElement, parentEntity: Scenario | Objective | Arc, targetPhase: DNPhase, targetIsPrimary: boolean): void {
         columnBody.addEventListener('dragover', (e: DragEvent) => {
             e.preventDefault();
             columnBody.addClass('dn-drop-target');
@@ -326,11 +424,23 @@ export class DNKanban {
             const childPath = e.dataTransfer?.getData('text/dn-card-path');
             const fromPhase = e.dataTransfer?.getData('text/dn-card-phase');
             const fromParent = e.dataTransfer?.getData('text/dn-card-parent');
+            const fromPriority = e.dataTransfer?.getData('text/dn-card-priority') || 'primary';
 
             if (!childPath || !fromPhase || fromParent !== parentEntity.filePath) return;
-            if (fromPhase === targetPhase.name) return;
 
-            await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name);
+            const phaseChanged = fromPhase !== targetPhase.name;
+            const priorityChanged = fromPriority !== (targetIsPrimary ? 'primary' : 'secondary');
+
+            if (!phaseChanged && !priorityChanged) return;
+
+            if (phaseChanged) {
+                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name);
+            }
+
+            if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective')) {
+                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, targetIsPrimary);
+            }
+
             this.render();
         });
     }
