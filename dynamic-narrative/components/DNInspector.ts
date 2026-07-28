@@ -5,8 +5,8 @@ import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManage
 import type { DNEntity, DNPhase } from '../models/types';
 import { isDefaultPhase } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
-import type { Objective, ObjectivePhase } from '../models/Objective';
-import type { Arc, ArcPhase } from '../models/Arc';
+import type { ObjectiveType, ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
+import type { ArcType, ArcVariant, ArcVariantPhase } from '../models/Arc';
 import type { Quest, QuestPhase } from '../models/Quest';
 import { DNPhaseModal } from './DNPhaseModal';
 import { renderTagPillInput } from '../../components/InlineSuggest';
@@ -46,7 +46,7 @@ export class DNInspector {
         const header = this.containerEl.createDiv('dn-inspector-header');
         const headerLeft = header.createDiv('dn-inspector-header-left');
         const typeBadge = headerLeft.createSpan('dn-inspector-type');
-        typeBadge.setText(entity.type);
+        typeBadge.setText(entity.type.replace(/-/g, ' '));
         headerLeft.createDiv('dn-inspector-title').setText(entity.title);
 
         const headerActions = header.createDiv('dn-inspector-header-actions');
@@ -72,11 +72,13 @@ export class DNInspector {
             await this.updateEntity({ title: val });
         });
 
-        if (entity.type === 'objective') {
-            this.renderVariantField(form, entity as Objective);
-        }
-
         this.renderCategoryField(form, entity);
+
+        if (entity.type === 'objective-variant') {
+            this.renderTypeRefField(form, entity as ObjectiveVariant, 'objective-type');
+        } else if (entity.type === 'arc-variant') {
+            this.renderTypeRefField(form, entity as ArcVariant, 'arc-type');
+        }
 
         if (entity.type === 'quest') {
             this.renderTextField(form, 'Quest Type', (entity as Quest).questType, async (val) => {
@@ -88,8 +90,8 @@ export class DNInspector {
             this.renderActsField(form, entity as Scenario);
         }
 
-        if (entity.type === 'arc') {
-            this.renderCheckboxField(form, 'Dynamic Locations', (entity as Arc).dynamicLocations, async (val) => {
+        if (entity.type === 'arc-variant') {
+            this.renderCheckboxField(form, 'Dynamic Locations', (entity as ArcVariant).dynamicLocations, async (val) => {
                 await this.updateEntity({ dynamicLocations: val });
             });
         }
@@ -98,12 +100,14 @@ export class DNInspector {
             await this.updateEntity({ description: val });
         });
 
-        if (entity.type !== 'quest') {
+        if (entity.type === 'scenario' || entity.type === 'objective-variant' || entity.type === 'arc-variant') {
             this.renderLinkedEntitiesField(form, 'Linked Locations', this.getLinkedLocations(entity),
                 () => this.plugin.locationManager?.getAllLocations().map(l => l.name) ?? [],
                 async (val) => { await this.updateEntity({ linkedLocations: val }); },
                 'Add location...',
             );
+        }
+        if (entity.type === 'scenario' || entity.type === 'objective-variant') {
             this.renderLinkedEntitiesField(form, 'Linked Characters', this.getLinkedCharacters(entity),
                 () => this.plugin.characterManager?.getAllCharacters().map(c => c.name) ?? [],
                 async (val) => { await this.updateEntity({ linkedCharacters: val }); },
@@ -152,24 +156,36 @@ export class DNInspector {
         });
     }
 
-    private renderVariantField(container: HTMLElement, objective: Objective): void {
-        const variants = this.manager.getVariants();
-        const field = container.createDiv('dn-field');
-        field.createEl('label', { text: 'Variant', cls: 'dn-field-label' });
-        const select = field.createEl('select', { cls: 'dn-field-select' });
+    private renderTypeRefField(container: HTMLElement, variant: ObjectiveVariant | ArcVariant, label: string): void {
+        const options = label === 'objective-type'
+            ? this.manager.getAllObjectiveTypes()
+            : this.manager.getAllArcTypes();
 
+        const field = container.createDiv('dn-field');
+        field.createEl('label', { text: 'Type', cls: 'dn-field-label' });
+
+        if (options.length === 0) {
+            field.createDiv('dn-field-note').setText('No types available. Create one first.');
+            return;
+        }
+
+        const select = field.createEl('select', { cls: 'dn-field-select' });
         const emptyOpt = select.createEl('option', { text: '— Select —' });
         emptyOpt.value = '';
-        if (!objective.variant) emptyOpt.selected = true;
 
-        for (const v of variants) {
-            const opt = select.createEl('option', { text: v });
-            opt.value = v;
-            if (v === objective.variant) opt.selected = true;
+        const currentTypeId = variant.type === 'objective-variant'
+            ? (variant as ObjectiveVariant).objectiveTypeId
+            : (variant as ArcVariant).arcTypeId;
+
+        for (const t of options) {
+            const opt = select.createEl('option', { text: t.title });
+            opt.value = t.filePath;
+            if (t.filePath === currentTypeId) opt.selected = true;
         }
 
         select.addEventListener('change', async () => {
-            await this.updateEntity({ variant: select.value });
+            const key = variant.type === 'objective-variant' ? 'objectiveTypeId' : 'arcTypeId';
+            await this.updateEntity({ [key]: select.value });
         });
     }
 
@@ -255,33 +271,59 @@ export class DNInspector {
             });
         }
 
-        this.renderPhaseField(body, 'Description', phase.description, async (val) => {
-            this.manager.updatePhaseFields(entity, phase.name, { description: val });
-            await this.persistEntity();
-        });
+        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
 
-        this.renderPhaseField(body, 'Start Conditions', phase.startConditions, async (val) => {
-            this.manager.updatePhaseFields(entity, phase.name, { startConditions: val });
-            await this.persistEntity();
-        });
+        if (isVariant) {
+            const variant = entity as ObjectiveVariant | ArcVariant;
+            this.renderVariantOverrideField(body, variant, phase, 'Description', 'description', async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { description: val });
+                await this.persistEntity();
+            });
+            this.renderVariantOverrideField(body, variant, phase, 'Start Conditions', 'startConditions', async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { startConditions: val });
+                await this.persistEntity();
+            });
+            this.renderVariantOverrideField(body, variant, phase, 'End Conditions', 'endConditions', async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { endConditions: val });
+                await this.persistEntity();
+            });
+            this.renderVariantOverrideField(body, variant, phase, 'Start Commands', 'startCommands', async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { startCommands: val });
+                await this.persistEntity();
+            });
+            this.renderVariantOverrideField(body, variant, phase, 'End Commands', 'endCommands', async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { endCommands: val });
+                await this.persistEntity();
+            });
+        } else {
+            this.renderPhaseFieldCollapsible(body, 'Description', phase.description, async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { description: val });
+                await this.persistEntity();
+            });
 
-        this.renderPhaseField(body, 'End Conditions', phase.endConditions, async (val) => {
-            this.manager.updatePhaseFields(entity, phase.name, { endConditions: val });
-            await this.persistEntity();
-        });
+            this.renderPhaseFieldCollapsible(body, 'Start Conditions', phase.startConditions, async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { startConditions: val });
+                await this.persistEntity();
+            });
 
-        this.renderPhaseField(body, 'Start Commands', phase.startCommands, async (val) => {
-            this.manager.updatePhaseFields(entity, phase.name, { startCommands: val });
-            await this.persistEntity();
-        });
+            this.renderPhaseFieldCollapsible(body, 'End Conditions', phase.endConditions, async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { endConditions: val });
+                await this.persistEntity();
+            });
 
-        this.renderPhaseField(body, 'End Commands', phase.endCommands, async (val) => {
-            this.manager.updatePhaseFields(entity, phase.name, { endCommands: val });
-            await this.persistEntity();
-        });
+            this.renderPhaseFieldCollapsible(body, 'Start Commands', phase.startCommands, async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { startCommands: val });
+                await this.persistEntity();
+            });
 
-        if (entity.type === 'arc') {
-            const arcPhase = phase as ArcPhase;
+            this.renderPhaseFieldCollapsible(body, 'End Commands', phase.endCommands, async (val) => {
+                this.manager.updatePhaseFields(entity, phase.name, { endCommands: val });
+                await this.persistEntity();
+            });
+        }
+
+        if (entity.type === 'arc-variant') {
+            const arcPhase = phase as ArcVariantPhase;
             this.renderLinkedEntitiesField(body, 'Linked Goals', arcPhase.linkedGoals,
                 () => this.manager.getAllQuests().filter(q => q.category === 'Goal').map(q => q.title),
                 async (val) => {
@@ -327,15 +369,110 @@ export class DNInspector {
         });
     }
 
-    private renderPhaseField(container: HTMLElement, label: string, value: string, onChange: (val: string) => Promise<void>): void {
-        const field = container.createDiv('dn-phase-field');
-        field.createEl('label', { text: label, cls: 'dn-phase-field-label' });
-        const input = field.createEl('textarea', { cls: 'dn-phase-field-input' });
+    private renderPhaseFieldCollapsible(container: HTMLElement, label: string, value: string, onChange: (val: string) => Promise<void>): void {
+        const wrapper = container.createDiv('dn-collapsible-field');
+        const header = wrapper.createDiv('dn-collapsible-header');
+        const toggle = header.createSpan('dn-collapsible-toggle');
+        const labelEl = header.createSpan('dn-collapsible-label');
+
+        const isEmpty = !value;
+        labelEl.setText(isEmpty ? `${label} (empty)` : label);
+        setIcon(toggle, isEmpty ? 'chevron-right' : 'chevron-down');
+
+        const body = wrapper.createDiv('dn-collapsible-body');
+        body.style.display = isEmpty ? 'none' : '';
+
+        const input = body.createEl('textarea', { cls: 'dn-collapsible-input' });
         (input as HTMLTextAreaElement).value = value;
+        this.autoResizeTextarea(input as HTMLTextAreaElement);
+        input.addEventListener('input', () => {
+            this.autoResizeTextarea(input as HTMLTextAreaElement);
+        });
         input.addEventListener('change', () => {
             this.scheduleSave(async () => {
                 await onChange((input as HTMLTextAreaElement).value);
             });
+        });
+
+        header.addEventListener('click', () => {
+            const isCollapsed = body.style.display === 'none';
+            body.style.display = isCollapsed ? '' : 'none';
+            toggle.empty();
+            setIcon(toggle, isCollapsed ? 'chevron-down' : 'chevron-right');
+            if (!isCollapsed) {
+                this.autoResizeTextarea(input as HTMLTextAreaElement);
+            }
+        });
+    }
+
+    private renderVariantOverrideField(
+        container: HTMLElement,
+        entity: ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+        label: string,
+        fieldName: string,
+        onChange: (val: string) => Promise<void>,
+    ): void {
+        const isOverridden = phase.overrides.includes(fieldName);
+        const typeValue = this.manager.getTypePhaseValue(entity, phase.name, fieldName);
+        const variantValue = (phase as unknown as Record<string, unknown>)[fieldName] as string || '';
+
+        const wrapper = container.createDiv('dn-collapsible-field dn-variant-override-field');
+        const header = wrapper.createDiv('dn-collapsible-header');
+
+        const collapseToggle = header.createSpan('dn-collapsible-toggle');
+
+        const labelEl = header.createSpan('dn-collapsible-label');
+        const suffix = isOverridden ? '' : (typeValue ? '' : ' (empty)');
+        labelEl.setText(label + suffix);
+
+        const overrideBtn = header.createEl('button', { cls: 'dn-override-toggle', attr: { title: isOverridden ? 'Revert to default' : 'Override this field' } });
+        setIcon(overrideBtn, isOverridden ? 'toggle-right' : 'toggle-left');
+        if (isOverridden) overrideBtn.addClass('is-active');
+
+        const isEmpty = !isOverridden && !typeValue;
+        setIcon(collapseToggle, isEmpty ? 'chevron-right' : 'chevron-down');
+
+        const body = wrapper.createDiv('dn-collapsible-body');
+        body.style.display = isEmpty ? 'none' : '';
+
+        if (isOverridden) {
+            const input = body.createEl('textarea', { cls: 'dn-collapsible-input' });
+            (input as HTMLTextAreaElement).value = variantValue;
+            this.autoResizeTextarea(input as HTMLTextAreaElement);
+            input.addEventListener('input', () => this.autoResizeTextarea(input as HTMLTextAreaElement));
+            input.addEventListener('change', () => {
+                this.scheduleSave(async () => {
+                    await onChange((input as HTMLTextAreaElement).value);
+                });
+            });
+        } else if (typeValue) {
+            const inherited = body.createDiv('dn-field-inherited');
+            inherited.setText(typeValue);
+        }
+
+        overrideBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!this.currentEntity) return;
+
+            const newOverridden = !phase.overrides.includes(fieldName);
+            if (newOverridden) {
+                phase.overrides.push(fieldName);
+                (phase as unknown as Record<string, unknown>)[fieldName] = typeValue;
+            } else {
+                phase.overrides = phase.overrides.filter(f => f !== fieldName);
+                (phase as unknown as Record<string, unknown>)[fieldName] = '';
+            }
+            await this.persistEntity();
+            this.render(this.currentEntity);
+        });
+
+        header.addEventListener('click', (e: MouseEvent) => {
+            if ((e.target as HTMLElement).closest('.dn-override-toggle')) return;
+            const isCollapsed = body.style.display === 'none';
+            body.style.display = isCollapsed ? '' : 'none';
+            collapseToggle.empty();
+            setIcon(collapseToggle, isCollapsed ? 'chevron-down' : 'chevron-right');
         });
     }
 
@@ -403,8 +540,8 @@ export class DNInspector {
     private getLinkedLocations(entity: DNEntity): string[] {
         switch (entity.type) {
             case 'scenario': return (entity as Scenario).linkedLocations;
-            case 'objective': return (entity as Objective).linkedLocations;
-            case 'arc': return (entity as Arc).linkedLocations;
+            case 'objective-variant': return (entity as ObjectiveVariant).linkedLocations;
+            case 'arc-variant': return (entity as ArcVariant).linkedLocations;
             default: return [];
         }
     }
@@ -412,7 +549,7 @@ export class DNInspector {
     private getLinkedCharacters(entity: DNEntity): string[] {
         switch (entity.type) {
             case 'scenario': return (entity as Scenario).linkedCharacters;
-            case 'objective': return (entity as Objective).linkedCharacters;
+            case 'objective-variant': return (entity as ObjectiveVariant).linkedCharacters;
             default: return [];
         }
     }
@@ -423,11 +560,17 @@ export class DNInspector {
             case 'scenario':
                 await this.manager.updateScenario(this.currentEntity.filePath, updates as Partial<Scenario>);
                 break;
-            case 'objective':
-                await this.manager.updateObjective(this.currentEntity.filePath, updates as Partial<Objective>);
+            case 'objective-type':
+                await this.manager.updateObjectiveType(this.currentEntity.filePath, updates as Partial<ObjectiveType>);
                 break;
-            case 'arc':
-                await this.manager.updateArc(this.currentEntity.filePath, updates as Partial<Arc>);
+            case 'objective-variant':
+                await this.manager.updateObjectiveVariant(this.currentEntity.filePath, updates as Partial<ObjectiveVariant>);
+                break;
+            case 'arc-type':
+                await this.manager.updateArcType(this.currentEntity.filePath, updates as Partial<ArcType>);
+                break;
+            case 'arc-variant':
+                await this.manager.updateArcVariant(this.currentEntity.filePath, updates as Partial<ArcVariant>);
                 break;
             case 'quest':
                 await this.manager.updateQuest(this.currentEntity.filePath, updates as Partial<Quest>);
@@ -451,6 +594,11 @@ export class DNInspector {
         }, 600);
     }
 
+    private autoResizeTextarea(textarea: HTMLTextAreaElement): void {
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+
     private openEntityFile(entity: DNEntity): void {
         const file = this.plugin.app.vault.getAbstractFileByPath(entity.filePath);
         if (file instanceof TFile) {
@@ -463,14 +611,24 @@ export class DNInspector {
 
     private confirmDeleteEntity(entity: DNEntity): void {
         openConfirmModal(this.plugin.app, {
-            title: `Delete ${entity.type}`,
+            title: `Delete ${entity.type.replace(/-/g, ' ')}`,
             message: `Are you sure you want to delete "${entity.title}"? The file will be moved to trash.`,
             confirmLabel: 'Delete',
             onConfirm: async () => {
                 switch (entity.type) {
                     case 'scenario': await this.manager.deleteScenario(entity.filePath); break;
-                    case 'objective': await this.manager.deleteObjective(entity.filePath); break;
-                    case 'arc': await this.manager.deleteArc(entity.filePath); break;
+                    case 'objective-type': {
+                        const ok = await this.manager.deleteObjectiveType(entity.filePath);
+                        if (!ok) return;
+                        break;
+                    }
+                    case 'objective-variant': await this.manager.deleteObjectiveVariant(entity.filePath); break;
+                    case 'arc-type': {
+                        const ok = await this.manager.deleteArcType(entity.filePath);
+                        if (!ok) return;
+                        break;
+                    }
+                    case 'arc-variant': await this.manager.deleteArcVariant(entity.filePath); break;
                     case 'quest': await this.manager.deleteQuest(entity.filePath); break;
                 }
                 this.clear();

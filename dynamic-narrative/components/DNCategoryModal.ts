@@ -35,7 +35,7 @@ export class DNCategoryModal extends Modal {
         contentEl.empty();
         contentEl.addClass('dn-category-modal');
 
-        const typeLabel = this.entityType.charAt(0).toUpperCase() + this.entityType.slice(1);
+        const typeLabel = this.entityType.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         contentEl.createEl('h3', { text: `Manage ${typeLabel} categories` });
 
         const categories = this.manager.getCategories(this.entityType);
@@ -97,8 +97,10 @@ export class DNCategoryModal extends Modal {
     private getDefaults(): string[] {
         switch (this.entityType) {
             case 'scenario': return DEFAULT_SCENARIO_CATEGORIES;
-            case 'objective': return DEFAULT_OBJECTIVE_CATEGORIES;
-            case 'arc': return DEFAULT_ARC_CATEGORIES;
+            case 'objective-type':
+            case 'objective-variant': return DEFAULT_OBJECTIVE_CATEGORIES;
+            case 'arc-type':
+            case 'arc-variant': return DEFAULT_ARC_CATEGORIES;
             case 'quest': return DEFAULT_QUEST_CATEGORIES;
         }
     }

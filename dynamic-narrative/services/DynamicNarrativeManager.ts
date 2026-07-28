@@ -2,8 +2,8 @@
 import { App, Notice, TFile, TFolder, normalizePath, parseYaml, stringifyYaml } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
-import type { Objective, ObjectivePhase } from '../models/Objective';
-import type { Arc, ArcPhase } from '../models/Arc';
+import type { ObjectiveType, ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
+import type { ArcType, ArcVariant, ArcVariantPhase } from '../models/Arc';
 import type { Quest, QuestPhase } from '../models/Quest';
 import {
     DNBase,
@@ -14,7 +14,6 @@ import {
     DEFAULT_DN_PHASES,
     DEFAULT_SCENARIO_CATEGORIES,
     DEFAULT_OBJECTIVE_CATEGORIES,
-    DEFAULT_OBJECTIVE_VARIANTS,
     DEFAULT_ARC_CATEGORIES,
     DEFAULT_QUEST_CATEGORIES,
     createDefaultPhases,
@@ -26,14 +25,16 @@ import {
     deepClone,
 } from '../models/types';
 import { createEmptyScenario } from '../models/Scenario';
-import { createEmptyObjective } from '../models/Objective';
-import { createEmptyArc } from '../models/Arc';
+import { createEmptyObjectiveType, createEmptyObjectiveVariant } from '../models/Objective';
+import { createEmptyArcType, createEmptyArcVariant } from '../models/Arc';
 import { createEmptyQuest } from '../models/Quest';
 
 interface DynamicNarrativeSystemData {
     scenarios: Record<string, Scenario>;
-    objectives: Record<string, Objective>;
-    arcs: Record<string, Arc>;
+    objectiveTypes: Record<string, ObjectiveType>;
+    objectiveVariants: Record<string, ObjectiveVariant>;
+    arcTypes: Record<string, ArcType>;
+    arcVariants: Record<string, ArcVariant>;
     quests: Record<string, Quest>;
     layout: {
         inspectorWidth: number;
@@ -43,15 +44,19 @@ interface DynamicNarrativeSystemData {
 
 const SYSTEM_FILE_NAME = 'dynamic-narrative.json';
 const DN_FOLDER_NAME = 'DynamicNarrative';
-const SUBFOLDERS = ['Scenarios', 'Objectives', 'Arcs', 'Quests'] as const;
+const SUBFOLDERS = ['Scenarios', 'ObjectiveTypes', 'ObjectiveVariants', 'ArcTypes', 'ArcVariants', 'Quests'] as const;
+
+const QUEST_LINK_LISTS = ['linkedGoals', 'linkedLimits', 'linkedEvents', 'linkedModifiers'] as const;
 
 export class DynamicNarrativeManager {
     private app: App;
     private plugin: SceneCardsPlugin;
 
     private scenarios: Map<string, Scenario> = new Map();
-    private objectives: Map<string, Objective> = new Map();
-    private arcs: Map<string, Arc> = new Map();
+    private objectiveTypes: Map<string, ObjectiveType> = new Map();
+    private objectiveVariants: Map<string, ObjectiveVariant> = new Map();
+    private arcTypes: Map<string, ArcType> = new Map();
+    private arcVariants: Map<string, ArcVariant> = new Map();
     private quests: Map<string, Quest> = new Map();
 
     private projectFolder: string = '';
@@ -91,34 +96,48 @@ export class DynamicNarrativeManager {
 
     async loadAll(): Promise<void> {
         this.scenarios.clear();
-        this.objectives.clear();
-        this.arcs.clear();
+        this.objectiveTypes.clear();
+        this.objectiveVariants.clear();
+        this.arcTypes.clear();
+        this.arcVariants.clear();
         this.quests.clear();
 
         const systemData = await this.loadSystemJson();
         if (systemData) {
-            for (const [path, entity] of Object.entries(systemData.scenarios)) {
+            for (const [path, entity] of Object.entries(systemData.scenarios ?? {})) {
                 entity.type = 'scenario';
                 this.scenarios.set(path, entity);
             }
-            for (const [path, entity] of Object.entries(systemData.objectives)) {
-                entity.type = 'objective';
-                this.objectives.set(path, entity);
+            for (const [path, entity] of Object.entries(systemData.objectiveTypes ?? {})) {
+                entity.type = 'objective-type';
+                this.objectiveTypes.set(path, entity);
             }
-            for (const [path, entity] of Object.entries(systemData.arcs)) {
-                entity.type = 'arc';
-                this.arcs.set(path, entity);
+            for (const [path, entity] of Object.entries(systemData.objectiveVariants ?? {})) {
+                entity.type = 'objective-variant';
+                this.objectiveVariants.set(path, entity);
             }
-            for (const [path, entity] of Object.entries(systemData.quests)) {
+            for (const [path, entity] of Object.entries(systemData.arcTypes ?? {})) {
+                entity.type = 'arc-type';
+                this.arcTypes.set(path, entity);
+            }
+            for (const [path, entity] of Object.entries(systemData.arcVariants ?? {})) {
+                entity.type = 'arc-variant';
+                this.arcVariants.set(path, entity);
+            }
+            for (const [path, entity] of Object.entries(systemData.quests ?? {})) {
                 entity.type = 'quest';
                 this.quests.set(path, entity);
             }
         }
 
         await this.scanEntityFolder('Scenarios', 'scenario');
-        await this.scanEntityFolder('Objectives', 'objective');
-        await this.scanEntityFolder('Arcs', 'arc');
+        await this.scanEntityFolder('ObjectiveTypes', 'objective-type');
+        await this.scanEntityFolder('ObjectiveVariants', 'objective-variant');
+        await this.scanEntityFolder('ArcTypes', 'arc-type');
+        await this.scanEntityFolder('ArcVariants', 'arc-variant');
         await this.scanEntityFolder('Quests', 'quest');
+
+        this.syncAllVariants();
 
         await this.saveSystemJson();
     }
@@ -132,22 +151,20 @@ export class DynamicNarrativeManager {
             if (child instanceof TFile && child.extension === 'md') {
                 const entity = await this.parseEntityFile(child);
                 if (entity && entity.type === entityType) {
-                    switch (entityType) {
-                        case 'scenario':
-                            this.scenarios.set(entity.filePath, entity as Scenario);
-                            break;
-                        case 'objective':
-                            this.objectives.set(entity.filePath, entity as Objective);
-                            break;
-                        case 'arc':
-                            this.arcs.set(entity.filePath, entity as Arc);
-                            break;
-                        case 'quest':
-                            this.quests.set(entity.filePath, entity as Quest);
-                            break;
-                    }
+                    this.getMapForType(entityType).set(entity.filePath, entity as never);
                 }
             }
+        }
+    }
+
+    private getMapForType(entityType: DNEntityType): Map<string, DNEntity> {
+        switch (entityType) {
+            case 'scenario': return this.scenarios as Map<string, DNEntity>;
+            case 'objective-type': return this.objectiveTypes as Map<string, DNEntity>;
+            case 'objective-variant': return this.objectiveVariants as Map<string, DNEntity>;
+            case 'arc-type': return this.arcTypes as Map<string, DNEntity>;
+            case 'arc-variant': return this.arcVariants as Map<string, DNEntity>;
+            case 'quest': return this.quests as Map<string, DNEntity>;
         }
     }
 
@@ -172,13 +189,15 @@ export class DynamicNarrativeManager {
     private async _doSaveSystemJson(): Promise<void> {
         const data: DynamicNarrativeSystemData = {
             scenarios: Object.fromEntries(this.scenarios),
-            objectives: Object.fromEntries(this.objectives),
-            arcs: Object.fromEntries(this.arcs),
+            objectiveTypes: Object.fromEntries(this.objectiveTypes),
+            objectiveVariants: Object.fromEntries(this.objectiveVariants),
+            arcTypes: Object.fromEntries(this.arcTypes),
+            arcVariants: Object.fromEntries(this.arcVariants),
             quests: Object.fromEntries(this.quests),
             layout: {
                 inspectorWidth: 350,
             },
-            version: 1,
+            version: 2,
         };
 
         const content = JSON.stringify(data, null, 2);
@@ -205,10 +224,14 @@ export class DynamicNarrativeManager {
 
             if (tags.includes('storyline-scenario')) {
                 return this.parseScenarioFromFm(fm, body, file.path);
-            } else if (tags.includes('storyline-objective')) {
-                return this.parseObjectiveFromFm(fm, body, file.path);
-            } else if (tags.includes('storyline-arc')) {
-                return this.parseArcFromFm(fm, body, file.path);
+            } else if (tags.includes('storyline-objective-type')) {
+                return this.parseObjectiveTypeFromFm(fm, body, file.path);
+            } else if (tags.includes('storyline-objective-variant')) {
+                return this.parseObjectiveVariantFromFm(fm, body, file.path);
+            } else if (tags.includes('storyline-arc-type')) {
+                return this.parseArcTypeFromFm(fm, body, file.path);
+            } else if (tags.includes('storyline-arc-variant')) {
+                return this.parseArcVariantFromFm(fm, body, file.path);
             } else if (tags.includes('storyline-quest')) {
                 return this.parseQuestFromFm(fm, body, file.path);
             }
@@ -236,8 +259,8 @@ export class DynamicNarrativeManager {
         };
     }
 
-    private parseObjectiveFromFm(fm: Record<string, unknown>, body: string, filePath: string): Objective {
-        const phases = this.parseObjectivePhases(fm['objective-phases']);
+    private parseObjectiveTypeFromFm(fm: Record<string, unknown>, body: string, filePath: string): ObjectiveType {
+        const phases = this.parsePlainPhases(fm['objective-type-phases']);
         const description = this.extractBodySection(body, 'Overview');
         return {
             filePath,
@@ -245,17 +268,32 @@ export class DynamicNarrativeManager {
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
-            type: 'objective',
-            variant: (fm['objective-variant'] as string) || '',
-            category: (fm['objective-category'] as string) || '',
+            type: 'objective-type',
+            category: (fm['objective-type-category'] as string) || '',
+            phases,
+        };
+    }
+
+    private parseObjectiveVariantFromFm(fm: Record<string, unknown>, body: string, filePath: string): ObjectiveVariant {
+        const phases = this.parseObjectiveVariantPhases(fm['objective-variant-phases']);
+        const description = this.extractBodySection(body, 'Overview');
+        return {
+            filePath,
+            title: (fm.title as string) || this.titleFromPath(filePath),
+            description,
+            created: (fm.created as string) || '',
+            modified: (fm.modified as string) || new Date().toISOString(),
+            type: 'objective-variant',
+            objectiveTypeId: this.parseTypeRef(fm['objective-type-ref']),
+            category: (fm['objective-variant-category'] as string) || '',
             linkedLocations: this.parseStringList(fm['linked-locations']),
             linkedCharacters: this.parseStringList(fm['linked-characters']),
             phases,
         };
     }
 
-    private parseArcFromFm(fm: Record<string, unknown>, body: string, filePath: string): Arc {
-        const phases = this.parseArcPhases(fm['arc-phases']);
+    private parseArcTypeFromFm(fm: Record<string, unknown>, body: string, filePath: string): ArcType {
+        const phases = this.parsePlainPhases(fm['arc-type-phases']);
         const description = this.extractBodySection(body, 'Overview');
         return {
             filePath,
@@ -263,8 +301,24 @@ export class DynamicNarrativeManager {
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
-            type: 'arc',
-            category: (fm['arc-category'] as string) || '',
+            type: 'arc-type',
+            category: (fm['arc-type-category'] as string) || '',
+            phases,
+        };
+    }
+
+    private parseArcVariantFromFm(fm: Record<string, unknown>, body: string, filePath: string): ArcVariant {
+        const phases = this.parseArcVariantPhases(fm['arc-variant-phases']);
+        const description = this.extractBodySection(body, 'Overview');
+        return {
+            filePath,
+            title: (fm.title as string) || this.titleFromPath(filePath),
+            description,
+            created: (fm.created as string) || '',
+            modified: (fm.modified as string) || new Date().toISOString(),
+            type: 'arc-variant',
+            arcTypeId: this.parseTypeRef(fm['arc-type-ref']),
+            category: (fm['arc-variant-category'] as string) || '',
             linkedLocations: this.parseStringList(fm['linked-locations']),
             dynamicLocations: Boolean(fm['dynamic-locations']),
             phases,
@@ -287,44 +341,71 @@ export class DynamicNarrativeManager {
         };
     }
 
-    private parseScenarioPhases(raw: unknown): ScenarioPhase[] {
-        if (!Array.isArray(raw)) return [];
-        return raw.map((p: Record<string, unknown>) => ({
-            name: (p['phase-name'] as string) || '',
+    private parseTypeRef(raw: unknown): string {
+        if (typeof raw !== 'string') return '';
+        return resolveWikilinkPath(raw);
+    }
+
+    private parseBasePhase(p: Record<string, unknown>): DNPhase {
+        const name = (p['phase-name'] as string) || '';
+        const rawOverrides = typeof p['phase-overrides'] === 'string' ? (p['phase-overrides'] as string) : '';
+
+        let overrides: string[];
+        if ('phase-overrides' in p && p['phase-overrides'] !== null && p['phase-overrides'] !== undefined) {
+            overrides = rawOverrides ? rawOverrides.split(',').map(s => s.trim()).filter(Boolean) : [];
+        } else {
+            overrides = [];
+            const fieldMap: Array<{ key: string; name: string }> = [
+                { key: 'phase-description', name: 'description' },
+                { key: 'phase-start-conditions', name: 'startConditions' },
+                { key: 'phase-end-conditions', name: 'endConditions' },
+                { key: 'phase-start-commands', name: 'startCommands' },
+                { key: 'phase-end-commands', name: 'endCommands' },
+            ];
+            for (const { key, name: fn } of fieldMap) {
+                if (typeof p[key] === 'string' && (p[key] as string).trim()) {
+                    overrides.push(fn);
+                }
+            }
+        }
+
+        return {
+            name,
             description: (p['phase-description'] as string) || '',
             startConditions: (p['phase-start-conditions'] as string) || '',
             startCommands: (p['phase-start-commands'] as string) || '',
             endConditions: (p['phase-end-conditions'] as string) || '',
             endCommands: (p['phase-end-commands'] as string) || '',
-            isDefault: isDefaultPhase((p['phase-name'] as string) || ''),
+            isDefault: isDefaultPhase(name),
+            overrides,
+        };
+    }
+
+    private parseScenarioPhases(raw: unknown): ScenarioPhase[] {
+        if (!Array.isArray(raw)) return [];
+        return raw.map((p: Record<string, unknown>) => ({
+            ...this.parseBasePhase(p),
             linkedObjectives: this.parseLinkedChildren(p['linked-objectives']),
         }));
     }
 
-    private parseObjectivePhases(raw: unknown): ObjectivePhase[] {
+    private parsePlainPhases(raw: unknown): DNPhase[] {
+        if (!Array.isArray(raw)) return [];
+        return raw.map((p: Record<string, unknown>) => this.parseBasePhase(p));
+    }
+
+    private parseObjectiveVariantPhases(raw: unknown): ObjectiveVariantPhase[] {
         if (!Array.isArray(raw)) return [];
         return raw.map((p: Record<string, unknown>) => ({
-            name: (p['phase-name'] as string) || '',
-            description: (p['phase-description'] as string) || '',
-            startConditions: (p['phase-start-conditions'] as string) || '',
-            startCommands: (p['phase-start-commands'] as string) || '',
-            endConditions: (p['phase-end-conditions'] as string) || '',
-            endCommands: (p['phase-end-commands'] as string) || '',
-            isDefault: isDefaultPhase((p['phase-name'] as string) || ''),
+            ...this.parseBasePhase(p),
             linkedArcs: this.parseLinkedChildren(p['linked-arcs']),
         }));
     }
 
-    private parseArcPhases(raw: unknown): ArcPhase[] {
+    private parseArcVariantPhases(raw: unknown): ArcVariantPhase[] {
         if (!Array.isArray(raw)) return [];
         return raw.map((p: Record<string, unknown>) => ({
-            name: (p['phase-name'] as string) || '',
-            description: (p['phase-description'] as string) || '',
-            startConditions: (p['phase-start-conditions'] as string) || '',
-            startCommands: (p['phase-start-commands'] as string) || '',
-            endConditions: (p['phase-end-conditions'] as string) || '',
-            endCommands: (p['phase-end-commands'] as string) || '',
-            isDefault: isDefaultPhase((p['phase-name'] as string) || ''),
+            ...this.parseBasePhase(p),
             linkedGoals: this.parseStringList(p['linked-goals']),
             linkedLimits: this.parseStringList(p['linked-limits']),
             linkedEvents: this.parseStringList(p['linked-events']),
@@ -334,15 +415,7 @@ export class DynamicNarrativeManager {
 
     private parseQuestPhases(raw: unknown): QuestPhase[] {
         if (!Array.isArray(raw)) return [];
-        return raw.map((p: Record<string, unknown>) => ({
-            name: (p['phase-name'] as string) || '',
-            description: (p['phase-description'] as string) || '',
-            startConditions: (p['phase-start-conditions'] as string) || '',
-            startCommands: (p['phase-start-commands'] as string) || '',
-            endConditions: (p['phase-end-conditions'] as string) || '',
-            endCommands: (p['phase-end-commands'] as string) || '',
-            isDefault: isDefaultPhase((p['phase-name'] as string) || ''),
-        }));
+        return raw.map((p: Record<string, unknown>) => this.parseBasePhase(p) as QuestPhase);
     }
 
     private parseLinkedChildren(raw: unknown): DNLinkedChild[] {
@@ -396,30 +469,53 @@ export class DynamicNarrativeManager {
                 }
                 break;
             }
-            case 'objective': {
-                const o = entity as Objective;
-                fm.tags = ['storyline-objective'];
-                fm.title = o.title;
+            case 'objective-type': {
+                const ot = entity as ObjectiveType;
+                fm.tags = ['storyline-objective-type'];
+                fm.title = ot.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
-                if (o.variant) fm['objective-variant'] = o.variant;
-                fm['objective-category'] = o.category;
-                if (o.linkedLocations.length > 0) fm['linked-locations'] = o.linkedLocations;
-                if (o.linkedCharacters.length > 0) fm['linked-characters'] = o.linkedCharacters;
-                if (o.phases.length > 0) {
-                    fm['objective-phases'] = o.phases.map(p => this.serializeObjectivePhase(p));
+                fm['objective-type-category'] = ot.category;
+                if (ot.phases.length > 0) {
+                    fm['objective-type-phases'] = ot.phases.map(p => this.serializePlainPhase(p));
                 }
                 break;
             }
-            case 'arc': {
-                const a = entity as Arc;
-                fm.tags = ['storyline-arc'];
-                fm.title = a.title;
+            case 'objective-variant': {
+                const ov = entity as ObjectiveVariant;
+                fm.tags = ['storyline-objective-variant'];
+                fm.title = ov.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
-                fm['arc-category'] = a.category;
-                if (a.linkedLocations.length > 0) fm['linked-locations'] = a.linkedLocations;
-                if (a.dynamicLocations) fm['dynamic-locations'] = true;
-                if (a.phases.length > 0) {
-                    fm['arc-phases'] = a.phases.map(p => this.serializeArcPhase(p));
+                if (ov.objectiveTypeId) fm['objective-type-ref'] = `[[${ov.objectiveTypeId}]]`;
+                fm['objective-variant-category'] = ov.category;
+                if (ov.linkedLocations.length > 0) fm['linked-locations'] = ov.linkedLocations;
+                if (ov.linkedCharacters.length > 0) fm['linked-characters'] = ov.linkedCharacters;
+                if (ov.phases.length > 0) {
+                    fm['objective-variant-phases'] = ov.phases.map(p => this.serializeObjectiveVariantPhase(p));
+                }
+                break;
+            }
+            case 'arc-type': {
+                const at = entity as ArcType;
+                fm.tags = ['storyline-arc-type'];
+                fm.title = at.title;
+                if (shortDesc) fm['short-desc'] = shortDesc;
+                fm['arc-type-category'] = at.category;
+                if (at.phases.length > 0) {
+                    fm['arc-type-phases'] = at.phases.map(p => this.serializePlainPhase(p));
+                }
+                break;
+            }
+            case 'arc-variant': {
+                const av = entity as ArcVariant;
+                fm.tags = ['storyline-arc-variant'];
+                fm.title = av.title;
+                if (shortDesc) fm['short-desc'] = shortDesc;
+                if (av.arcTypeId) fm['arc-type-ref'] = `[[${av.arcTypeId}]]`;
+                fm['arc-variant-category'] = av.category;
+                if (av.linkedLocations.length > 0) fm['linked-locations'] = av.linkedLocations;
+                if (av.dynamicLocations) fm['dynamic-locations'] = true;
+                if (av.phases.length > 0) {
+                    fm['arc-variant-phases'] = av.phases.map(p => this.serializeArcVariantPhase(p));
                 }
                 break;
             }
@@ -431,7 +527,7 @@ export class DynamicNarrativeManager {
                 fm['quest-category'] = q.category;
                 if (q.questType) fm['quest-type'] = q.questType;
                 if (q.phases.length > 0) {
-                    fm['quest-phases'] = q.phases.map(p => this.serializeQuestPhase(p));
+                    fm['quest-phases'] = q.phases.map(p => this.serializePlainPhase(p));
                 }
                 break;
             }
@@ -442,7 +538,7 @@ export class DynamicNarrativeManager {
         return fm;
     }
 
-    private serializeScenarioPhase(p: ScenarioPhase): Record<string, unknown> {
+    private serializeBasePhase(p: DNPhase): Record<string, unknown> {
         const obj: Record<string, unknown> = {
             'phase-name': p.name,
             'phase-description': p.description,
@@ -451,6 +547,14 @@ export class DynamicNarrativeManager {
             'phase-start-commands': p.startCommands,
             'phase-end-commands': p.endCommands,
         };
+        if (p.overrides.length > 0) {
+            obj['phase-overrides'] = p.overrides.join(',');
+        }
+        return obj;
+    }
+
+    private serializeScenarioPhase(p: ScenarioPhase): Record<string, unknown> {
+        const obj = this.serializeBasePhase(p);
         if (p.linkedObjectives.length > 0) {
             obj['linked-objectives'] = p.linkedObjectives.map(c => ({
                 'objective-id': c.id,
@@ -461,15 +565,12 @@ export class DynamicNarrativeManager {
         return obj;
     }
 
-    private serializeObjectivePhase(p: ObjectivePhase): Record<string, unknown> {
-        const obj: Record<string, unknown> = {
-            'phase-name': p.name,
-            'phase-description': p.description,
-            'phase-start-conditions': p.startConditions,
-            'phase-end-conditions': p.endConditions,
-            'phase-start-commands': p.startCommands,
-            'phase-end-commands': p.endCommands,
-        };
+    private serializePlainPhase(p: DNPhase): Record<string, unknown> {
+        return this.serializeBasePhase(p);
+    }
+
+    private serializeObjectiveVariantPhase(p: ObjectiveVariantPhase): Record<string, unknown> {
+        const obj = this.serializeBasePhase(p);
         if (p.linkedArcs.length > 0) {
             obj['linked-arcs'] = p.linkedArcs.map(c => ({
                 'arc-id': c.id,
@@ -480,31 +581,13 @@ export class DynamicNarrativeManager {
         return obj;
     }
 
-    private serializeArcPhase(p: ArcPhase): Record<string, unknown> {
-        const obj: Record<string, unknown> = {
-            'phase-name': p.name,
-            'phase-description': p.description,
-            'phase-start-conditions': p.startConditions,
-            'phase-end-conditions': p.endConditions,
-            'phase-start-commands': p.startCommands,
-            'phase-end-commands': p.endCommands,
-        };
+    private serializeArcVariantPhase(p: ArcVariantPhase): Record<string, unknown> {
+        const obj = this.serializeBasePhase(p);
         if (p.linkedGoals.length > 0) obj['linked-goals'] = p.linkedGoals;
         if (p.linkedLimits.length > 0) obj['linked-limits'] = p.linkedLimits;
         if (p.linkedEvents.length > 0) obj['linked-events'] = p.linkedEvents;
         if (p.linkedModifiers.length > 0) obj['linked-modifiers'] = p.linkedModifiers;
         return obj;
-    }
-
-    private serializeQuestPhase(p: QuestPhase): Record<string, unknown> {
-        return {
-            'phase-name': p.name,
-            'phase-description': p.description,
-            'phase-start-conditions': p.startConditions,
-            'phase-end-conditions': p.endConditions,
-            'phase-start-commands': p.startCommands,
-            'phase-end-commands': p.endCommands,
-        };
     }
 
     private async readExistingBodySection(entity: DNEntity, sectionName: string): Promise<string> {
@@ -565,208 +648,200 @@ export class DynamicNarrativeManager {
         return newPath;
     }
 
+    // ─── Generic CRUD helpers ────────────────────────────────────
+
+    private getFolderForType(entityType: DNEntityType): string {
+        switch (entityType) {
+            case 'scenario': return 'Scenarios';
+            case 'objective-type': return 'ObjectiveTypes';
+            case 'objective-variant': return 'ObjectiveVariants';
+            case 'arc-type': return 'ArcTypes';
+            case 'arc-variant': return 'ArcVariants';
+            case 'quest': return 'Quests';
+        }
+    }
+
+    private async createEntity<T extends DNEntity>(entity: T): Promise<T> {
+        entity.created = new Date().toISOString();
+        entity.modified = new Date().toISOString();
+
+        const safeName = entity.title.replace(/[\\/:*?"<>|]/g, '-');
+        const folder = normalizePath(`${this.projectFolder}/${DN_FOLDER_NAME}/${this.getFolderForType(entity.type)}`);
+        entity.filePath = this.getUniquePath(folder, `${safeName}.md`);
+
+        await this.writeEntityFile(entity);
+        this.getMapForType(entity.type).set(entity.filePath, entity);
+        await this.saveSystemJson();
+        return entity;
+    }
+
+    private async updateEntityCommon(filePath: string, updates: Record<string, unknown>, label: string): Promise<DNEntity | undefined> {
+        const entity = this.getEntity(filePath);
+        if (!entity) return undefined;
+
+        const oldSnap = deepClone(entity);
+
+        let currentPath = filePath;
+        if (updates.title !== undefined && updates.title !== entity.title) {
+            currentPath = await this.doRenameFile(filePath, updates.title as string, `${DN_FOLDER_NAME}/${this.getFolderForType(entity.type)}`);
+            entity.filePath = currentPath;
+            this.getMapForType(entity.type).delete(filePath);
+            this.getMapForType(entity.type).set(currentPath, entity);
+            await this.cascadeRename(filePath, currentPath);
+        }
+
+        Object.assign(entity, updates);
+        entity.modified = new Date().toISOString();
+
+        this.plugin.sceneManager.undoManager.recordUpdate(
+            currentPath,
+            oldSnap as unknown as Record<string, unknown>,
+            updates,
+            `Update ${label} "${entity.title}"`
+        );
+
+        await this.writeEntityFile(entity);
+        this.getMapForType(entity.type).set(currentPath, entity);
+        await this.saveSystemJson();
+        return entity;
+    }
+
+    private async deleteEntityCommon(filePath: string, label: string): Promise<void> {
+        const entity = this.getEntity(filePath);
+        if (!entity) return;
+
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (file && file instanceof TFile) {
+            const content = await this.app.vault.read(file);
+            this.plugin.sceneManager.undoManager.recordDelete(
+                filePath,
+                content,
+                `Delete ${label} "${entity.title}"`
+            );
+            await this.app.vault.delete(file);
+        }
+
+        this.getMapForType(entity.type).delete(filePath);
+        await this.saveSystemJson();
+    }
+
     // ─── CRUD: Scenarios ─────────────────────────────────────────
 
     async createScenario(data: Partial<Scenario>): Promise<Scenario> {
         const entity = createEmptyScenario(data.title || 'New Scenario');
         Object.assign(entity, data);
         entity.type = 'scenario';
-        entity.created = new Date().toISOString();
-        entity.modified = new Date().toISOString();
-
-        const safeName = entity.title.replace(/[\\/:*?"<>|]/g, '-');
-        const folder = normalizePath(`${this.projectFolder}/${DN_FOLDER_NAME}/Scenarios`);
-        entity.filePath = this.getUniquePath(folder, `${safeName}.md`);
-
-        await this.writeEntityFile(entity);
-        this.scenarios.set(entity.filePath, entity);
-        await this.saveSystemJson();
-        return entity;
+        return this.createEntity(entity);
     }
 
     async updateScenario(filePath: string, updates: Partial<Scenario>): Promise<void> {
-        const entity = this.scenarios.get(filePath);
-        if (!entity) return;
-
-        const oldSnap = deepClone(entity);
-
-        let currentPath = filePath;
-        if (updates.title !== undefined && updates.title !== entity.title) {
-            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Scenarios`);
-            entity.filePath = currentPath;
-            this.scenarios.delete(filePath);
-            this.scenarios.set(currentPath, entity);
-            await this.cascadeRename(filePath, currentPath);
-        }
-
-        Object.assign(entity, updates);
-        entity.modified = new Date().toISOString();
-
-        this.plugin.sceneManager.undoManager.recordUpdate(
-            currentPath,
-            oldSnap as unknown as Record<string, unknown>,
-            updates,
-            `Update scenario "${entity.title}"`
-        );
-
-        await this.writeEntityFile(entity);
-        this.scenarios.set(currentPath, entity);
-        await this.saveSystemJson();
+        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'scenario');
     }
 
     async deleteScenario(filePath: string): Promise<void> {
-        const entity = this.scenarios.get(filePath);
-        if (!entity) return;
-
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        if (file && file instanceof TFile) {
-            const content = await this.app.vault.read(file);
-            this.plugin.sceneManager.undoManager.recordDelete(
-                filePath,
-                content,
-                `Delete scenario "${entity.title}"`
-            );
-            await this.app.vault.delete(file);
-        }
-
-        this.scenarios.delete(filePath);
-        await this.saveSystemJson();
+        await this.deleteEntityCommon(filePath, 'scenario');
     }
 
-    // ─── CRUD: Objectives ────────────────────────────────────────
+    // ─── CRUD: Objective Types ───────────────────────────────────
 
-    async createObjective(data: Partial<Objective>): Promise<Objective> {
-        const entity = createEmptyObjective(data.title || 'New Objective');
+    async createObjectiveType(data: Partial<ObjectiveType>): Promise<ObjectiveType> {
+        const entity = createEmptyObjectiveType(data.title || 'New Objective Type');
         Object.assign(entity, data);
-        entity.type = 'objective';
-        entity.created = new Date().toISOString();
-        entity.modified = new Date().toISOString();
-
-        const safeName = entity.title.replace(/[\\/:*?"<>|]/g, '-');
-        const folder = normalizePath(`${this.projectFolder}/${DN_FOLDER_NAME}/Objectives`);
-        entity.filePath = this.getUniquePath(folder, `${safeName}.md`);
-
-        await this.writeEntityFile(entity);
-        this.objectives.set(entity.filePath, entity);
-        await this.saveSystemJson();
-        return entity;
-    }
-
-    async updateObjective(filePath: string, updates: Partial<Objective>): Promise<void> {
-        const entity = this.objectives.get(filePath);
-        if (!entity) return;
-
-        const oldSnap = deepClone(entity);
-
-        let currentPath = filePath;
-        if (updates.title !== undefined && updates.title !== entity.title) {
-            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Objectives`);
-            entity.filePath = currentPath;
-            this.objectives.delete(filePath);
-            this.objectives.set(currentPath, entity);
-            await this.cascadeRename(filePath, currentPath);
+        entity.type = 'objective-type';
+        if (!entity.phases || entity.phases.length === 0) {
+            entity.phases = createDefaultPhases();
         }
-
-        Object.assign(entity, updates);
-        entity.modified = new Date().toISOString();
-
-        this.plugin.sceneManager.undoManager.recordUpdate(
-            currentPath,
-            oldSnap as unknown as Record<string, unknown>,
-            updates,
-            `Update objective "${entity.title}"`
-        );
-
-        await this.writeEntityFile(entity);
-        this.objectives.set(currentPath, entity);
-        await this.saveSystemJson();
+        return this.createEntity(entity);
     }
 
-    async deleteObjective(filePath: string): Promise<void> {
-        const entity = this.objectives.get(filePath);
+    async updateObjectiveType(filePath: string, updates: Partial<ObjectiveType>): Promise<void> {
+        const entity = this.objectiveTypes.get(filePath);
         if (!entity) return;
-
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        if (file && file instanceof TFile) {
-            const content = await this.app.vault.read(file);
-            this.plugin.sceneManager.undoManager.recordDelete(
-                filePath,
-                content,
-                `Delete objective "${entity.title}"`
-            );
-            await this.app.vault.delete(file);
+        const phasesBefore = entity.phases.map(p => p.name);
+        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'objective type');
+        const updated = this.objectiveTypes.get(entity.filePath);
+        if (updated) {
+            await this.propagateTypePhaseChanges(updated, phasesBefore);
         }
-
-        this.objectives.delete(filePath);
-        await this.saveSystemJson();
     }
 
-    // ─── CRUD: Arcs ──────────────────────────────────────────────
+    async deleteObjectiveType(filePath: string): Promise<boolean> {
+        const dependents = this.getObjectiveVariantsOfType(filePath);
+        if (dependents.length > 0) {
+            new Notice(`Cannot delete: ${dependents.length} objective variant(s) still reference this type.`);
+            return false;
+        }
+        await this.deleteEntityCommon(filePath, 'objective type');
+        return true;
+    }
 
-    async createArc(data: Partial<Arc>): Promise<Arc> {
-        const entity = createEmptyArc(data.title || 'New Arc');
+    // ─── CRUD: Objective Variants ────────────────────────────────
+
+    async createObjectiveVariant(data: Partial<ObjectiveVariant>): Promise<ObjectiveVariant> {
+        const entity = createEmptyObjectiveVariant(data.title || 'New Objective Variant', data.objectiveTypeId || '');
         Object.assign(entity, data);
-        entity.type = 'arc';
-        entity.created = new Date().toISOString();
-        entity.modified = new Date().toISOString();
-
-        const safeName = entity.title.replace(/[\\/:*?"<>|]/g, '-');
-        const folder = normalizePath(`${this.projectFolder}/${DN_FOLDER_NAME}/Arcs`);
-        entity.filePath = this.getUniquePath(folder, `${safeName}.md`);
-
-        await this.writeEntityFile(entity);
-        this.arcs.set(entity.filePath, entity);
-        await this.saveSystemJson();
-        return entity;
+        entity.type = 'objective-variant';
+        this.syncObjectiveVariantPhases(entity);
+        return this.createEntity(entity);
     }
 
-    async updateArc(filePath: string, updates: Partial<Arc>): Promise<void> {
-        const entity = this.arcs.get(filePath);
-        if (!entity) return;
-
-        const oldSnap = deepClone(entity);
-
-        let currentPath = filePath;
-        if (updates.title !== undefined && updates.title !== entity.title) {
-            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Arcs`);
-            entity.filePath = currentPath;
-            this.arcs.delete(filePath);
-            this.arcs.set(currentPath, entity);
-            await this.cascadeRename(filePath, currentPath);
-        }
-
-        Object.assign(entity, updates);
-        entity.modified = new Date().toISOString();
-
-        this.plugin.sceneManager.undoManager.recordUpdate(
-            currentPath,
-            oldSnap as unknown as Record<string, unknown>,
-            updates,
-            `Update arc "${entity.title}"`
-        );
-
-        await this.writeEntityFile(entity);
-        this.arcs.set(currentPath, entity);
-        await this.saveSystemJson();
+    async updateObjectiveVariant(filePath: string, updates: Partial<ObjectiveVariant>): Promise<void> {
+        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'objective variant');
     }
 
-    async deleteArc(filePath: string): Promise<void> {
-        const entity = this.arcs.get(filePath);
-        if (!entity) return;
+    async deleteObjectiveVariant(filePath: string): Promise<void> {
+        await this.deleteEntityCommon(filePath, 'objective variant');
+    }
 
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        if (file && file instanceof TFile) {
-            const content = await this.app.vault.read(file);
-            this.plugin.sceneManager.undoManager.recordDelete(
-                filePath,
-                content,
-                `Delete arc "${entity.title}"`
-            );
-            await this.app.vault.delete(file);
+    // ─── CRUD: Arc Types ─────────────────────────────────────────
+
+    async createArcType(data: Partial<ArcType>): Promise<ArcType> {
+        const entity = createEmptyArcType(data.title || 'New Arc Type');
+        Object.assign(entity, data);
+        entity.type = 'arc-type';
+        if (!entity.phases || entity.phases.length === 0) {
+            entity.phases = createDefaultPhases();
         }
+        return this.createEntity(entity);
+    }
 
-        this.arcs.delete(filePath);
-        await this.saveSystemJson();
+    async updateArcType(filePath: string, updates: Partial<ArcType>): Promise<void> {
+        const entity = this.arcTypes.get(filePath);
+        if (!entity) return;
+        const phasesBefore = entity.phases.map(p => p.name);
+        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'arc type');
+        const updated = this.arcTypes.get(entity.filePath);
+        if (updated) {
+            await this.propagateTypePhaseChanges(updated, phasesBefore);
+        }
+    }
+
+    async deleteArcType(filePath: string): Promise<boolean> {
+        const dependents = this.getArcVariantsOfType(filePath);
+        if (dependents.length > 0) {
+            new Notice(`Cannot delete: ${dependents.length} arc variant(s) still reference this type.`);
+            return false;
+        }
+        await this.deleteEntityCommon(filePath, 'arc type');
+        return true;
+    }
+
+    // ─── CRUD: Arc Variants ──────────────────────────────────────
+
+    async createArcVariant(data: Partial<ArcVariant>): Promise<ArcVariant> {
+        const entity = createEmptyArcVariant(data.title || 'New Arc Variant', data.arcTypeId || '');
+        Object.assign(entity, data);
+        entity.type = 'arc-variant';
+        this.syncArcVariantPhases(entity);
+        return this.createEntity(entity);
+    }
+
+    async updateArcVariant(filePath: string, updates: Partial<ArcVariant>): Promise<void> {
+        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'arc variant');
+    }
+
+    async deleteArcVariant(filePath: string): Promise<void> {
+        await this.deleteEntityCommon(filePath, 'arc variant');
     }
 
     // ─── CRUD: Quests ────────────────────────────────────────────
@@ -775,140 +850,199 @@ export class DynamicNarrativeManager {
         const entity = createEmptyQuest(data.title || 'New Quest');
         Object.assign(entity, data);
         entity.type = 'quest';
-        entity.created = new Date().toISOString();
-        entity.modified = new Date().toISOString();
-
-        const safeName = entity.title.replace(/[\\/:*?"<>|]/g, '-');
-        const folder = normalizePath(`${this.projectFolder}/${DN_FOLDER_NAME}/Quests`);
-        entity.filePath = this.getUniquePath(folder, `${safeName}.md`);
-
-        await this.writeEntityFile(entity);
-        this.quests.set(entity.filePath, entity);
-        await this.saveSystemJson();
-        return entity;
+        return this.createEntity(entity);
     }
 
     async updateQuest(filePath: string, updates: Partial<Quest>): Promise<void> {
-        const entity = this.quests.get(filePath);
-        if (!entity) return;
-
-        const oldSnap = deepClone(entity);
-
-        let currentPath = filePath;
-        if (updates.title !== undefined && updates.title !== entity.title) {
-            currentPath = await this.doRenameFile(filePath, updates.title, `${DN_FOLDER_NAME}/Quests`);
-            entity.filePath = currentPath;
-            this.quests.delete(filePath);
-            this.quests.set(currentPath, entity);
-            await this.cascadeRename(filePath, currentPath);
-        }
-
-        Object.assign(entity, updates);
-        entity.modified = new Date().toISOString();
-
-        this.plugin.sceneManager.undoManager.recordUpdate(
-            currentPath,
-            oldSnap as unknown as Record<string, unknown>,
-            updates,
-            `Update quest "${entity.title}"`
-        );
-
-        await this.writeEntityFile(entity);
-        this.quests.set(currentPath, entity);
-        await this.saveSystemJson();
+        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'quest');
     }
 
     async deleteQuest(filePath: string): Promise<void> {
-        const entity = this.quests.get(filePath);
-        if (!entity) return;
+        await this.deleteEntityCommon(filePath, 'quest');
+    }
 
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        if (file && file instanceof TFile) {
-            const content = await this.app.vault.read(file);
-            this.plugin.sceneManager.undoManager.recordDelete(
-                filePath,
-                content,
-                `Delete quest "${entity.title}"`
-            );
-            await this.app.vault.delete(file);
+    // ─── Type → Variant phase synchronization ────────────────────
+
+    getObjectiveVariantsOfType(typePath: string): ObjectiveVariant[] {
+        return this.getAllObjectiveVariants().filter(v => v.objectiveTypeId === typePath);
+    }
+
+    getArcVariantsOfType(typePath: string): ArcVariant[] {
+        return this.getAllArcVariants().filter(v => v.arcTypeId === typePath);
+    }
+
+    private syncObjectiveVariantPhases(variant: ObjectiveVariant): void {
+        const type = this.objectiveTypes.get(variant.objectiveTypeId);
+        if (!type) return;
+        const orderedTypePhases = getOrderedPhases(type.phases, true);
+        const result: ObjectiveVariantPhase[] = [];
+        for (const tp of orderedTypePhases) {
+            const existing = variant.phases.find(p => p.name === tp.name);
+            if (existing) {
+                result.push({ ...existing, isDefault: tp.isDefault });
+            } else {
+                result.push({
+                    name: tp.name,
+                    description: '',
+                    startConditions: '',
+                    startCommands: '',
+                    endConditions: '',
+                    endCommands: '',
+                    isDefault: tp.isDefault,
+                    overrides: [],
+                    linkedArcs: [],
+                });
+            }
         }
+        variant.phases = result;
+    }
 
-        this.quests.delete(filePath);
+    private syncArcVariantPhases(variant: ArcVariant): void {
+        const type = this.arcTypes.get(variant.arcTypeId);
+        if (!type) return;
+        const orderedTypePhases = getOrderedPhases(type.phases, true);
+        const result: ArcVariantPhase[] = [];
+        for (const tp of orderedTypePhases) {
+            const existing = variant.phases.find(p => p.name === tp.name);
+            if (existing) {
+                result.push({ ...existing, isDefault: tp.isDefault });
+            } else {
+                result.push({
+                    name: tp.name,
+                    description: '',
+                    startConditions: '',
+                    startCommands: '',
+                    endConditions: '',
+                    endCommands: '',
+                    isDefault: tp.isDefault,
+                    overrides: [],
+                    linkedGoals: [],
+                    linkedLimits: [],
+                    linkedEvents: [],
+                    linkedModifiers: [],
+                });
+            }
+        }
+        variant.phases = result;
+    }
+
+    private syncAllVariants(): void {
+        for (const variant of this.objectiveVariants.values()) {
+            this.syncObjectiveVariantPhases(variant);
+        }
+        for (const variant of this.arcVariants.values()) {
+            this.syncArcVariantPhases(variant);
+        }
+    }
+
+    private async propagateTypePhaseChanges(type: ObjectiveType | ArcType, phasesBefore: string[]): Promise<void> {
+        const phasesAfter = type.phases.map(p => p.name);
+        const removed = phasesBefore.filter(n => !phasesAfter.includes(n));
+        const added = phasesAfter.filter(n => !phasesBefore.includes(n));
+        if (removed.length === 0 && added.length === 0) return;
+
+        if (type.type === 'objective-type') {
+            for (const variant of this.getObjectiveVariantsOfType(type.filePath)) {
+                this.syncObjectiveVariantPhases(variant);
+                await this.writeEntityFile(variant);
+            }
+        } else if (type.type === 'arc-type') {
+            for (const variant of this.getArcVariantsOfType(type.filePath)) {
+                this.syncArcVariantPhases(variant);
+                await this.writeEntityFile(variant);
+            }
+        }
         await this.saveSystemJson();
     }
 
-    // ─── Auto-linking ────────────────────────────────────────────
+    // ─── Auto-linking (create + link) ────────────────────────────
 
-    async createAndLinkObjective(scenarioPath: string, phaseName: string, data: Partial<Objective>): Promise<Objective> {
-        const objective = await this.createObjective(data);
+    async createAndLinkObjectiveVariant(scenarioPath: string, phaseName: string, typeId: string, data: Partial<ObjectiveVariant>): Promise<ObjectiveVariant> {
+        const variant = await this.createObjectiveVariant({ ...data, objectiveTypeId: typeId });
+        await this.linkExistingObjectiveVariant(scenarioPath, phaseName, variant.filePath);
+        return variant;
+    }
+
+    async createAndLinkArcVariant(objectiveVariantPath: string, phaseName: string, typeId: string, data: Partial<ArcVariant>): Promise<ArcVariant> {
+        const variant = await this.createArcVariant({ ...data, arcTypeId: typeId });
+        await this.linkExistingArcVariant(objectiveVariantPath, phaseName, variant.filePath);
+        return variant;
+    }
+
+    async createAndLinkQuest(arcVariantPath: string, phaseName: string, category: string, data: Partial<Quest>): Promise<Quest> {
+        const quest = await this.createQuest({ ...data, category });
+        await this.linkExistingQuest(arcVariantPath, phaseName, quest.filePath);
+        return quest;
+    }
+
+    // ─── Linking existing entities ───────────────────────────────
+
+    async linkExistingObjectiveVariant(scenarioPath: string, phaseName: string, variantPath: string): Promise<boolean> {
         const scenario = this.scenarios.get(scenarioPath);
-        if (!scenario) return objective;
+        const variant = this.objectiveVariants.get(variantPath);
+        if (!scenario || !variant) return false;
 
         const phase = scenario.phases.find(p => p.name === phaseName);
-        if (!phase) return objective;
+        if (!phase) return false;
 
-        phase.linkedObjectives.push({
-            id: `[[${objective.filePath}]]`,
-            isPrimary: true,
-            mandatory: false,
-        });
+        const wikilink = `[[${variantPath}]]`;
+        if (phase.linkedObjectives.some(c => c.id === wikilink)) return false;
 
+        phase.linkedObjectives.push({ id: wikilink, isPrimary: true, mandatory: false });
         await this.writeEntityFile(scenario);
         await this.saveSystemJson();
-        return objective;
+        return true;
     }
 
-    async createAndLinkArc(objectivePath: string, phaseName: string, data: Partial<Arc>): Promise<Arc> {
-        const arc = await this.createArc(data);
-        const objective = this.objectives.get(objectivePath);
-        if (!objective) return arc;
+    async linkExistingArcVariant(objectiveVariantPath: string, phaseName: string, variantPath: string): Promise<boolean> {
+        const objective = this.objectiveVariants.get(objectiveVariantPath);
+        const variant = this.arcVariants.get(variantPath);
+        if (!objective || !variant) return false;
 
         const phase = objective.phases.find(p => p.name === phaseName);
-        if (!phase) return arc;
+        if (!phase) return false;
 
-        phase.linkedArcs.push({
-            id: `[[${arc.filePath}]]`,
-            isPrimary: true,
-            mandatory: false,
-        });
+        const wikilink = `[[${variantPath}]]`;
+        if (phase.linkedArcs.some(c => c.id === wikilink)) return false;
 
+        phase.linkedArcs.push({ id: wikilink, isPrimary: true, mandatory: false });
         await this.writeEntityFile(objective);
         await this.saveSystemJson();
-        return arc;
+        return true;
     }
 
-    async createAndLinkQuest(arcPath: string, phaseName: string, category: string, data: Partial<Quest>): Promise<Quest> {
-        const quest = await this.createQuest({ ...data, category });
-        const arc = this.arcs.get(arcPath);
-        if (!arc) return quest;
+    async linkExistingQuest(arcVariantPath: string, phaseName: string, questPath: string): Promise<boolean> {
+        const arc = this.arcVariants.get(arcVariantPath);
+        const quest = this.quests.get(questPath);
+        if (!arc || !quest) return false;
 
         const phase = arc.phases.find(p => p.name === phaseName);
-        if (!phase) return quest;
+        if (!phase) return false;
 
-        const wikilink = `[[${quest.filePath}]]`;
-        switch (category) {
-            case 'Goal':
-                phase.linkedGoals.push(wikilink);
-                break;
-            case 'Limit':
-                phase.linkedLimits.push(wikilink);
-                break;
-            case 'Event':
-                phase.linkedEvents.push(wikilink);
-                break;
-            case 'Modifier':
-                phase.linkedModifiers.push(wikilink);
-                break;
-        }
+        const wikilink = `[[${questPath}]]`;
+        const listKey = this.getQuestListKey(quest.category);
+        const list = phase[listKey] as string[];
+        if (list.includes(wikilink)) return false;
+        list.push(wikilink);
 
         await this.writeEntityFile(arc);
         await this.saveSystemJson();
-        return quest;
+        return true;
+    }
+
+    private getQuestListKey(category: string): 'linkedGoals' | 'linkedLimits' | 'linkedEvents' | 'linkedModifiers' {
+        switch (category) {
+            case 'Goal': return 'linkedGoals';
+            case 'Limit': return 'linkedLimits';
+            case 'Event': return 'linkedEvents';
+            case 'Modifier': return 'linkedModifiers';
+            default: return 'linkedGoals';
+        }
     }
 
     // ─── Hierarchy Queries ───────────────────────────────────────
 
-    getLinkedObjectives(scenarioPath: string, phaseName?: string): DNLinkedChild[] {
+    getLinkedObjectiveVariants(scenarioPath: string, phaseName?: string): DNLinkedChild[] {
         const scenario = this.scenarios.get(scenarioPath);
         if (!scenario) return [];
         if (phaseName) {
@@ -918,8 +1052,8 @@ export class DynamicNarrativeManager {
         return scenario.phases.flatMap(p => p.linkedObjectives);
     }
 
-    getLinkedArcs(objectivePath: string, phaseName?: string): DNLinkedChild[] {
-        const objective = this.objectives.get(objectivePath);
+    getLinkedArcVariants(objectiveVariantPath: string, phaseName?: string): DNLinkedChild[] {
+        const objective = this.objectiveVariants.get(objectiveVariantPath);
         if (!objective) return [];
         if (phaseName) {
             const phase = objective.phases.find(p => p.name === phaseName);
@@ -928,8 +1062,8 @@ export class DynamicNarrativeManager {
         return objective.phases.flatMap(p => p.linkedArcs);
     }
 
-    getLinkedQuests(arcPath: string, phaseName?: string): string[] {
-        const arc = this.arcs.get(arcPath);
+    getLinkedQuests(arcVariantPath: string, phaseName?: string): string[] {
+        const arc = this.arcVariants.get(arcVariantPath);
         if (!arc) return [];
         const phases = phaseName
             ? arc.phases.filter(p => p.name === phaseName)
@@ -949,7 +1083,7 @@ export class DynamicNarrativeManager {
         const connectedObjectivePaths = new Set<string>();
         const connectedScenarioPaths = new Set<string>();
 
-        for (const arc of this.arcs.values()) {
+        for (const arc of this.arcVariants.values()) {
             for (const phase of arc.phases) {
                 if (
                     phase.linkedGoals.includes(wikilink) ||
@@ -963,11 +1097,11 @@ export class DynamicNarrativeManager {
             }
         }
 
-        for (const obj of this.objectives.values()) {
+        for (const obj of this.objectiveVariants.values()) {
             for (const phase of obj.phases) {
                 for (const arcRef of phase.linkedArcs) {
                     const arcPath = resolveWikilinkPath(arcRef.id);
-                    const arc = this.arcs.get(arcPath);
+                    const arc = this.arcVariants.get(arcPath);
                     if (!arc) continue;
                     for (const arcPhase of arc.phases) {
                         if (
@@ -1008,8 +1142,6 @@ export class DynamicNarrativeManager {
         };
     }
 
-    // resolveWikilinkPath is imported from models/types.ts
-
     // ─── Phase Management ────────────────────────────────────────
 
     addCustomPhase(entity: DNEntity, phase: DNPhase): void {
@@ -1018,20 +1150,22 @@ export class DynamicNarrativeManager {
             case 'scenario':
                 (entity as Scenario).phases.push({ ...newPhase, linkedObjectives: [] } as ScenarioPhase);
                 break;
-            case 'objective':
-                (entity as Objective).phases.push({ ...newPhase, linkedArcs: [] } as ObjectivePhase);
+            case 'objective-variant':
+                (entity as ObjectiveVariant).phases.push({ ...newPhase, linkedArcs: [] } as ObjectiveVariantPhase);
                 break;
-            case 'arc':
-                (entity as Arc).phases.push({
+            case 'arc-variant':
+                (entity as ArcVariant).phases.push({
                     ...newPhase,
                     linkedGoals: [],
                     linkedLimits: [],
                     linkedEvents: [],
                     linkedModifiers: [],
-                } as ArcPhase);
+                } as ArcVariantPhase);
                 break;
+            case 'objective-type':
+            case 'arc-type':
             case 'quest':
-                (entity as Quest).phases.push(newPhase as QuestPhase);
+                (entity as ObjectiveType | ArcType | Quest).phases.push(deepClone(newPhase));
                 break;
         }
     }
@@ -1042,14 +1176,16 @@ export class DynamicNarrativeManager {
             case 'scenario':
                 (entity as Scenario).phases = (entity as Scenario).phases.filter(p => p.name !== phaseName);
                 break;
-            case 'objective':
-                (entity as Objective).phases = (entity as Objective).phases.filter(p => p.name !== phaseName);
+            case 'objective-variant':
+                (entity as ObjectiveVariant).phases = (entity as ObjectiveVariant).phases.filter(p => p.name !== phaseName);
                 break;
-            case 'arc':
-                (entity as Arc).phases = (entity as Arc).phases.filter(p => p.name !== phaseName);
+            case 'arc-variant':
+                (entity as ArcVariant).phases = (entity as ArcVariant).phases.filter(p => p.name !== phaseName);
                 break;
+            case 'objective-type':
+            case 'arc-type':
             case 'quest':
-                (entity as Quest).phases = (entity as Quest).phases.filter(p => p.name !== phaseName);
+                (entity as ObjectiveType | ArcType | Quest).phases = (entity as ObjectiveType | ArcType | Quest).phases.filter(p => p.name !== phaseName);
                 break;
         }
     }
@@ -1102,13 +1238,21 @@ export class DynamicNarrativeManager {
         return getOrderedPhases(phases, hasDefaults);
     }
 
-    private getPhases(entity: DNEntity): DNPhase[] {
-        switch (entity.type) {
-            case 'scenario': return (entity as Scenario).phases;
-            case 'objective': return (entity as Objective).phases;
-            case 'arc': return (entity as Arc).phases;
-            case 'quest': return (entity as Quest).phases;
+    getTypePhaseValue(entity: ObjectiveVariant | ArcVariant, phaseName: string, fieldName: string): string {
+        let type: ObjectiveType | ArcType | undefined;
+        if (entity.type === 'objective-variant') {
+            type = this.objectiveTypes.get(entity.objectiveTypeId);
+        } else {
+            type = this.arcTypes.get(entity.arcTypeId);
         }
+        if (!type) return '';
+        const tp = type.phases.find(p => p.name === phaseName);
+        if (!tp) return '';
+        return String((tp as unknown as Record<string, unknown>)[fieldName] ?? '');
+    }
+
+    private getPhases(entity: DNEntity): DNPhase[] {
+        return (entity as Scenario | ObjectiveType | ObjectiveVariant | ArcType | ArcVariant | Quest).phases;
     }
 
     private setPhases(entity: DNEntity, phases: DNPhase[]): void {
@@ -1116,14 +1260,16 @@ export class DynamicNarrativeManager {
             case 'scenario':
                 (entity as Scenario).phases = phases as ScenarioPhase[];
                 break;
-            case 'objective':
-                (entity as Objective).phases = phases as ObjectivePhase[];
+            case 'objective-variant':
+                (entity as ObjectiveVariant).phases = phases as ObjectiveVariantPhase[];
                 break;
-            case 'arc':
-                (entity as Arc).phases = phases as ArcPhase[];
+            case 'arc-variant':
+                (entity as ArcVariant).phases = phases as ArcVariantPhase[];
                 break;
+            case 'objective-type':
+            case 'arc-type':
             case 'quest':
-                (entity as Quest).phases = phases as QuestPhase[];
+                (entity as ObjectiveType | ArcType | Quest).phases = phases;
                 break;
         }
     }
@@ -1148,8 +1294,8 @@ export class DynamicNarrativeManager {
                 toP.linkedObjectives.push(child);
                 break;
             }
-            case 'objective': {
-                const objective = parent as Objective;
+            case 'objective-variant': {
+                const objective = parent as ObjectiveVariant;
                 const fromP = objective.phases.find(p => p.name === fromPhase);
                 const toP = objective.phases.find(p => p.name === toPhase);
                 if (!fromP || !toP) return;
@@ -1159,17 +1305,17 @@ export class DynamicNarrativeManager {
                 toP.linkedArcs.push(child);
                 break;
             }
-            case 'arc': {
-                const arc = parent as Arc;
+            case 'arc-variant': {
+                const arc = parent as ArcVariant;
                 const fromP = arc.phases.find(p => p.name === fromPhase);
                 const toP = arc.phases.find(p => p.name === toPhase);
                 if (!fromP || !toP) return;
-                for (const listKey of ['linkedGoals', 'linkedLimits', 'linkedEvents', 'linkedModifiers'] as const) {
-                    const list = (fromP as unknown as Record<string, string[]>)[listKey as string];
+                for (const listKey of QUEST_LINK_LISTS) {
+                    const list = fromP[listKey] as string[];
                     const idx = list.indexOf(wikilink);
                     if (idx >= 0) {
                         list.splice(idx, 1);
-                        ((toP as unknown as Record<string, string[]>)[listKey as string]).push(wikilink);
+                        (toP[listKey] as string[]).push(wikilink);
                         break;
                     }
                 }
@@ -1185,8 +1331,6 @@ export class DynamicNarrativeManager {
         const parent = this.getEntity(parentPath);
         if (!parent) return;
 
-        const childWikilink = `[[${childPath}]]`;
-
         switch (parent.type) {
             case 'scenario': {
                 const scenario = parent as Scenario;
@@ -1196,8 +1340,8 @@ export class DynamicNarrativeManager {
                 if (link) link.isPrimary = isPrimary;
                 break;
             }
-            case 'objective': {
-                const objective = parent as Objective;
+            case 'objective-variant': {
+                const objective = parent as ObjectiveVariant;
                 const phase = objective.phases.find(p => p.name === phaseName);
                 if (!phase) return;
                 const link = phase.linkedArcs.find(c => resolveWikilinkPath(c.id) === childPath);
@@ -1229,8 +1373,12 @@ export class DynamicNarrativeManager {
             if (changed) await this.writeEntityFile(scenario);
         }
 
-        for (const objective of this.objectives.values()) {
+        for (const objective of this.objectiveVariants.values()) {
             let changed = false;
+            if (objective.objectiveTypeId === oldPath) {
+                objective.objectiveTypeId = newPath;
+                changed = true;
+            }
             for (const phase of objective.phases) {
                 for (const child of phase.linkedArcs) {
                     if (child.id === oldWikilink) {
@@ -1242,11 +1390,15 @@ export class DynamicNarrativeManager {
             if (changed) await this.writeEntityFile(objective);
         }
 
-        for (const arc of this.arcs.values()) {
+        for (const arc of this.arcVariants.values()) {
             let changed = false;
+            if (arc.arcTypeId === oldPath) {
+                arc.arcTypeId = newPath;
+                changed = true;
+            }
             for (const phase of arc.phases) {
-                for (const listKey of ['linkedGoals', 'linkedLimits', 'linkedEvents', 'linkedModifiers'] as const) {
-                    const list = (phase as unknown as Record<string, string[]>)[listKey as string];
+                for (const listKey of QUEST_LINK_LISTS) {
+                    const list = phase[listKey] as string[];
                     const idx = list.indexOf(oldWikilink);
                     if (idx >= 0) {
                         list[idx] = newWikilink;
@@ -1268,11 +1420,13 @@ export class DynamicNarrativeManager {
                 return this.plugin.settings.dnScenarioCategories?.length
                     ? this.plugin.settings.dnScenarioCategories
                     : DEFAULT_SCENARIO_CATEGORIES;
-            case 'objective':
+            case 'objective-type':
+            case 'objective-variant':
                 return this.plugin.settings.dnObjectiveCategories?.length
                     ? this.plugin.settings.dnObjectiveCategories
                     : DEFAULT_OBJECTIVE_CATEGORIES;
-            case 'arc':
+            case 'arc-type':
+            case 'arc-variant':
                 return this.plugin.settings.dnArcCategories?.length
                     ? this.plugin.settings.dnArcCategories
                     : DEFAULT_ARC_CATEGORIES;
@@ -1281,12 +1435,6 @@ export class DynamicNarrativeManager {
                     ? this.plugin.settings.dnQuestCategories
                     : DEFAULT_QUEST_CATEGORIES;
         }
-    }
-
-    getVariants(): string[] {
-        return this.plugin.settings.dnObjectiveVariants?.length
-            ? this.plugin.settings.dnObjectiveVariants
-            : DEFAULT_OBJECTIVE_VARIANTS;
     }
 
     addCategory(entityType: DNEntityType, name: string): void {
@@ -1306,8 +1454,10 @@ export class DynamicNarrativeManager {
     private getDefaultCategories(entityType: DNEntityType): string[] {
         switch (entityType) {
             case 'scenario': return DEFAULT_SCENARIO_CATEGORIES;
-            case 'objective': return DEFAULT_OBJECTIVE_CATEGORIES;
-            case 'arc': return DEFAULT_ARC_CATEGORIES;
+            case 'objective-type':
+            case 'objective-variant': return DEFAULT_OBJECTIVE_CATEGORIES;
+            case 'arc-type':
+            case 'arc-variant': return DEFAULT_ARC_CATEGORIES;
             case 'quest': return DEFAULT_QUEST_CATEGORIES;
         }
     }
@@ -1317,10 +1467,12 @@ export class DynamicNarrativeManager {
             case 'scenario':
                 this.plugin.settings.dnScenarioCategories = categories;
                 break;
-            case 'objective':
+            case 'objective-type':
+            case 'objective-variant':
                 this.plugin.settings.dnObjectiveCategories = categories;
                 break;
-            case 'arc':
+            case 'arc-type':
+            case 'arc-variant':
                 this.plugin.settings.dnArcCategories = categories;
                 break;
             case 'quest':
@@ -1336,12 +1488,20 @@ export class DynamicNarrativeManager {
         return Array.from(this.scenarios.values());
     }
 
-    getAllObjectives(): Objective[] {
-        return Array.from(this.objectives.values());
+    getAllObjectiveTypes(): ObjectiveType[] {
+        return Array.from(this.objectiveTypes.values());
     }
 
-    getAllArcs(): Arc[] {
-        return Array.from(this.arcs.values());
+    getAllObjectiveVariants(): ObjectiveVariant[] {
+        return Array.from(this.objectiveVariants.values());
+    }
+
+    getAllArcTypes(): ArcType[] {
+        return Array.from(this.arcTypes.values());
+    }
+
+    getAllArcVariants(): ArcVariant[] {
+        return Array.from(this.arcVariants.values());
     }
 
     getAllQuests(): Quest[] {
@@ -1352,17 +1512,29 @@ export class DynamicNarrativeManager {
         return this.getAllQuests().filter(q => q.category === category);
     }
 
+    getObjectiveType(path: string): ObjectiveType | undefined {
+        return this.objectiveTypes.get(path);
+    }
+
+    getArcType(path: string): ArcType | undefined {
+        return this.arcTypes.get(path);
+    }
+
     getEntity(filePath: string): DNEntity | undefined {
         return this.scenarios.get(filePath)
-            || this.objectives.get(filePath)
-            || this.arcs.get(filePath)
+            || this.objectiveTypes.get(filePath)
+            || this.objectiveVariants.get(filePath)
+            || this.arcTypes.get(filePath)
+            || this.arcVariants.get(filePath)
             || this.quests.get(filePath);
     }
 
     getEntityType(filePath: string): DNEntityType | null {
         if (this.scenarios.has(filePath)) return 'scenario';
-        if (this.objectives.has(filePath)) return 'objective';
-        if (this.arcs.has(filePath)) return 'arc';
+        if (this.objectiveTypes.has(filePath)) return 'objective-type';
+        if (this.objectiveVariants.has(filePath)) return 'objective-variant';
+        if (this.arcTypes.has(filePath)) return 'arc-type';
+        if (this.arcVariants.has(filePath)) return 'arc-variant';
         if (this.quests.has(filePath)) return 'quest';
         return null;
     }
@@ -1373,8 +1545,10 @@ export class DynamicNarrativeManager {
     handleFileDeleted(filePath: string): void {
         let removed = false;
         if (this.scenarios.delete(filePath)) removed = true;
-        else if (this.objectives.delete(filePath)) removed = true;
-        else if (this.arcs.delete(filePath)) removed = true;
+        else if (this.objectiveTypes.delete(filePath)) removed = true;
+        else if (this.objectiveVariants.delete(filePath)) removed = true;
+        else if (this.arcTypes.delete(filePath)) removed = true;
+        else if (this.arcVariants.delete(filePath)) removed = true;
         else if (this.quests.delete(filePath)) removed = true;
         if (removed) {
             void this.saveSystemJson();
@@ -1391,8 +1565,10 @@ export class DynamicNarrativeManager {
 
     destroy(): void {
         this.scenarios.clear();
-        this.objectives.clear();
-        this.arcs.clear();
+        this.objectiveTypes.clear();
+        this.objectiveVariants.clear();
+        this.arcTypes.clear();
+        this.arcVariants.clear();
         this.quests.clear();
         this.initialized = false;
         this._saveQueue = Promise.resolve();

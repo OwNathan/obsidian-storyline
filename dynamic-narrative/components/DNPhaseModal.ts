@@ -120,6 +120,7 @@ export class DNPhaseModal extends Modal {
                 startCommands: this.startCmdValue.trim(),
                 endCommands: this.endCmdValue.trim(),
                 isDefault: this.phase ? this.phase.isDefault : false,
+                overrides: this.phase ? this.phase.overrides : [],
             };
             this.onSubmit(result);
             this.close();

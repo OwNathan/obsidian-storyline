@@ -9,9 +9,10 @@ import { DN_INSPECTOR_MIN_WIDTH, DN_INSPECTOR_MAX_WIDTH } from '../models/types'
 import { DNOverview } from '../components/DNOverview';
 import { DNKanban } from '../components/DNKanban';
 import { DNQuestGrid } from '../components/DNQuestGrid';
+import { DNTypeGrid } from '../components/DNTypeGrid';
 import { DNInspector } from '../components/DNInspector';
 
-type DNTab = 'overview' | 'scenarios' | 'objectives' | 'arcs' | 'quests';
+type DNTab = 'overview' | 'scenarios' | 'objective-types' | 'objective-variants' | 'arc-types' | 'arc-variants' | 'quests';
 
 let _dnInspectorWidth = 350;
 
@@ -30,6 +31,7 @@ export class DynamicNarrativeView extends ItemView {
     private overview: DNOverview | null = null;
     private kanban: DNKanban | null = null;
     private questGrid: DNQuestGrid | null = null;
+    private typeGrid: DNTypeGrid | null = null;
     private inspector: DNInspector | null = null;
 
     private _onMouseMove: ((e: MouseEvent) => void) | null = null;
@@ -60,7 +62,6 @@ export class DynamicNarrativeView extends ItemView {
         container.empty();
         container.addClass('dn-view');
 
-        // Toolbar
         const toolbar = container.createDiv('story-line-toolbar');
         const titleRow = toolbar.createDiv('story-line-title-row');
         titleRow.createEl('h3', { cls: 'story-line-view-title', text: 'StoryLine' });
@@ -86,6 +87,8 @@ export class DynamicNarrativeView extends ItemView {
                 this.overview?.render();
             } else if (this.activeTab === 'quests') {
                 this.questGrid?.render();
+            } else if (this.activeTab === 'objective-types' || this.activeTab === 'arc-types') {
+                this.typeGrid?.render();
             } else {
                 this.kanban?.render(this.selectedEntityPath);
             }
@@ -98,20 +101,21 @@ export class DynamicNarrativeView extends ItemView {
         this.overview?.destroy();
         this.kanban?.destroy();
         this.questGrid?.destroy();
+        this.typeGrid?.destroy();
         this.inspector?.destroy();
         this.removeResizeListeners();
     }
 
     async refresh(): Promise<void> {
         this.switchTab(this.activeTab);
-        if (this.activeTab === 'quests') {
-            this.inspectorEntityPath = '';
+        if (this.activeTab === 'quests' || this.activeTab === 'objective-types' || this.activeTab === 'arc-types') {
             return;
         }
         if (this.inspectorEntityPath) {
             const entity = this.manager.getEntity(this.inspectorEntityPath);
             if (entity) {
                 this.inspector?.render(entity);
+                this.inspectorEl?.removeClass('dn-inspector-hidden');
             } else {
                 this.inspector?.clear();
                 this.inspectorEntityPath = '';
@@ -126,8 +130,10 @@ export class DynamicNarrativeView extends ItemView {
         const tabs: { id: DNTab; label: string; icon: string }[] = [
             { id: 'overview', label: 'Overview', icon: 'list' },
             { id: 'scenarios', label: 'Scenarios', icon: 'map' },
-            { id: 'objectives', label: 'Objectives', icon: 'target' },
-            { id: 'arcs', label: 'Arcs', icon: 'git-branch' },
+            { id: 'objective-types', label: 'Obj Types', icon: 'box' },
+            { id: 'objective-variants', label: 'Obj Vars', icon: 'target' },
+            { id: 'arc-types', label: 'Arc Types', icon: 'layers' },
+            { id: 'arc-variants', label: 'Arc Vars', icon: 'git-branch' },
             { id: 'quests', label: 'Quests', icon: 'sword' },
         ];
 
@@ -157,9 +163,17 @@ export class DynamicNarrativeView extends ItemView {
         this.overview?.destroy();
         this.kanban?.destroy();
         this.questGrid?.destroy();
+        this.typeGrid?.destroy();
         this.overview = null;
         this.kanban = null;
         this.questGrid = null;
+        this.typeGrid = null;
+
+        const isTypeTab = tab === 'objective-types' || tab === 'arc-types';
+
+        if (isTypeTab) {
+            this.inspectorEl?.addClass('dn-inspector-hidden');
+        }
 
         switch (tab) {
             case 'overview':
@@ -182,22 +196,40 @@ export class DynamicNarrativeView extends ItemView {
                 );
                 this.kanban.render(this.selectedEntityPath);
                 break;
-            case 'objectives':
+            case 'objective-types':
+                this.typeGrid = new DNTypeGrid(
+                    this._contentEl,
+                    this.manager,
+                    this.plugin,
+                    'objective-type',
+                );
+                this.typeGrid.render();
+                break;
+            case 'objective-variants':
                 this.kanban = new DNKanban(
                     this._contentEl,
                     this.manager,
                     this.plugin,
-                    'objective',
+                    'objective-variant',
                     (path) => this.openInInspector(path),
                 );
                 this.kanban.render(this.selectedEntityPath);
                 break;
-            case 'arcs':
+            case 'arc-types':
+                this.typeGrid = new DNTypeGrid(
+                    this._contentEl,
+                    this.manager,
+                    this.plugin,
+                    'arc-type',
+                );
+                this.typeGrid.render();
+                break;
+            case 'arc-variants':
                 this.kanban = new DNKanban(
                     this._contentEl,
                     this.manager,
                     this.plugin,
-                    'arc',
+                    'arc-variant',
                     (path) => this.openInInspector(path),
                 );
                 this.kanban.render(this.selectedEntityPath);
@@ -218,7 +250,7 @@ export class DynamicNarrativeView extends ItemView {
     openInInspector(path: string): void {
         this.inspectorEntityPath = path;
         const entity = this.manager.getEntity(path);
-        if (!entity || entity.type === 'quest') return;
+        if (!entity) return;
         if (this.inspector) {
             this.inspector.render(entity);
             this.inspectorEl?.removeClass('dn-inspector-hidden');
@@ -231,11 +263,17 @@ export class DynamicNarrativeView extends ItemView {
             case 'scenario':
                 this.switchTab('scenarios');
                 break;
-            case 'objective':
-                this.switchTab('objectives');
+            case 'objective-type':
+                this.switchTab('objective-types');
                 break;
-            case 'arc':
-                this.switchTab('arcs');
+            case 'objective-variant':
+                this.switchTab('objective-variants');
+                break;
+            case 'arc-type':
+                this.switchTab('arc-types');
+                break;
+            case 'arc-variant':
+                this.switchTab('arc-variants');
                 break;
             case 'quest':
                 this.switchTab('quests');

@@ -1,19 +1,33 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { setIcon, Menu } from 'obsidian';
+import { setIcon, Menu, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
-import type { DNEntityType, DNPhase, DNLinkedChild } from '../models/types';
+import type { DNPhase, DNLinkedChild, DNEntityType } from '../models/types';
 import { getOrderedPhases, deriveShortDesc, resolveWikilinkPath, debounce } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
-import type { Objective, ObjectivePhase } from '../models/Objective';
-import type { Arc, ArcPhase } from '../models/Arc';
-import { DNCreateModal } from './DNCreateModal';
+import type { ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
+import type { ArcVariant, ArcVariantPhase } from '../models/Arc';
+import type { Quest } from '../models/Quest';
+import { DNCreateModal, TypeChoice } from './DNCreateModal';
+import { DNEntitySelectModal } from './DNEntitySelectModal';
+
+type KanbanEntityType = 'scenario' | 'objective-variant' | 'arc-variant';
+
+interface CardData {
+    path: string;
+    title: string;
+    category: string;
+    typeRef?: string;
+    questType?: string;
+    isPrimary: boolean;
+    mandatory: boolean;
+}
 
 export class DNKanban {
     private containerEl: HTMLElement;
     private manager: DynamicNarrativeManager;
     private plugin: SceneCardsPlugin;
-    private entityType: 'scenario' | 'objective' | 'arc';
+    private entityType: KanbanEntityType;
     private onOpenInspector: (path: string) => void;
 
     private selectedPath: string = '';
@@ -23,7 +37,7 @@ export class DNKanban {
         containerEl: HTMLElement,
         manager: DynamicNarrativeManager,
         plugin: SceneCardsPlugin,
-        entityType: 'scenario' | 'objective' | 'arc',
+        entityType: KanbanEntityType,
         onOpenInspector: (path: string) => void,
     ) {
         this.containerEl = containerEl;
@@ -55,7 +69,7 @@ export class DNKanban {
         if (this.selectedPath) {
             this.renderBoard(board);
         } else {
-            board.createDiv('dn-empty-state').setText(`No ${this.entityType}s found. Create one from the Overview tab.`);
+            board.createDiv('dn-empty-state').setText(`No ${this.getEntityLabel()}s found. Create one from the Overview tab.`);
         }
     }
 
@@ -64,21 +78,38 @@ export class DNKanban {
         this.containerEl.removeClass('dn-kanban');
     }
 
-    private getEntities(): Array<Scenario | Objective | Arc> {
+    private getEntityLabel(): string {
         switch (this.entityType) {
-            case 'scenario': return this.manager.getAllScenarios();
-            case 'objective': return this.manager.getAllObjectives();
-            case 'arc': return this.manager.getAllArcs();
+            case 'scenario': return 'Scenario';
+            case 'objective-variant': return 'Objective Variant';
+            case 'arc-variant': return 'Arc Variant';
         }
     }
+
+    private getEntities(): Array<Scenario | ObjectiveVariant | ArcVariant> {
+        switch (this.entityType) {
+            case 'scenario': return this.manager.getAllScenarios();
+            case 'objective-variant': return this.manager.getAllObjectiveVariants();
+            case 'arc-variant': return this.manager.getAllArcVariants();
+        }
+    }
+
+    // ─── Sidebar ─────────────────────────────────────────────────
 
     private renderSidebar(sidebar: HTMLElement): void {
         sidebar.empty();
         sidebar.addClass('dn-kanban-sidebar');
 
+        const sidebarActions = sidebar.createDiv('dn-sidebar-actions');
+        const createBtn = sidebarActions.createEl('button', {
+            cls: 'dn-sidebar-create-btn',
+            text: `+ New ${this.getEntityLabel()}`,
+        });
+        createBtn.addEventListener('click', () => this.openSidebarCreateModal());
+
         const searchInput = sidebar.createEl('input', {
             type: 'text',
-            placeholder: `Filter ${this.entityType}s...`,
+            placeholder: `Filter ${this.getEntityLabel().toLowerCase()}s...`,
             cls: 'dn-sidebar-search',
         });
         searchInput.value = this.sidebarSearchText;
@@ -104,18 +135,21 @@ export class DNKanban {
 
             item.addEventListener('click', () => {
                 this.selectedPath = entity.filePath;
+                this.onOpenInspector(entity.filePath);
                 this.render();
             });
         }
     }
+
+    // ─── Board ───────────────────────────────────────────────────
 
     private renderBoard(board: HTMLElement): void {
         board.empty();
         board.addClass('dn-kanban-board');
 
         const rawEntity = this.manager.getEntity(this.selectedPath);
-        if (!rawEntity || rawEntity.type === 'quest') return;
-        const entity = rawEntity as Scenario | Objective | Arc;
+        if (!rawEntity || rawEntity.type === 'quest' || rawEntity.type === 'objective-type' || rawEntity.type === 'arc-type') return;
+        const entity = rawEntity as Scenario | ObjectiveVariant | ArcVariant;
 
         const showFull = this.plugin.settings.dnKanbanShowFullHeader;
         const headerEl = board.createDiv('dn-kanban-header');
@@ -124,6 +158,19 @@ export class DNKanban {
             headerEl.createDiv('dn-kanban-header-desc').setText(deriveShortDesc(entity.description));
             const catBadge = headerEl.createSpan('dn-kanban-header-cat');
             catBadge.setText(entity.category || '');
+            if (entity.type === 'objective-variant') {
+                const type = this.manager.getObjectiveType(entity.objectiveTypeId);
+                if (type) {
+                    const typeBadge = headerEl.createSpan('dn-kanban-header-type');
+                    typeBadge.setText(`Type: ${type.title}`);
+                }
+            } else if (entity.type === 'arc-variant') {
+                const type = this.manager.getArcType(entity.arcTypeId);
+                if (type) {
+                    const typeBadge = headerEl.createSpan('dn-kanban-header-type');
+                    typeBadge.setText(`Type: ${type.title}`);
+                }
+            }
         }
 
         const columnsContainer = board.createDiv('dn-kanban-columns');
@@ -134,54 +181,92 @@ export class DNKanban {
         }
     }
 
-    private getOrderedPhasesForEntity(entity: Scenario | Objective | Arc): DNPhase[] {
+    private getOrderedPhasesForEntity(entity: Scenario | ObjectiveVariant | ArcVariant): DNPhase[] {
         return this.manager.getOrderedPhasesForEntity(entity);
     }
 
-    private hasPhaseMetadata(phase: DNPhase): boolean {
-        return !!(phase.description || phase.startConditions || phase.startCommands || phase.endConditions || phase.endCommands);
+    private getEffectivePhase(entity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): DNPhase {
+        if (entity.type === 'objective-variant') {
+            const type = this.manager.getObjectiveType(entity.objectiveTypeId);
+            const tp = type?.phases.find(p => p.name === phase.name);
+            if (!tp) return phase;
+            const ov = phase.overrides;
+            return {
+                ...phase,
+                description: ov.includes('description') ? phase.description : tp.description,
+                startConditions: ov.includes('startConditions') ? phase.startConditions : tp.startConditions,
+                startCommands: ov.includes('startCommands') ? phase.startCommands : tp.startCommands,
+                endConditions: ov.includes('endConditions') ? phase.endConditions : tp.endConditions,
+                endCommands: ov.includes('endCommands') ? phase.endCommands : tp.endCommands,
+            };
+        }
+        if (entity.type === 'arc-variant') {
+            const type = this.manager.getArcType(entity.arcTypeId);
+            const tp = type?.phases.find(p => p.name === phase.name);
+            if (!tp) return phase;
+            const ov = phase.overrides;
+            return {
+                ...phase,
+                description: ov.includes('description') ? phase.description : tp.description,
+                startConditions: ov.includes('startConditions') ? phase.startConditions : tp.startConditions,
+                startCommands: ov.includes('startCommands') ? phase.startCommands : tp.startCommands,
+                endConditions: ov.includes('endConditions') ? phase.endConditions : tp.endConditions,
+                endCommands: ov.includes('endCommands') ? phase.endCommands : tp.endCommands,
+            };
+        }
+        return phase;
     }
 
-    private renderCapsules(container: HTMLElement, phase: DNPhase): void {
-        const hasRow1 = !!(phase.startConditions || phase.startCommands);
-        const hasRow2 = !!(phase.endConditions || phase.endCommands);
+    private renderCapsules(container: HTMLElement, phase: DNPhase, entity: Scenario | ObjectiveVariant | ArcVariant): void {
+        const effective = this.getEffectivePhase(entity, phase);
+        const hasRow1 = !!(effective.startConditions || effective.startCommands);
+        const hasRow2 = !!(effective.endConditions || effective.endCommands);
 
         if (!hasRow1 && !hasRow2) return;
+
+        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
+        const ov = phase.overrides;
 
         const capsulesEl = container.createDiv('dn-phase-capsules');
 
         if (hasRow1) {
             const row1 = capsulesEl.createDiv('dn-capsule-row');
-            if (phase.startConditions) {
+            if (effective.startConditions) {
                 const cap = row1.createDiv('dn-phase-capsule');
+                if (isVariant && ov.includes('startConditions')) cap.addClass('dn-capsule-overridden');
                 cap.createSpan('dn-capsule-label').setText('Start:');
-                cap.createSpan('dn-capsule-value').setText(phase.startConditions);
+                cap.createSpan('dn-capsule-value').setText(effective.startConditions);
             }
-            if (phase.startCommands) {
+            if (effective.startCommands) {
                 const cap = row1.createDiv('dn-phase-capsule');
+                if (isVariant && ov.includes('startCommands')) cap.addClass('dn-capsule-overridden');
                 cap.createSpan('dn-capsule-label').setText('Do:');
-                cap.createSpan('dn-capsule-value').setText(phase.startCommands);
+                cap.createSpan('dn-capsule-value').setText(effective.startCommands);
             }
         }
 
         if (hasRow2) {
             const row2 = capsulesEl.createDiv('dn-capsule-row');
-            if (phase.endConditions) {
+            if (effective.endConditions) {
                 const cap = row2.createDiv('dn-phase-capsule');
+                if (isVariant && ov.includes('endConditions')) cap.addClass('dn-capsule-overridden');
                 cap.createSpan('dn-capsule-label').setText('End:');
-                cap.createSpan('dn-capsule-value').setText(phase.endConditions);
+                cap.createSpan('dn-capsule-value').setText(effective.endConditions);
             }
-            if (phase.endCommands) {
+            if (effective.endCommands) {
                 const cap = row2.createDiv('dn-phase-capsule');
+                if (isVariant && ov.includes('endCommands')) cap.addClass('dn-capsule-overridden');
                 cap.createSpan('dn-capsule-label').setText('Do:');
-                cap.createSpan('dn-capsule-value').setText(phase.endCommands);
+                cap.createSpan('dn-capsule-value').setText(effective.endCommands);
             }
         }
     }
 
-    private renderColumn(container: HTMLElement, parentEntity: Scenario | Objective | Arc, phase: DNPhase): void {
+    private renderColumn(container: HTMLElement, parentEntity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): void {
         const column = container.createDiv('dn-kanban-column');
         if (!phase.isDefault) column.addClass('dn-column-custom');
+
+        const effectivePhase = this.getEffectivePhase(parentEntity, phase);
 
         const columnHeader = column.createDiv('dn-column-header');
         columnHeader.createSpan('dn-column-title').setText(phase.name);
@@ -193,19 +278,30 @@ export class DNKanban {
 
         const addBtn = columnHeader.createEl('button', { cls: 'dn-column-add-btn' });
         setIcon(addBtn, 'plus');
-        addBtn.setAttribute('aria-label', `Add ${this.getChildEntityType()} to ${phase.name}`);
+        addBtn.setAttribute('aria-label', `Create ${this.getChildEntityType()} in ${phase.name}`);
         addBtn.addEventListener('click', () => {
             this.openCreateModal(parentEntity.filePath, phase.name);
         });
 
-        if (phase.description) {
+        const linkBtn = columnHeader.createEl('button', { cls: 'dn-column-link-btn' });
+        setIcon(linkBtn, 'link');
+        linkBtn.setAttribute('aria-label', `Add existing ${this.getChildEntityType()} to ${phase.name}`);
+        linkBtn.addEventListener('click', () => {
+            this.openEntitySelectModal(parentEntity.filePath, phase.name);
+        });
+
+        if (effectivePhase.description) {
             const descEl = column.createDiv('dn-phase-desc');
-            descEl.setText(phase.description);
+            descEl.setText(effectivePhase.description);
+            const isVariant = parentEntity.type === 'objective-variant' || parentEntity.type === 'arc-variant';
+            if (isVariant && phase.overrides.includes('description')) {
+                descEl.addClass('dn-phase-desc-overridden');
+            }
         }
 
-        this.renderCapsules(column, phase);
+        this.renderCapsules(column, phase, parentEntity);
 
-        const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective';
+        const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective-variant';
 
         if (splitsPriority) {
             const primaryCards = childCards.filter(c => c.isPrimary);
@@ -240,6 +336,8 @@ export class DNKanban {
             }
 
             this.setupDropZone(secondaryBody, parentEntity, phase, false);
+
+            this.setupColumnHeaderDropZone(column, parentEntity, phase);
         } else {
             const columnBody = column.createDiv('dn-column-row-body');
             columnBody.setAttribute('data-phase', phase.name);
@@ -253,21 +351,22 @@ export class DNKanban {
         }
     }
 
-    private getChildCardsForPhase(parentEntity: Scenario | Objective | Arc, phase: DNPhase): Array<{ path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean }> {
-        const results: Array<{ path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean }> = [];
+    private getChildCardsForPhase(parentEntity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): CardData[] {
+        const results: CardData[] = [];
 
         switch (this.entityType) {
             case 'scenario': {
                 const sp = phase as ScenarioPhase;
                 for (const link of sp.linkedObjectives || []) {
                     const resolvedPath = resolveWikilinkPath(link.id);
-                    const obj = this.manager.getAllObjectives().find(o => o.filePath === resolvedPath);
+                    const obj = this.manager.getAllObjectiveVariants().find(o => o.filePath === resolvedPath);
                     if (obj) {
+                        const type = this.manager.getObjectiveType(obj.objectiveTypeId);
                         results.push({
                             path: obj.filePath,
                             title: obj.title,
                             category: obj.category,
-                            variant: obj.variant,
+                            typeRef: type ? type.title : undefined,
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
                         });
@@ -275,16 +374,18 @@ export class DNKanban {
                 }
                 break;
             }
-            case 'objective': {
-                const op = phase as ObjectivePhase;
+            case 'objective-variant': {
+                const op = phase as ObjectiveVariantPhase;
                 for (const link of op.linkedArcs || []) {
                     const resolvedPath = resolveWikilinkPath(link.id);
-                    const arc = this.manager.getAllArcs().find(a => a.filePath === resolvedPath);
+                    const arc = this.manager.getAllArcVariants().find(a => a.filePath === resolvedPath);
                     if (arc) {
+                        const type = this.manager.getArcType(arc.arcTypeId);
                         results.push({
                             path: arc.filePath,
                             title: arc.title,
                             category: arc.category,
+                            typeRef: type ? type.title : undefined,
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
                         });
@@ -292,8 +393,8 @@ export class DNKanban {
                 }
                 break;
             }
-            case 'arc': {
-                const ap = phase as ArcPhase;
+            case 'arc-variant': {
+                const ap = phase as ArcVariantPhase;
                 const allQuests = this.manager.getAllQuests();
                 const allLinks = [
                     ...(ap.linkedGoals || []),
@@ -309,6 +410,7 @@ export class DNKanban {
                             path: quest.filePath,
                             title: quest.title,
                             category: quest.category,
+                            questType: quest.questType,
                             isPrimary: true,
                             mandatory: false,
                         });
@@ -323,16 +425,26 @@ export class DNKanban {
 
     private getChildEntityType(): string {
         switch (this.entityType) {
-            case 'scenario': return 'objective';
-            case 'objective': return 'arc';
-            case 'arc': return 'quest';
+            case 'scenario': return 'objective-variant';
+            case 'objective-variant': return 'arc-variant';
+            case 'arc-variant': return 'quest';
         }
+    }
+
+    private getTypeChoices(): TypeChoice[] {
+        if (this.entityType === 'scenario') {
+            return this.manager.getAllObjectiveTypes().map(t => ({ path: t.filePath, title: t.title }));
+        }
+        if (this.entityType === 'objective-variant') {
+            return this.manager.getAllArcTypes().map(t => ({ path: t.filePath, title: t.title }));
+        }
+        return [];
     }
 
     private renderCard(
         container: HTMLElement,
-        card: { path: string; title: string; category: string; variant?: string; isPrimary: boolean; mandatory: boolean },
-        parentEntity: Scenario | Objective | Arc,
+        card: CardData,
+        parentEntity: Scenario | ObjectiveVariant | ArcVariant,
         phase: DNPhase,
     ): void {
         const cardEl = container.createDiv('dn-card');
@@ -345,9 +457,13 @@ export class DNKanban {
         titleEl.setText(card.title);
 
         const metaEl = cardEl.createDiv('dn-card-meta');
-        if (card.variant) {
-            const variantEl = metaEl.createSpan('dn-card-variant');
-            variantEl.setText(card.variant);
+        if (card.typeRef) {
+            const typeRefEl = metaEl.createSpan('dn-card-variant');
+            typeRefEl.setText(`Type: ${card.typeRef}`);
+        }
+        if (card.questType) {
+            const qtEl = metaEl.createSpan('dn-card-quest-type');
+            qtEl.setText(card.questType);
         }
         if (card.category) {
             const catBadge = metaEl.createSpan('dn-card-category');
@@ -370,7 +486,7 @@ export class DNKanban {
                 item.onClick(() => this.onOpenInspector(card.path));
             });
 
-            const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective';
+            const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective-variant';
             if (splitsPriority) {
                 const label = card.isPrimary ? 'Set as Secondary' : 'Set as Primary';
                 menu.addItem(item => {
@@ -407,7 +523,7 @@ export class DNKanban {
         });
     }
 
-    private setupDropZone(columnBody: HTMLElement, parentEntity: Scenario | Objective | Arc, targetPhase: DNPhase, targetIsPrimary: boolean): void {
+    private setupDropZone(columnBody: HTMLElement, parentEntity: Scenario | ObjectiveVariant | ArcVariant, targetPhase: DNPhase, targetIsPrimary: boolean): void {
         columnBody.addEventListener('dragover', (e: DragEvent) => {
             e.preventDefault();
             columnBody.addClass('dn-drop-target');
@@ -437,8 +553,51 @@ export class DNKanban {
                 await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name);
             }
 
-            if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective')) {
+            if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective-variant')) {
                 await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, targetIsPrimary);
+            }
+
+            this.render();
+        });
+    }
+
+    private setupColumnHeaderDropZone(columnEl: HTMLElement, parentEntity: Scenario | ObjectiveVariant | ArcVariant, targetPhase: DNPhase): void {
+        columnEl.addEventListener('dragover', (e: DragEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.closest('.dn-column-row-body')) return;
+            e.preventDefault();
+            columnEl.addClass('dn-drop-target');
+        });
+
+        columnEl.addEventListener('dragleave', (e: DragEvent) => {
+            if ((e.relatedTarget as HTMLElement)?.closest('.dn-column-row-body')) return;
+            columnEl.removeClass('dn-drop-target');
+        });
+
+        columnEl.addEventListener('drop', async (e: DragEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.closest('.dn-column-row-body')) return;
+            e.preventDefault();
+            columnEl.removeClass('dn-drop-target');
+
+            const childPath = e.dataTransfer?.getData('text/dn-card-path');
+            const fromPhase = e.dataTransfer?.getData('text/dn-card-phase');
+            const fromParent = e.dataTransfer?.getData('text/dn-card-parent');
+            const fromPriority = e.dataTransfer?.getData('text/dn-card-priority') || 'primary';
+
+            if (!childPath || !fromPhase || fromParent !== parentEntity.filePath) return;
+
+            const phaseChanged = fromPhase !== targetPhase.name;
+            const priorityChanged = fromPriority !== 'primary';
+
+            if (!phaseChanged && !priorityChanged) return;
+
+            if (phaseChanged) {
+                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name);
+            }
+
+            if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective-variant')) {
+                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, true);
             }
 
             this.render();
@@ -461,17 +620,17 @@ export class DNKanban {
                 await this.manager.updateScenario(parentPath, { phases: scenario.phases });
                 break;
             }
-            case 'objective': {
-                const objective = parent as Objective;
+            case 'objective-variant': {
+                const objective = parent as ObjectiveVariant;
                 const phase = objective.phases.find(p => p.name === phaseName);
                 if (phase) {
                     phase.linkedArcs = phase.linkedArcs.filter(c => resolveWikilinkPath(c.id) !== childPath);
                 }
-                await this.manager.updateObjective(parentPath, { phases: objective.phases });
+                await this.manager.updateObjectiveVariant(parentPath, { phases: objective.phases });
                 break;
             }
-            case 'arc': {
-                const arc = parent as Arc;
+            case 'arc-variant': {
+                const arc = parent as ArcVariant;
                 const phase = arc.phases.find(p => p.name === phaseName);
                 if (phase) {
                     phase.linkedGoals = phase.linkedGoals.filter(l => resolveWikilinkPath(l) !== childPath);
@@ -479,7 +638,7 @@ export class DNKanban {
                     phase.linkedEvents = phase.linkedEvents.filter(l => resolveWikilinkPath(l) !== childPath);
                     phase.linkedModifiers = phase.linkedModifiers.filter(l => resolveWikilinkPath(l) !== childPath);
                 }
-                await this.manager.updateArc(parentPath, { phases: arc.phases });
+                await this.manager.updateArcVariant(parentPath, { phases: arc.phases });
                 break;
             }
         }
@@ -488,21 +647,47 @@ export class DNKanban {
     private openCreateModal(parentPath: string, phaseName: string): void {
         const childType = this.getChildEntityType();
         const categories = this.manager.getCategories(childType as DNEntityType);
+        const typeChoices = this.getTypeChoices();
 
         const modal = new DNCreateModal(
             this.plugin,
             childType,
             categories,
-            async (title, category, description) => {
+            async (title, category, description, typeId) => {
                 switch (this.entityType) {
                     case 'scenario':
-                        await this.manager.createAndLinkObjective(parentPath, phaseName, { title, category, description });
+                        await this.manager.createAndLinkObjectiveVariant(parentPath, phaseName, typeId, { title, category, description });
                         break;
-                    case 'objective':
-                        await this.manager.createAndLinkArc(parentPath, phaseName, { title, category, description });
+                    case 'objective-variant':
+                        await this.manager.createAndLinkArcVariant(parentPath, phaseName, typeId, { title, category, description });
                         break;
-                    case 'arc':
+                    case 'arc-variant':
                         await this.manager.createAndLinkQuest(parentPath, phaseName, category, { title, description });
+                        break;
+                }
+                this.render();
+            },
+            typeChoices,
+        );
+        modal.open();
+    }
+
+    private openEntitySelectModal(parentPath: string, phaseName: string): void {
+        const childType = this.getChildEntityType() as 'objective-variant' | 'arc-variant' | 'quest';
+        const modal = new DNEntitySelectModal(
+            this.plugin.app,
+            this.manager,
+            childType,
+            async (childPath) => {
+                switch (this.entityType) {
+                    case 'scenario':
+                        await this.manager.linkExistingObjectiveVariant(parentPath, phaseName, childPath);
+                        break;
+                    case 'objective-variant':
+                        await this.manager.linkExistingArcVariant(parentPath, phaseName, childPath);
+                        break;
+                    case 'arc-variant':
+                        await this.manager.linkExistingQuest(parentPath, phaseName, childPath);
                         break;
                 }
                 this.render();
@@ -511,7 +696,46 @@ export class DNKanban {
         modal.open();
     }
 
-    // resolveWikilinkPath is imported from models/types.ts
+    private openSidebarCreateModal(): void {
+        const categories = this.manager.getCategories(this.entityType as DNEntityType);
+        let typeChoices: TypeChoice[] = [];
+
+        if (this.entityType === 'objective-variant') {
+            typeChoices = this.manager.getAllObjectiveTypes().map(t => ({ path: t.filePath, title: t.title }));
+            if (typeChoices.length === 0) {
+                new Notice('Create at least one Objective Type first.');
+                return;
+            }
+        } else if (this.entityType === 'arc-variant') {
+            typeChoices = this.manager.getAllArcTypes().map(t => ({ path: t.filePath, title: t.title }));
+            if (typeChoices.length === 0) {
+                new Notice('Create at least one Arc Type first.');
+                return;
+            }
+        }
+
+        const modal = new DNCreateModal(
+            this.plugin,
+            this.getEntityLabel(),
+            categories,
+            async (title, category, description, typeId) => {
+                switch (this.entityType) {
+                    case 'scenario':
+                        await this.manager.createScenario({ title, category, description });
+                        break;
+                    case 'objective-variant':
+                        await this.manager.createObjectiveVariant({ title, category, description, objectiveTypeId: typeId });
+                        break;
+                    case 'arc-variant':
+                        await this.manager.createArcVariant({ title, category, description, arcTypeId: typeId });
+                        break;
+                }
+                this.render();
+            },
+            typeChoices,
+        );
+        modal.open();
+    }
 }
 
 /* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */

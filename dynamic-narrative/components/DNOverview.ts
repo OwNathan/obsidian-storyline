@@ -5,13 +5,15 @@ import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManage
 import type { DNEntityType } from '../models/types';
 import { debounce } from '../models/types';
 import type { Scenario } from '../models/Scenario';
-import type { Objective } from '../models/Objective';
-import type { Arc } from '../models/Arc';
+import type { ObjectiveType, ObjectiveVariant } from '../models/Objective';
+import type { ArcType, ArcVariant } from '../models/Arc';
 import type { Quest } from '../models/Quest';
 import { DNCreateModal } from './DNCreateModal';
 
 type SortKey = 'name' | 'created' | 'modified' | 'category';
 type SortDir = 'asc' | 'desc';
+
+type OverviewEntity = Scenario | ObjectiveType | ObjectiveVariant | ArcType | ArcVariant | Quest;
 
 export class DNOverview {
     private containerEl: HTMLElement;
@@ -47,8 +49,10 @@ export class DNOverview {
 
         const grid = this.containerEl.createDiv('dn-overview-grid');
         this.renderSection(grid, 'Scenarios', this.manager.getAllScenarios(), 'scenario');
-        this.renderSection(grid, 'Objectives', this.manager.getAllObjectives(), 'objective');
-        this.renderSection(grid, 'Arcs', this.manager.getAllArcs(), 'arc');
+        this.renderSection(grid, 'Objective Types', this.manager.getAllObjectiveTypes(), 'objective-type');
+        this.renderSection(grid, 'Objective Variants', this.manager.getAllObjectiveVariants(), 'objective-variant');
+        this.renderSection(grid, 'Arc Types', this.manager.getAllArcTypes(), 'arc-type');
+        this.renderSection(grid, 'Arc Variants', this.manager.getAllArcVariants(), 'arc-variant');
         this.renderSection(grid, 'Quests', this.manager.getAllQuests(), 'quest');
     }
 
@@ -96,7 +100,7 @@ export class DNOverview {
         });
     }
 
-    private renderSection(parent: HTMLElement, title: string, entities: Array<Scenario | Objective | Arc | Quest>, entityType: DNEntityType): void {
+    private renderSection(parent: HTMLElement, title: string, entities: OverviewEntity[], entityType: DNEntityType): void {
         const section = parent.createDiv('dn-overview-section');
         const header = section.createDiv('dn-section-header');
 
@@ -114,7 +118,7 @@ export class DNOverview {
 
         const list = section.createDiv('dn-entity-list');
 
-        const filtered = this.filterAndSort(entities, entityType);
+        const filtered = this.filterAndSort(entities);
 
         if (filtered.length === 0) {
             list.createDiv('dn-empty-state').setText(`No ${title.toLowerCase()} found.`);
@@ -151,7 +155,7 @@ export class DNOverview {
         });
     }
 
-    private filterAndSort(entities: Array<Scenario | Objective | Arc | Quest>, entityType: DNEntityType): Array<Scenario | Objective | Arc | Quest> {
+    private filterAndSort(entities: OverviewEntity[]): OverviewEntity[] {
         let result = [...entities];
 
         if (this.filterText) {
@@ -160,10 +164,6 @@ export class DNOverview {
                 e.description.toLowerCase().includes(this.filterText) ||
                 e.category.toLowerCase().includes(this.filterText)
             );
-        }
-
-        if (this.filterCategory) {
-            result = result.filter(e => e.category === this.filterCategory);
         }
 
         result.sort((a, b) => {
@@ -190,20 +190,44 @@ export class DNOverview {
 
     private async createEntity(entityType: DNEntityType): Promise<void> {
         const categories = this.manager.getCategories(entityType);
+
+        if (entityType === 'objective-variant' || entityType === 'arc-variant') {
+            const typeChoices = entityType === 'objective-variant'
+                ? this.manager.getAllObjectiveTypes().map(t => ({ path: t.filePath, title: t.title }))
+                : this.manager.getAllArcTypes().map(t => ({ path: t.filePath, title: t.title }));
+
+            const modal = new DNCreateModal(
+                this.plugin,
+                entityType,
+                categories,
+                async (title, category, description, typeId) => {
+                    if (entityType === 'objective-variant') {
+                        await this.manager.createObjectiveVariant({ title, category, description, objectiveTypeId: typeId });
+                    } else {
+                        await this.manager.createArcVariant({ title, category, description, arcTypeId: typeId });
+                    }
+                    this.render();
+                },
+                typeChoices,
+            );
+            modal.open();
+            return;
+        }
+
         const modal = new DNCreateModal(
             this.plugin,
             entityType,
             categories,
-            async (title, category, description) => {
+            async (title, category, description, _typeId) => {
                 switch (entityType) {
                     case 'scenario':
                         await this.manager.createScenario({ title, category, description });
                         break;
-                    case 'objective':
-                        await this.manager.createObjective({ title, category, description });
+                    case 'objective-type':
+                        await this.manager.createObjectiveType({ title, category, description });
                         break;
-                    case 'arc':
-                        await this.manager.createArc({ title, category, description });
+                    case 'arc-type':
+                        await this.manager.createArcType({ title, category, description });
                         break;
                     case 'quest':
                         await this.manager.createQuest({ title, category, description });

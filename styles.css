@@ -12724,6 +12724,25 @@ body.dn-resizing .dn-resize-handle::after {
     height: 14px;
 }
 
+.dn-phase-rename-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    color: var(--text-muted);
+    border-radius: var(--radius-s);
+}
+
+.dn-phase-rename-btn:hover {
+    color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.dn-phase-rename-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
 .dn-phase-body {
     padding: 8px 10px;
     display: flex;
@@ -12936,6 +12955,28 @@ body.dn-resizing .dn-resize-handle::after {
     background: var(--background-secondary);
 }
 
+.dn-sidebar-actions {
+    padding: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.dn-sidebar-create-btn {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--interactive-accent);
+    border-radius: var(--radius-s);
+    background: transparent;
+    color: var(--interactive-accent);
+    font-size: var(--font-ui-small);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.dn-sidebar-create-btn:hover {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
 .dn-sidebar-search {
     margin: 8px;
     padding: 6px 8px;
@@ -13068,9 +13109,9 @@ body.dn-resizing .dn-resize-handle::after {
 }
 
 .dn-column-title {
-    font-size: var(--font-ui-small);
+    font-size: calc(var(--font-ui-small) * 1.2);
     font-weight: var(--font-semibold);
-    color: var(--text-normal);
+    color: var(--h1-color);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -13198,6 +13239,11 @@ body.dn-resizing .dn-resize-handle::after {
     flex-shrink: 0;
 }
 
+.dn-phase-desc-overridden {
+    font-weight: var(--font-bold);
+    color: var(--bold-color, var(--text-normal));
+}
+
 .dn-phase-capsules {
     padding: 4px 10px;
     border-bottom: 1px solid var(--background-modifier-border);
@@ -13238,6 +13284,12 @@ body.dn-resizing .dn-resize-handle::after {
     white-space: nowrap;
 }
 
+.dn-capsule-overridden .dn-capsule-label,
+.dn-capsule-overridden .dn-capsule-value {
+    font-weight: var(--font-bold);
+    color: var(--bold-color, var(--text-normal));
+}
+
 /* ─── Priority rows inside kanban columns ──────────────────────── */
 
 .dn-column-row {
@@ -13262,7 +13314,11 @@ body.dn-resizing .dn-resize-handle::after {
 }
 
 .dn-row-primary .dn-column-row-label {
-    color: var(--text-accent);
+    color: var(--h3-color);
+}
+
+.dn-row-secondary .dn-column-row-label {
+    color: var(--h4-color);
 }
 
 .dn-column-row-body {
@@ -13663,4 +13719,335 @@ body.dn-resizing .dn-resize-handle::after {
     font-style: italic;
     font-size: var(--font-ui-small);
     text-align: center;
+}
+
+/* ─── Type grid (Objective Types / Arc Types) ──────────────────── */
+.dn-type-grid {
+    height: 100%;
+}
+
+.dn-type-layout {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+}
+
+.dn-type-list-panel {
+    width: 260px;
+    min-width: 180px;
+    max-width: 380px;
+    border-right: 1px solid var(--background-modifier-border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+}
+
+.dn-type-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.dn-type-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.dn-type-list-item {
+    padding: 8px 10px;
+    border-radius: var(--radius-s);
+    cursor: pointer;
+    transition: background 0.1s;
+    margin-bottom: 2px;
+}
+
+.dn-type-list-item:hover {
+    background: var(--background-modifier-hover);
+}
+
+.dn-type-list-item.is-selected {
+    background: var(--background-modifier-active-hover);
+    border-left: 3px solid var(--interactive-accent);
+}
+
+.dn-type-list-name {
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-medium);
+    color: var(--text-normal);
+    margin-bottom: 2px;
+}
+
+.dn-type-list-meta {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.dn-type-cat-badge {
+    font-size: var(--font-ui-smaller);
+    padding: 0 6px;
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    background: var(--background-secondary);
+}
+
+.dn-type-phase-count {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+}
+
+.dn-type-editor-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    min-width: 0;
+}
+
+.dn-type-editor-title {
+    font-size: var(--font-ui-large);
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.dn-type-editor-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.dn-type-usage-panel {
+    width: 200px;
+    min-width: 160px;
+    border-left: 1px solid var(--background-modifier-border);
+    padding: 12px;
+    flex-shrink: 0;
+    background: var(--background-secondary);
+}
+
+.dn-usage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dn-usage-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--background-primary);
+    border-radius: var(--radius-s);
+    font-size: var(--font-ui-small);
+}
+
+.dn-usage-item-name {
+    flex: 1;
+    color: var(--text-normal);
+}
+
+.dn-usage-item-cat {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    background: var(--background-secondary);
+    padding: 0 6px;
+    border-radius: var(--radius-s);
+}
+
+.dn-usage-empty {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    font-style: italic;
+    padding: 8px;
+}
+
+/* ─── Phases header row (title + add button) ───────────────────── */
+.dn-phases-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.dn-phases-title {
+    font-size: var(--font-ui-medium);
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
+}
+
+/* ─── Collapsible phase fields ─────────────────────────────────── */
+.dn-collapsible-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.dn-collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    user-select: none;
+}
+
+.dn-collapsible-header:hover {
+    color: var(--text-normal);
+}
+
+.dn-collapsible-toggle {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.dn-collapsible-toggle svg {
+    width: 12px;
+    height: 12px;
+}
+
+.dn-collapsible-label {
+    flex: 1;
+}
+
+.dn-override-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 1px 2px;
+    color: var(--text-faint);
+    border-radius: var(--radius-s);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.dn-override-toggle:hover {
+    color: var(--text-muted);
+    background: var(--background-modifier-hover);
+}
+
+.dn-override-toggle.is-active {
+    color: var(--interactive-accent);
+}
+
+.dn-override-toggle svg {
+    width: 16px;
+    height: 16px;
+}
+
+.dn-collapsible-body {
+    padding-bottom: 6px;
+}
+
+.dn-collapsible-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 4px 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: var(--font-ui-smaller);
+    font-family: var(--font-text);
+    resize: vertical;
+}
+
+.dn-collapsible-input:focus {
+    border-color: var(--interactive-accent);
+    outline: none;
+}
+
+.dn-field-inherited {
+    padding: 4px 6px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    border-left: 3px solid var(--background-modifier-border);
+    padding-left: 10px;
+}
+
+.dn-field-inherited.is-empty {
+    color: var(--text-faint);
+    font-style: italic;
+}
+
+/* ─── Kanban "Add Existing" link button ────────────────────────── */
+.dn-column-link-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-s);
+    flex-shrink: 0;
+}
+
+.dn-column-link-btn:hover {
+    color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.dn-column-link-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* ─── Kanban header type badge ──────────────────────────────────── */
+.dn-kanban-header-type {
+    display: inline-block;
+    font-size: var(--font-ui-smaller);
+    color: var(--color-cyan);
+    background: rgba(var(--interactive-accent-rgb), 0.12);
+    padding: 2px 8px;
+    border-radius: var(--radius-s);
+    margin-left: 8px;
+}
+
+/* ─── Card quest type badge ────────────────────────────────────── */
+.dn-card-quest-type {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-accent);
+    background: rgba(var(--interactive-accent-rgb), 0.1);
+    padding: 0 6px;
+    border-radius: var(--radius-s);
+}
+
+/* ─── Entity select modal (FuzzySuggest) ───────────────────────── */
+.dn-select-title {
+    font-weight: var(--font-medium);
+    color: var(--text-normal);
+}
+
+.dn-select-category {
+    margin-left: 8px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    background: var(--background-secondary);
+    padding: 0 6px;
+    border-radius: var(--radius-s);
+}
+
+.dn-select-type {
+    margin-left: 8px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+}
+
+/* ─── Inspector field note ─────────────────────────────────────── */
+.dn-field-note {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+    font-style: italic;
+    padding: 4px 0;
 }

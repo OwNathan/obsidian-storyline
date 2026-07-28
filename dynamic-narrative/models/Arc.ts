@@ -2,22 +2,50 @@
 import type { DNBase, DNPhase } from './types';
 import { createDefaultPhases } from './types';
 
-export interface ArcPhase extends DNPhase {
+// ─── Arc Type ────────────────────────────────────────────────────
+// Basic structure: phases only, never references other entities.
+
+export interface ArcType extends DNBase {
+    type: 'arc-type';
+    category: string;
+    phases: DNPhase[];
+}
+
+export function createEmptyArcType(title: string): ArcType {
+    const now = new Date().toISOString();
+    return {
+        filePath: '',
+        title,
+        description: '',
+        created: now,
+        modified: now,
+        type: 'arc-type',
+        category: '',
+        phases: createDefaultPhases(),
+    };
+}
+
+// ─── Arc Variant ─────────────────────────────────────────────────
+// References an ArcType; phases mirror the Type's structure and add
+// their own Conditions/Commands plus linked Quests.
+
+export interface ArcVariantPhase extends DNPhase {
     linkedGoals: string[];
     linkedLimits: string[];
     linkedEvents: string[];
     linkedModifiers: string[];
 }
 
-export interface Arc extends DNBase {
-    type: 'arc';
+export interface ArcVariant extends DNBase {
+    type: 'arc-variant';
+    arcTypeId: string; // filePath of the referenced ArcType
     category: string;
     linkedLocations: string[];
     dynamicLocations: boolean;
-    phases: ArcPhase[];
+    phases: ArcVariantPhase[];
 }
 
-export function createEmptyArc(title: string): Arc {
+export function createEmptyArcVariant(title: string, arcTypeId: string): ArcVariant {
     const now = new Date().toISOString();
     const defaultPhases = createDefaultPhases();
     return {
@@ -26,7 +54,8 @@ export function createEmptyArc(title: string): Arc {
         description: '',
         created: now,
         modified: now,
-        type: 'arc',
+        type: 'arc-variant',
+        arcTypeId,
         category: '',
         linkedLocations: [],
         dynamicLocations: false,

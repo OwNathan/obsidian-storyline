@@ -2,24 +2,33 @@
 import { Modal } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 
+export interface TypeChoice {
+    path: string;
+    title: string;
+}
+
 export class DNCreateModal extends Modal {
     private childType: string;
     private categories: string[];
-    private onSubmit: (title: string, category: string, description: string) => Promise<void>;
+    private typeChoices: TypeChoice[];
+    private onSubmit: (title: string, category: string, description: string, typeId: string) => Promise<void>;
 
     private titleValue = '';
     private categoryValue = '';
     private descriptionValue = '';
+    private typeIdValue = '';
 
     constructor(
         plugin: SceneCardsPlugin,
         childType: string,
         categories: string[],
-        onSubmit: (title: string, category: string, description: string) => Promise<void>,
+        onSubmit: (title: string, category: string, description: string, typeId: string) => Promise<void>,
+        typeChoices: TypeChoice[] = [],
     ) {
         super(plugin.app);
         this.childType = childType;
         this.categories = categories;
+        this.typeChoices = typeChoices;
         this.onSubmit = onSubmit;
     }
 
@@ -39,6 +48,21 @@ export class DNCreateModal extends Modal {
         titleInput.addEventListener('input', () => {
             this.titleValue = titleInput.value;
         });
+
+        if (this.typeChoices.length > 0) {
+            const typeField = form.createDiv('dn-create-field');
+            typeField.createEl('label', { text: 'Type', cls: 'dn-create-label' });
+            const typeSelect = typeField.createEl('select', { cls: 'dn-create-select' });
+            const emptyOpt = typeSelect.createEl('option', { text: '— Select —' });
+            emptyOpt.value = '';
+            for (const tc of this.typeChoices) {
+                const opt = typeSelect.createEl('option', { text: tc.title });
+                opt.value = tc.path;
+            }
+            typeSelect.addEventListener('change', () => {
+                this.typeIdValue = typeSelect.value;
+            });
+        }
 
         const catField = form.createDiv('dn-create-field');
         catField.createEl('label', { text: 'Category', cls: 'dn-create-label' });
@@ -70,7 +94,10 @@ export class DNCreateModal extends Modal {
                 titleInput.addClass('has-error');
                 return;
             }
-            await this.onSubmit(this.titleValue.trim(), this.categoryValue, this.descriptionValue.trim());
+            if (this.typeChoices.length > 0 && !this.typeIdValue) {
+                return;
+            }
+            await this.onSubmit(this.titleValue.trim(), this.categoryValue, this.descriptionValue.trim(), this.typeIdValue);
             this.close();
         });
 

@@ -2,20 +2,47 @@
 import type { DNBase, DNPhase, DNLinkedChild } from './types';
 import { createDefaultPhases } from './types';
 
-export interface ObjectivePhase extends DNPhase {
+// ─── Objective Type ──────────────────────────────────────────────
+// Basic structure: phases only, never references other entities.
+
+export interface ObjectiveType extends DNBase {
+    type: 'objective-type';
+    category: string;
+    phases: DNPhase[];
+}
+
+export function createEmptyObjectiveType(title: string): ObjectiveType {
+    const now = new Date().toISOString();
+    return {
+        filePath: '',
+        title,
+        description: '',
+        created: now,
+        modified: now,
+        type: 'objective-type',
+        category: '',
+        phases: createDefaultPhases(),
+    };
+}
+
+// ─── Objective Variant ───────────────────────────────────────────
+// References an ObjectiveType; phases mirror the Type's structure and
+// add their own Conditions/Commands plus linked Arc Variants.
+
+export interface ObjectiveVariantPhase extends DNPhase {
     linkedArcs: DNLinkedChild[];
 }
 
-export interface Objective extends DNBase {
-    type: 'objective';
-    variant: string;
+export interface ObjectiveVariant extends DNBase {
+    type: 'objective-variant';
+    objectiveTypeId: string; // filePath of the referenced ObjectiveType
     category: string;
     linkedLocations: string[];
     linkedCharacters: string[];
-    phases: ObjectivePhase[];
+    phases: ObjectiveVariantPhase[];
 }
 
-export function createEmptyObjective(title: string): Objective {
+export function createEmptyObjectiveVariant(title: string, objectiveTypeId: string): ObjectiveVariant {
     const now = new Date().toISOString();
     const defaultPhases = createDefaultPhases();
     return {
@@ -24,8 +51,8 @@ export function createEmptyObjective(title: string): Objective {
         description: '',
         created: now,
         modified: now,
-        type: 'objective',
-        variant: '',
+        type: 'objective-variant',
+        objectiveTypeId,
         category: '',
         linkedLocations: [],
         linkedCharacters: [],

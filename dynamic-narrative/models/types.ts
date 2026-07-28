@@ -1,8 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 
-export type DNEntityType = 'scenario' | 'objective' | 'arc' | 'quest';
+export type DNEntityType = 'scenario' | 'objective-type' | 'objective-variant' | 'arc-type' | 'arc-variant' | 'quest';
 
-export type DNEntity = import('./Scenario').Scenario | import('./Objective').Objective | import('./Arc').Arc | import('./Quest').Quest;
+export type DNEntity = import('./Scenario').Scenario
+    | import('./Objective').ObjectiveType
+    | import('./Objective').ObjectiveVariant
+    | import('./Arc').ArcType
+    | import('./Arc').ArcVariant
+    | import('./Quest').Quest;
 
 export interface DNBase {
     filePath: string;
@@ -20,6 +25,7 @@ export interface DNPhase {
     endConditions: string;
     endCommands: string;
     isDefault: boolean;
+    overrides: string[];
 }
 
 export interface DNLinkedChild {
@@ -49,8 +55,6 @@ export const DEFAULT_OBJECTIVE_CATEGORIES: string[] = [
     'Procedural',
 ];
 
-export const DEFAULT_OBJECTIVE_VARIANTS: string[] = [];
-
 export const DEFAULT_ARC_CATEGORIES: string[] = [
     'Primary',
     'Secondary',
@@ -72,6 +76,7 @@ export function createDefaultPhase(name: string): DNPhase {
         endConditions: '',
         endCommands: '',
         isDefault: true,
+        overrides: [],
     };
 }
 
@@ -116,8 +121,10 @@ export function resolveWikilinkPath(wikilink: string): string {
 }
 
 export function isScenario(e: { type: string }): e is import('./Scenario').Scenario { return e.type === 'scenario'; }
-export function isObjective(e: { type: string }): e is import('./Objective').Objective { return e.type === 'objective'; }
-export function isArc(e: { type: string }): e is import('./Arc').Arc { return e.type === 'arc'; }
+export function isObjectiveType(e: { type: string }): e is import('./Objective').ObjectiveType { return e.type === 'objective-type'; }
+export function isObjectiveVariant(e: { type: string }): e is import('./Objective').ObjectiveVariant { return e.type === 'objective-variant'; }
+export function isArcType(e: { type: string }): e is import('./Arc').ArcType { return e.type === 'arc-type'; }
+export function isArcVariant(e: { type: string }): e is import('./Arc').ArcVariant { return e.type === 'arc-variant'; }
 export function isQuest(e: { type: string }): e is import('./Quest').Quest { return e.type === 'quest'; }
 
 export function deepClone<T>(obj: T): T {
