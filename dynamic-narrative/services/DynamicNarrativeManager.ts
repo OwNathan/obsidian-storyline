@@ -243,13 +243,14 @@ export class DynamicNarrativeManager {
 
     private parseScenarioFromFm(fm: Record<string, unknown>, body: string, filePath: string): Scenario {
         const phases = this.parseScenarioPhases(fm['scenario-phases']);
-        const description = this.extractBodySection(body, 'Overview');
+        const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
+            dirty: fm['dirty'] !== false,
             type: 'scenario',
             category: (fm['scenario-category'] as string) || '',
             linkedActs: this.parseNumberList(fm['scenario-acts']),
@@ -261,13 +262,14 @@ export class DynamicNarrativeManager {
 
     private parseObjectiveTypeFromFm(fm: Record<string, unknown>, body: string, filePath: string): ObjectiveType {
         const phases = this.parsePlainPhases(fm['objective-type-phases']);
-        const description = this.extractBodySection(body, 'Overview');
+        const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
+            dirty: fm['dirty'] !== false,
             type: 'objective-type',
             category: (fm['objective-type-category'] as string) || '',
             phases,
@@ -276,13 +278,14 @@ export class DynamicNarrativeManager {
 
     private parseObjectiveVariantFromFm(fm: Record<string, unknown>, body: string, filePath: string): ObjectiveVariant {
         const phases = this.parseObjectiveVariantPhases(fm['objective-variant-phases']);
-        const description = this.extractBodySection(body, 'Overview');
+        const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
+            dirty: fm['dirty'] !== false,
             type: 'objective-variant',
             objectiveTypeId: this.parseTypeRef(fm['objective-type-ref']),
             category: (fm['objective-variant-category'] as string) || '',
@@ -294,13 +297,14 @@ export class DynamicNarrativeManager {
 
     private parseArcTypeFromFm(fm: Record<string, unknown>, body: string, filePath: string): ArcType {
         const phases = this.parsePlainPhases(fm['arc-type-phases']);
-        const description = this.extractBodySection(body, 'Overview');
+        const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
+            dirty: fm['dirty'] !== false,
             type: 'arc-type',
             category: (fm['arc-type-category'] as string) || '',
             phases,
@@ -309,13 +313,14 @@ export class DynamicNarrativeManager {
 
     private parseArcVariantFromFm(fm: Record<string, unknown>, body: string, filePath: string): ArcVariant {
         const phases = this.parseArcVariantPhases(fm['arc-variant-phases']);
-        const description = this.extractBodySection(body, 'Overview');
+        const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
+            dirty: fm['dirty'] !== false,
             type: 'arc-variant',
             arcTypeId: this.parseTypeRef(fm['arc-type-ref']),
             category: (fm['arc-variant-category'] as string) || '',
@@ -327,16 +332,16 @@ export class DynamicNarrativeManager {
 
     private parseQuestFromFm(fm: Record<string, unknown>, body: string, filePath: string): Quest {
         const phases = this.parseQuestPhases(fm['quest-phases']);
-        const description = this.extractBodySection(body, 'Overview');
+        const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
+            dirty: fm['dirty'] !== false,
             type: 'quest',
             category: (fm['quest-category'] as string) || '',
-            questType: (fm['quest-type'] as string) || '',
             phases,
         };
     }
@@ -450,7 +455,7 @@ export class DynamicNarrativeManager {
 
     // ─── Writing ─────────────────────────────────────────────────
 
-    private buildFrontmatter(entity: DNEntity): Record<string, unknown> {
+    private buildFrontmatter(entity: DNEntity, bumpModified = true): Record<string, unknown> {
         const fm: Record<string, unknown> = {};
         const shortDesc = deriveShortDesc(entity.description);
 
@@ -525,7 +530,6 @@ export class DynamicNarrativeManager {
                 fm.title = q.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
                 fm['quest-category'] = q.category;
-                if (q.questType) fm['quest-type'] = q.questType;
                 if (q.phases.length > 0) {
                     fm['quest-phases'] = q.phases.map(p => this.serializePlainPhase(p));
                 }
@@ -533,8 +537,10 @@ export class DynamicNarrativeManager {
             }
         }
 
+        fm.description = entity.description;
+        fm['dirty'] = entity.dirty === false ? false : true;
         fm.created = entity.created;
-        fm.modified = new Date().toISOString();
+        fm.modified = bumpModified ? new Date().toISOString() : entity.modified;
         return fm;
     }
 
@@ -590,34 +596,97 @@ export class DynamicNarrativeManager {
         return obj;
     }
 
-    private async readExistingBodySection(entity: DNEntity, sectionName: string): Promise<string> {
-        try {
-            const file = this.app.vault.getAbstractFileByPath(entity.filePath);
-            if (!(file instanceof TFile)) return '';
-            const content = await this.app.vault.read(file);
-            const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-            const body = fmMatch ? content.slice(fmMatch[0].length).trim() : '';
-            return this.extractBodySection(body, sectionName);
-        } catch {
-            return '';
-        }
+    private stripFrontmatter(content: string): string {
+        const fmMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+        return fmMatch ? content.slice(fmMatch[0].length) : content;
     }
 
-    private async buildBody(entity: DNEntity): Promise<string> {
-        const mainPurpose = await this.readExistingBodySection(entity, 'Main Purpose');
-        const integrationAnalysis = await this.readExistingBodySection(entity, 'Integration Analysis');
+    private buildSkeletonBody(): string {
+        return `> [!WARNING] Do not modify this file
+> Changes made to this file won't be reflected in the metadata and can be overwritten by future exports. Only make changes and add comments using the Plugin and its UI
 
-        let body = `# Overview\n${entity.description}\n\n# Game Details\n## Main Purpose\n${mainPurpose}\n\n## Integration Analysis\n${integrationAnalysis}\n`;
+# Overview
+
+## Phases
+`;
+    }
+
+    private toMarkdownWikilink(link: string): string {
+        const trimmed = link.trim();
+        if (trimmed.startsWith('[[') && trimmed.endsWith(']]')) return trimmed;
+        return `[[${trimmed.replace(/^\[\[|\]\]$/g, '')}]]`;
+    }
+
+    private appendLinkedMarkdownSection(body: string, heading: string, links: string[]): string {
+        const validLinks = links.filter(link => link.trim().length > 0);
+        if (validLinks.length === 0) return body;
+        let result = `${body}#### ${heading}\n`;
+        for (const link of validLinks) {
+            result += `- ${this.toMarkdownWikilink(link)}\n`;
+        }
+        return result;
+    }
+
+    private appendLinkedChildMarkdownSection(body: string, heading: string, children: DNLinkedChild[]): string {
+        const validChildren = children.filter(child => child.id.trim().length > 0);
+        if (validChildren.length === 0) return body;
+        let result = `${body}#### ${heading}\n`;
+        for (const child of validChildren) {
+            const annotations: string[] = [];
+            annotations.push(child.isPrimary ? 'Primary' : 'Secondary');
+            if (child.mandatory) annotations.push('Mandatory');
+            const suffix = annotations.length > 0 ? ` (${annotations.join(', ')})` : '';
+            result += `- ${this.toMarkdownWikilink(child.id)}${suffix}\n`;
+        }
+        return result;
+    }
+
+    private buildReflectedBody(entity: DNEntity): string {
+        let body = `> [!WARNING] Do not modify this file
+> Changes made to this file won't be reflected in the metadata and can be overwritten by future exports. Only make changes and add comments using the Plugin and its UI
+
+# Overview
+${entity.description}
+`;
+        body += '\n## Phases\n';
+        for (const phase of entity.phases) {
+            body += `\n### ${phase.name}\n`;
+            body += `#### Description\n${phase.description}\n`;
+            body += `#### Start Conditions\n${phase.startConditions}\n`;
+            body += `#### Start Commands\n${phase.startCommands}\n`;
+            body += `#### End Conditions\n${phase.endConditions}\n`;
+            body += `#### End Commands\n${phase.endCommands}\n`;
+
+            switch (entity.type) {
+                case 'scenario':
+                    body = this.appendLinkedChildMarkdownSection(body, 'Linked Objectives', (phase as ScenarioPhase).linkedObjectives);
+                    break;
+                case 'objective-variant':
+                    body = this.appendLinkedChildMarkdownSection(body, 'Linked Arcs', (phase as ObjectiveVariantPhase).linkedArcs);
+                    break;
+                case 'arc-variant':
+                    body = this.appendLinkedMarkdownSection(body, 'Linked Goals', (phase as ArcVariantPhase).linkedGoals);
+                    body = this.appendLinkedMarkdownSection(body, 'Linked Limits', (phase as ArcVariantPhase).linkedLimits);
+                    body = this.appendLinkedMarkdownSection(body, 'Linked Events', (phase as ArcVariantPhase).linkedEvents);
+                    body = this.appendLinkedMarkdownSection(body, 'Linked Modifiers', (phase as ArcVariantPhase).linkedModifiers);
+                    break;
+            }
+        }
         return body;
     }
 
     private async writeEntityFile(entity: DNEntity): Promise<void> {
         try {
+            const file = this.app.vault.getAbstractFileByPath(entity.filePath);
+            let body = this.buildSkeletonBody();
+            if (file && file instanceof TFile) {
+                const existing = await this.app.vault.read(file);
+                body = this.stripFrontmatter(existing);
+            }
+
             const fm = this.buildFrontmatter(entity);
-            const body = await this.buildBody(entity);
             const content = `---\n${stringifyYaml(fm)}---\n${body}`;
 
-            const file = this.app.vault.getAbstractFileByPath(entity.filePath);
             if (file && file instanceof TFile) {
                 await this.app.vault.modify(file, content);
             } else {
@@ -629,6 +698,40 @@ export class DynamicNarrativeManager {
             console.error('[StoryLine] Failed to write entity file:', entity.filePath, e);
             new Notice(`Failed to save ${entity.title}: ${(e as Error).message || 'Unknown error'}`);
         }
+    }
+
+    private async syncEntityBody(entity: DNEntity): Promise<void> {
+        const file = this.app.vault.getAbstractFileByPath(entity.filePath);
+        if (!(file instanceof TFile)) return;
+        entity.dirty = false;
+        const fm = this.buildFrontmatter(entity, false);
+        const content = `---\n${stringifyYaml(fm)}---\n${this.buildReflectedBody(entity)}`;
+        await this.app.vault.modify(file, content);
+    }
+
+    async syncAllDirtyBodies(onProgress?: (done: number, total: number, filePath: string) => void): Promise<number> {
+        const all: DNEntity[] = [
+            ...this.scenarios.values(),
+            ...this.objectiveTypes.values(),
+            ...this.objectiveVariants.values(),
+            ...this.arcTypes.values(),
+            ...this.arcVariants.values(),
+            ...this.quests.values(),
+        ];
+        const dirty = all.filter(e => e.dirty === true);
+        let done = 0;
+        for (const entity of dirty) {
+            try {
+                await this.syncEntityBody(entity);
+            } catch (e) {
+                console.error('[StoryLine] Failed to sync entity body:', entity.filePath, e);
+                new Notice(`Failed to sync ${entity.title}: ${(e as Error).message || 'Unknown error'}`);
+            }
+            done++;
+            if (onProgress) onProgress(done, dirty.length, entity.filePath);
+        }
+        await this.saveSystemJson();
+        return dirty.length;
     }
 
     private async doRenameFile(oldPath: string, newTitle: string, typeFolder: string): Promise<string> {
@@ -664,6 +767,7 @@ export class DynamicNarrativeManager {
     private async createEntity<T extends DNEntity>(entity: T): Promise<T> {
         entity.created = new Date().toISOString();
         entity.modified = new Date().toISOString();
+        entity.dirty = true;
 
         const safeName = entity.title.replace(/[\\/:*?"<>|]/g, '-');
         const folder = normalizePath(`${this.projectFolder}/${DN_FOLDER_NAME}/${this.getFolderForType(entity.type)}`);
@@ -692,6 +796,7 @@ export class DynamicNarrativeManager {
 
         Object.assign(entity, updates);
         entity.modified = new Date().toISOString();
+        entity.dirty = true;
 
         this.plugin.sceneManager.undoManager.recordUpdate(
             currentPath,
@@ -754,15 +859,16 @@ export class DynamicNarrativeManager {
         return this.createEntity(entity);
     }
 
-    async updateObjectiveType(filePath: string, updates: Partial<ObjectiveType>): Promise<void> {
+    async updateObjectiveType(filePath: string, updates: Partial<ObjectiveType>): Promise<ObjectiveType | undefined> {
         const entity = this.objectiveTypes.get(filePath);
-        if (!entity) return;
+        if (!entity) return undefined;
         const phasesBefore = entity.phases.map(p => p.name);
-        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'objective type');
+        const updatedEntity = await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'objective type');
         const updated = this.objectiveTypes.get(entity.filePath);
         if (updated) {
             await this.propagateTypePhaseChanges(updated, phasesBefore);
         }
+        return updatedEntity as ObjectiveType | undefined;
     }
 
     async deleteObjectiveType(filePath: string): Promise<boolean> {
@@ -805,15 +911,16 @@ export class DynamicNarrativeManager {
         return this.createEntity(entity);
     }
 
-    async updateArcType(filePath: string, updates: Partial<ArcType>): Promise<void> {
+    async updateArcType(filePath: string, updates: Partial<ArcType>): Promise<ArcType | undefined> {
         const entity = this.arcTypes.get(filePath);
-        if (!entity) return;
+        if (!entity) return undefined;
         const phasesBefore = entity.phases.map(p => p.name);
-        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'arc type');
+        const updatedEntity = await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'arc type');
         const updated = this.arcTypes.get(entity.filePath);
         if (updated) {
             await this.propagateTypePhaseChanges(updated, phasesBefore);
         }
+        return updatedEntity as ArcType | undefined;
     }
 
     async deleteArcType(filePath: string): Promise<boolean> {
@@ -853,8 +960,9 @@ export class DynamicNarrativeManager {
         return this.createEntity(entity);
     }
 
-    async updateQuest(filePath: string, updates: Partial<Quest>): Promise<void> {
-        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'quest');
+    async updateQuest(filePath: string, updates: Partial<Quest>): Promise<Quest | undefined> {
+        const updated = await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'quest');
+        return updated as Quest | undefined;
     }
 
     async deleteQuest(filePath: string): Promise<void> {
@@ -986,7 +1094,6 @@ export class DynamicNarrativeManager {
         if (!phase) return false;
 
         const wikilink = `[[${variantPath}]]`;
-        if (phase.linkedObjectives.some(c => c.id === wikilink)) return false;
 
         phase.linkedObjectives.push({ id: wikilink, isPrimary: true, mandatory: false });
         await this.writeEntityFile(scenario);
@@ -1003,7 +1110,6 @@ export class DynamicNarrativeManager {
         if (!phase) return false;
 
         const wikilink = `[[${variantPath}]]`;
-        if (phase.linkedArcs.some(c => c.id === wikilink)) return false;
 
         phase.linkedArcs.push({ id: wikilink, isPrimary: true, mandatory: false });
         await this.writeEntityFile(objective);
@@ -1145,22 +1251,11 @@ export class DynamicNarrativeManager {
     // ─── Phase Management ────────────────────────────────────────
 
     addCustomPhase(entity: DNEntity, phase: DNPhase): void {
+        if (entity.type === 'objective-variant' || entity.type === 'arc-variant') return;
         const newPhase = { ...phase, isDefault: false };
         switch (entity.type) {
             case 'scenario':
                 (entity as Scenario).phases.push({ ...newPhase, linkedObjectives: [] } as ScenarioPhase);
-                break;
-            case 'objective-variant':
-                (entity as ObjectiveVariant).phases.push({ ...newPhase, linkedArcs: [] } as ObjectiveVariantPhase);
-                break;
-            case 'arc-variant':
-                (entity as ArcVariant).phases.push({
-                    ...newPhase,
-                    linkedGoals: [],
-                    linkedLimits: [],
-                    linkedEvents: [],
-                    linkedModifiers: [],
-                } as ArcVariantPhase);
                 break;
             case 'objective-type':
             case 'arc-type':
@@ -1171,16 +1266,10 @@ export class DynamicNarrativeManager {
     }
 
     removeCustomPhase(entity: DNEntity, phaseName: string): void {
-        if (isDefaultPhase(phaseName)) return;
+        if (isDefaultPhase(phaseName) || entity.type === 'objective-variant' || entity.type === 'arc-variant') return;
         switch (entity.type) {
             case 'scenario':
                 (entity as Scenario).phases = (entity as Scenario).phases.filter(p => p.name !== phaseName);
-                break;
-            case 'objective-variant':
-                (entity as ObjectiveVariant).phases = (entity as ObjectiveVariant).phases.filter(p => p.name !== phaseName);
-                break;
-            case 'arc-variant':
-                (entity as ArcVariant).phases = (entity as ArcVariant).phases.filter(p => p.name !== phaseName);
                 break;
             case 'objective-type':
             case 'arc-type':
@@ -1191,7 +1280,7 @@ export class DynamicNarrativeManager {
     }
 
     renameCustomPhase(entity: DNEntity, oldName: string, newName: string): void {
-        if (isDefaultPhase(oldName)) return;
+        if (isDefaultPhase(oldName) || entity.type === 'objective-variant' || entity.type === 'arc-variant') return;
         const phases = this.getPhases(entity);
         const phase = phases.find(p => p.name === oldName);
         if (phase) {
@@ -1199,7 +1288,64 @@ export class DynamicNarrativeManager {
         }
     }
 
+    /**
+     * Add a custom phase to an Objective/Arc type and propagate it to every
+     * existing variant of that type. The phase-before snapshot is taken here,
+     * before mutating the type, so propagation actually detects the change
+     * (the UI used to mutate in place before calling update*Type, which made
+     * the diff inside propagateTypePhaseChanges empty).
+     */
+    async addTypePhase(type: ObjectiveType | ArcType, phase: DNPhase): Promise<void> {
+        const phasesBefore = this.getPhases(type).map(p => p.name);
+        this.addCustomPhase(type, phase);
+        type.modified = new Date().toISOString();
+        await this.writeEntityFile(type);
+        await this.propagateTypePhaseChanges(type, phasesBefore);
+    }
+
+    /**
+     * Remove a custom phase from an Objective/Arc type and propagate the
+     * removal to every existing variant of that type.
+     */
+    async removeTypePhase(type: ObjectiveType | ArcType, phaseName: string): Promise<void> {
+        if (isDefaultPhase(phaseName)) return;
+        const phasesBefore = this.getPhases(type).map(p => p.name);
+        this.removeCustomPhase(type, phaseName);
+        type.modified = new Date().toISOString();
+        await this.writeEntityFile(type);
+        await this.propagateTypePhaseChanges(type, phasesBefore);
+    }
+
+    /**
+     * Rename a custom phase on an Objective/Arc type and propagate the new
+     * name to every existing variant, preserving each variant's override
+     * data for that phase (sync-by-name would drop and recreate it empty).
+     */
+    async renameTypePhase(type: ObjectiveType | ArcType, oldName: string, newName: string): Promise<void> {
+        if (isDefaultPhase(oldName)) return;
+        this.renameCustomPhase(type, oldName, newName);
+        type.modified = new Date().toISOString();
+        await this.writeEntityFile(type);
+        if (type.type === 'objective-type') {
+            for (const variant of this.getObjectiveVariantsOfType(type.filePath)) {
+                const phase = variant.phases.find(p => p.name === oldName);
+                if (phase) phase.name = newName;
+                variant.modified = new Date().toISOString();
+                await this.writeEntityFile(variant);
+            }
+        } else if (type.type === 'arc-type') {
+            for (const variant of this.getArcVariantsOfType(type.filePath)) {
+                const phase = variant.phases.find(p => p.name === oldName);
+                if (phase) phase.name = newName;
+                variant.modified = new Date().toISOString();
+                await this.writeEntityFile(variant);
+            }
+        }
+        await this.saveSystemJson();
+    }
+
     reorderCustomPhases(entity: DNEntity, fromIndex: number, toIndex: number): void {
+        if (entity.type === 'objective-variant' || entity.type === 'arc-variant') return;
         const phases = this.getPhases(entity);
         const customs = phases.filter(p => !p.isDefault);
         const [moved] = customs.splice(fromIndex, 1);
@@ -1276,7 +1422,7 @@ export class DynamicNarrativeManager {
 
     // ─── Phase Reassignment (drag between columns) ───────────────
 
-    async reassignPhase(parentPath: string, childPath: string, fromPhase: string, toPhase: string): Promise<void> {
+    async reassignPhase(parentPath: string, childPath: string, fromPhase: string, toPhase: string, fromIndex?: number): Promise<void> {
         const parent = this.getEntity(parentPath);
         if (!parent) return;
 
@@ -1288,8 +1434,8 @@ export class DynamicNarrativeManager {
                 const fromP = scenario.phases.find(p => p.name === fromPhase);
                 const toP = scenario.phases.find(p => p.name === toPhase);
                 if (!fromP || !toP) return;
-                const idx = fromP.linkedObjectives.findIndex(c => resolveWikilinkPath(c.id) === childPath);
-                if (idx < 0) return;
+                const idx = fromIndex !== undefined ? fromIndex : fromP.linkedObjectives.findIndex(c => resolveWikilinkPath(c.id) === childPath);
+                if (idx < 0 || idx >= fromP.linkedObjectives.length) return;
                 const [child] = fromP.linkedObjectives.splice(idx, 1);
                 toP.linkedObjectives.push(child);
                 break;
@@ -1299,8 +1445,8 @@ export class DynamicNarrativeManager {
                 const fromP = objective.phases.find(p => p.name === fromPhase);
                 const toP = objective.phases.find(p => p.name === toPhase);
                 if (!fromP || !toP) return;
-                const idx = fromP.linkedArcs.findIndex(c => resolveWikilinkPath(c.id) === childPath);
-                if (idx < 0) return;
+                const idx = fromIndex !== undefined ? fromIndex : fromP.linkedArcs.findIndex(c => resolveWikilinkPath(c.id) === childPath);
+                if (idx < 0 || idx >= fromP.linkedArcs.length) return;
                 const [child] = fromP.linkedArcs.splice(idx, 1);
                 toP.linkedArcs.push(child);
                 break;
@@ -1327,7 +1473,7 @@ export class DynamicNarrativeManager {
         await this.saveSystemJson();
     }
 
-    async toggleLinkPriority(parentPath: string, childPath: string, phaseName: string, isPrimary: boolean): Promise<void> {
+    async toggleLinkPriority(parentPath: string, childPath: string, phaseName: string, isPrimary: boolean, index?: number): Promise<void> {
         const parent = this.getEntity(parentPath);
         if (!parent) return;
 
@@ -1336,7 +1482,9 @@ export class DynamicNarrativeManager {
                 const scenario = parent as Scenario;
                 const phase = scenario.phases.find(p => p.name === phaseName);
                 if (!phase) return;
-                const link = phase.linkedObjectives.find(c => resolveWikilinkPath(c.id) === childPath);
+                const link = index !== undefined
+                    ? (index >= 0 && index < phase.linkedObjectives.length ? phase.linkedObjectives[index] : undefined)
+                    : phase.linkedObjectives.find(c => resolveWikilinkPath(c.id) === childPath);
                 if (link) link.isPrimary = isPrimary;
                 break;
             }
@@ -1344,7 +1492,9 @@ export class DynamicNarrativeManager {
                 const objective = parent as ObjectiveVariant;
                 const phase = objective.phases.find(p => p.name === phaseName);
                 if (!phase) return;
-                const link = phase.linkedArcs.find(c => resolveWikilinkPath(c.id) === childPath);
+                const link = index !== undefined
+                    ? (index >= 0 && index < phase.linkedArcs.length ? phase.linkedArcs[index] : undefined)
+                    : phase.linkedArcs.find(c => resolveWikilinkPath(c.id) === childPath);
                 if (link) link.isPrimary = isPrimary;
                 break;
             }
@@ -1527,6 +1677,10 @@ export class DynamicNarrativeManager {
             || this.arcTypes.get(filePath)
             || this.arcVariants.get(filePath)
             || this.quests.get(filePath);
+    }
+
+    getEntities(entityType: DNEntityType): DNEntity[] {
+        return [...this.getMapForType(entityType).values()];
     }
 
     getEntityType(filePath: string): DNEntityType | null {

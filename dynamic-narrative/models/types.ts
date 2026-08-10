@@ -15,6 +15,7 @@ export interface DNBase {
     description: string;
     created: string;
     modified: string;
+    dirty: boolean;
 }
 
 export interface DNPhase {

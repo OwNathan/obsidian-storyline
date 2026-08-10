@@ -79,7 +79,7 @@ Settings are stored in Obsidian's `data.json` via `Plugin.loadData()` / `Plugin.
 | `dnObjectiveCategories` | `string[]` | `['Structured', 'Dynamic', 'Procedural']` | Available categories for Objectives |
 | `dnArcCategories` | `string[]` | `['Primary', 'Secondary']` | Available categories for Arcs |
 | `dnQuestCategories` | `string[]` | `['Goal', 'Limit', 'Event', 'Modifier']` | Available categories for Quests |
-| `dnKanbanShowFullHeader` | `boolean` | `true` | Show name + description + category in kanban header (name only when disabled) |
+| `dnKanbanShowFullHeader` | `boolean` | `true` | Show name + description + category in the Dynamic Narrative phase-board header (name only when disabled) |
 
 Categories can be managed via the settings tab or per-project through the `DNCategoryModal` in the Dynamic Narrative view.
 

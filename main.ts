@@ -22,7 +22,7 @@ import {
     SCENE_INSPECTOR_VIEW_TYPE,
     MANUSCRIPT_VIEW_TYPE,
     RESEARCH_VIEW_TYPE,
-    NOTES_VIEW_TYPE,
+    COMMENTS_VIEW_TYPE,
     SYNOPSIS_VIEW_TYPE,
     DETAILS_VIEW_TYPE,
     DYNAMIC_NARRATIVE_VIEW_TYPE,
@@ -41,7 +41,7 @@ import { HelpView } from './views/HelpView';
 import { NavigatorView } from './views/NavigatorView';
 import { CodexView } from './views/CodexView';
 import { SceneInspectorView } from './views/SceneInspectorView';
-import { NotesView } from './views/NotesView';
+import { CommentsView } from './views/CommentsView';
 import { SynopsisView } from './views/SynopsisView';
 import { DetailsView } from './views/DetailsView';
 import { ManuscriptView } from './views/ManuscriptView';
@@ -65,6 +65,7 @@ import { buildFormattingToolbar } from './components/FormattingToolbar';
 import { setupMobileKeyboardHandling } from './components/MobileAdapter';
 import { DynamicNarrativeManager } from './dynamic-narrative/services/DynamicNarrativeManager';
 import { DynamicNarrativeView } from './dynamic-narrative/views/DynamicNarrativeView';
+import { CommentsManager } from './services/CommentsManager';
 
 /**
  * StoryLine Plugin for Obsidian
@@ -90,6 +91,7 @@ export default class SceneCardsPlugin extends Plugin {
     seriesManager!: SeriesManager;
     researchManager!: ResearchManager;
     dynamicNarrativeManager!: DynamicNarrativeManager;
+    commentsManager!: CommentsManager;
     /** The leaf currently hosting a StoryLine view */
     storyLeaf: WorkspaceLeaf | null = null;
     /** Removes native browser tooltips (`title`) inside StoryLine UI */
@@ -144,6 +146,7 @@ export default class SceneCardsPlugin extends Plugin {
         this.seriesManager = new SeriesManager(this.app, this);
         this.researchManager = new ResearchManager(this.app, this);
         this.dynamicNarrativeManager = new DynamicNarrativeManager(this.app, this);
+        this.commentsManager = new CommentsManager(this.app);
 
         // Wire up undo/redo to refresh views + re-index
         this.sceneManager.undoManager.onAfterUndoRedo = async () => {
@@ -215,8 +218,8 @@ export default class SceneCardsPlugin extends Plugin {
         this.registerView(SCENE_INSPECTOR_VIEW_TYPE, (leaf) =>
             new SceneInspectorView(leaf, this, this.sceneManager)
         );
-        this.registerView(NOTES_VIEW_TYPE, (leaf) =>
-            new NotesView(leaf, this, this.sceneManager)
+        this.registerView(COMMENTS_VIEW_TYPE, (leaf) =>
+            new CommentsView(leaf, this, this.commentsManager)
         );
         this.registerView(SYNOPSIS_VIEW_TYPE, (leaf) =>
             new SynopsisView(leaf, this, this.sceneManager)
@@ -266,6 +269,13 @@ export default class SceneCardsPlugin extends Plugin {
             // Load locations and characters for the active project
             try {
                 await this.loadActiveProjectEntities();
+            } catch { /* not set yet */ }
+            // Load comments for the active project
+            try {
+                const commentsFolder = this.sceneManager.getCommentsFolder();
+                if (commentsFolder) {
+                    await this.commentsManager.loadAll(commentsFolder);
+                }
             } catch { /* not set yet */ }
             // Scan extra source folders and route by frontmatter type
             try {
@@ -427,7 +437,7 @@ export default class SceneCardsPlugin extends Plugin {
                 BOARD_VIEW_TYPE, PLOTGRID_VIEW_TYPE, TIMELINE_VIEW_TYPE,
                 STORYLINE_VIEW_TYPE, CHARACTER_VIEW_TYPE, STATS_VIEW_TYPE,
                 LOCATION_VIEW_TYPE, CODEX_VIEW_TYPE, SCENE_INSPECTOR_VIEW_TYPE,
-                NOTES_VIEW_TYPE, SYNOPSIS_VIEW_TYPE, DETAILS_VIEW_TYPE,
+                COMMENTS_VIEW_TYPE, SYNOPSIS_VIEW_TYPE, DETAILS_VIEW_TYPE,
                 MANUSCRIPT_VIEW_TYPE, RESEARCH_VIEW_TYPE, HELP_VIEW_TYPE,
                 NAVIGATOR_VIEW_TYPE, DYNAMIC_NARRATIVE_VIEW_TYPE,
             ];
@@ -470,7 +480,7 @@ export default class SceneCardsPlugin extends Plugin {
         this.addCommand({
             id: 'open-scene-notes',
             name: 'Open scene notes sidebar',
-            callback: () => this.openNotesView(),
+            callback: () => this.openCommentsView(),
         });
 
         this.addCommand({
@@ -663,6 +673,12 @@ export default class SceneCardsPlugin extends Plugin {
                             if (locFolder && file.path.startsWith(locFolder)) {
                                 debouncedRefresh();
                             }
+                        } else if (file.extension === 'md' && !this.commentsManager.isSelfWrite()) {
+                            const commentsFolder = this.sceneManager.getCommentsFolder();
+                            if (commentsFolder && file.path.startsWith(commentsFolder)) {
+                                this.commentsManager.handleFileChange(file.path);
+                                debouncedRefresh();
+                            }
                         }
                     });
                 }
@@ -674,6 +690,15 @@ export default class SceneCardsPlugin extends Plugin {
                 if (file instanceof TFile && this.isSystemFile(file.path)) return;
                 if (file instanceof TFile) {
                     this.sceneManager.handleFileDelete(file.path);
+                    // Cascade: delete comments attached to the deleted file
+                    const commentsFolder = this.sceneManager.getCommentsFolder();
+                    if (commentsFolder && !file.path.startsWith(commentsFolder)) {
+                        this.commentsManager.cascadeRelatedDelete(file.path).then(() => {}).catch(() => {});
+                    }
+                    // Handle comment file delete
+                    if (commentsFolder && file.path.startsWith(commentsFolder)) {
+                        this.commentsManager.handleFileDelete(file.path);
+                    }
                     debouncedRefresh();
                 }
             })
@@ -687,6 +712,15 @@ export default class SceneCardsPlugin extends Plugin {
                         await this.updatePlotGridLinkedSceneIds(oldPath, file.path);
                         if (this.dynamicNarrativeManager.isDNEntityPath(file.path)) {
                             await this.dynamicNarrativeManager.cascadeRename(oldPath, file.path);
+                        }
+                        // Cascade: rename comments attached to the renamed file
+                        const commentsFolder = this.sceneManager.getCommentsFolder();
+                        if (commentsFolder && !file.path.startsWith(commentsFolder)) {
+                            await this.commentsManager.cascadeRelatedRename(oldPath, file.path);
+                        }
+                        // Handle comment file rename
+                        if (commentsFolder && file.path.startsWith(commentsFolder)) {
+                            this.commentsManager.handleFileRename(file, oldPath);
                         }
                         debouncedRefresh();
                     });
@@ -1844,18 +1878,18 @@ export default class SceneCardsPlugin extends Plugin {
     }
 
     /**
-     * Open (or reveal) the standalone Notes sidebar view.
+     * Open (or reveal) the standalone Comments board view.
      */
-    async openNotesView(): Promise<void> {
+    async openCommentsView(): Promise<void> {
         const { workspace } = this.app;
-        const existing = workspace.getLeavesOfType(NOTES_VIEW_TYPE);
+        const existing = workspace.getLeavesOfType(COMMENTS_VIEW_TYPE);
         if (existing.length > 0) {
             workspace.revealLeaf(existing[0]);
             return;
         }
         const leaf = workspace.getRightLeaf(false);
         if (leaf) {
-            await leaf.setViewState({ type: NOTES_VIEW_TYPE, active: true });
+            await leaf.setViewState({ type: COMMENTS_VIEW_TYPE, active: true });
             workspace.revealLeaf(leaf);
         }
     }
@@ -1997,6 +2031,11 @@ export default class SceneCardsPlugin extends Plugin {
             this.codexManager.initCategories(this.settings.codexEnabledCategories || [], customDefs);
             await this.codexManager.loadAll(codexFolder);
             await this.scanExtraFolders();
+        }
+        // Re-load comments from the project Comments folder
+        const commentsFolder = this.sceneManager.getCommentsFolder();
+        if (commentsFolder) {
+            await this.commentsManager.loadAll(commentsFolder);
         }
     }
 

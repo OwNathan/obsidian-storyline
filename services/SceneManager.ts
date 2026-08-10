@@ -182,6 +182,13 @@ export class SceneManager implements ISceneStore {
         return `${root}/SceneNotes`;
     }
 
+    /** Computed comments folder for the active project (user-authored comments on entities) */
+    getCommentsFolder(): string {
+        if (this._activeProject) return this._activeProject.commentsFolder;
+        const root = this.plugin.settings.storyLineRoot;
+        return `${root}/Comments`;
+    }
+
     /** Computed archive folder for the active project (cut / archived scenes) */
     getArchiveFolder(): string {
         if (this._activeProject) return this._activeProject.archiveFolder;
@@ -421,6 +428,7 @@ export class SceneManager implements ISceneStore {
             await this.ensureFolder(folders.characterFolder);
             await this.ensureFolder(folders.locationFolder);
             await this.ensureFolder(folders.notesFolder);
+            await this.ensureFolder(folders.commentsFolder);
             await this.ensureFolder(folders.archiveFolder);
             await this.ensureFolder(folders.researchFolder);
 
@@ -546,6 +554,7 @@ export class SceneManager implements ISceneStore {
         project.locationFolder = newFolders.locationFolder;
         project.codexFolder = newFolders.codexFolder;
         project.notesFolder = newFolders.notesFolder;
+        project.commentsFolder = newFolders.commentsFolder;
         project.archiveFolder = newFolders.archiveFolder;
         this.projects.set(newFilePath, project);
 

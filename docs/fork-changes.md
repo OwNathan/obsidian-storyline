@@ -186,7 +186,7 @@ Tracks all modifications to the shared obsidian-storyline codebase. Use this whe
 
 ### dynamic-narrative/components/
 - `DNOverview.ts` — Overview tab with debounced sortable/filterable entity lists, DNCreateModal for creation
-- `DNKanban.ts` — Reusable kanban board with debounced sidebar search, phase columns, drag-and-drop, create modal, context menu
+- `DNKanban.ts` — Reusable Dynamic Narrative phase board with debounced sidebar search, vertically stacked phase panels, three-column content layout, drag-and-drop, create modal, and context menu
 - `DNQuestGrid.ts` — Quest grid/list + editor + usage sidebar with debounced search
 - `DNInspector.ts` — Entity inspector with:
   - **Suggestor-based linked entity inputs** — `renderTagPillInput` for Linked Locations, Linked Characters, and arc phase quest links (Linked Goals/Limits/Events/Modifiers)

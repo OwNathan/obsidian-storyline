@@ -15,7 +15,6 @@ import {
     HELP_VIEW_TYPE,
     SYNOPSIS_VIEW_TYPE,
     DETAILS_VIEW_TYPE,
-    NOTES_VIEW_TYPE,
 } from '../constants';
 
 type InspectorTab = 'synopsis' | 'notes' | 'details' | 'research' | 'help';
@@ -23,7 +22,7 @@ type InspectorTab = 'synopsis' | 'notes' | 'details' | 'research' | 'help';
 const TAB_DEFS: { id: InspectorTab; label: string; icon: string; popOutType?: string }[] = [
     { id: 'details',  label: 'Details',  icon: 'list',         popOutType: DETAILS_VIEW_TYPE },
     { id: 'synopsis', label: 'Synopsis', icon: 'scroll-text',  popOutType: SYNOPSIS_VIEW_TYPE },
-    { id: 'notes',    label: 'Notes',    icon: 'sticky-note',  popOutType: NOTES_VIEW_TYPE },
+    { id: 'notes',    label: 'Notes',    icon: 'sticky-note' },
     { id: 'research', label: 'Research', icon: 'library-big',  popOutType: RESEARCH_VIEW_TYPE },
     { id: 'help',     label: 'Help',     icon: 'help-circle',  popOutType: HELP_VIEW_TYPE },
 ];

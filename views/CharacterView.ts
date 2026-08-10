@@ -27,7 +27,9 @@ import { attachTooltip } from '../components/Tooltip';
 import { renderCodexCategoryTabs } from '../components/CodexCategoryTabs';
 import { ItemView, Modal, Notice, Setting, TFile, WorkspaceLeaf } from 'obsidian';
 import { CHARACTER_CATEGORIES, CHARACTER_ROLES, Character, CharacterFieldDef, CharacterRelation, CharacterRelationCategory, RELATION_CATEGORIES, RELATION_TYPES_BY_CATEGORY, RoleEntry, TagType, computeReciprocalUpdates, extractCharacterLocationTags, extractCharacterProps, getPrimaryRole, getRoleDisplay, getRoleList, normalizeCharacterRelations } from '../models/Character';
-import { CHARACTER_VIEW_TYPE } from '../constants';
+import { CHARACTER_VIEW_TYPE, COMMENTS_VIEW_TYPE } from '../constants';
+import { AddCommentModal } from '../components/AddCommentModal';
+import { renderCommentCapsule } from '../components/CommentCapsule';
 import { Scene, isWrittenLikeStatus, resolveStatusCfg } from '../models/Scene';
 import { coerceString } from '../utils/narrow';
 
@@ -843,6 +845,28 @@ export class CharacterView extends ItemView {
         attachTooltip(deleteBtn, 'Delete character');
         deleteBtn.addEventListener('click', () => this.confirmDeleteCharacter(character));
 
+        // Add Comment
+        const commentBtn = headerRight.createEl('button', {
+            cls: 'codex-detail-action-btn',
+            attr: { 'aria-label': 'Add comment' },
+        });
+        const commentIcon = commentBtn.createSpan();
+        obsidian.setIcon(commentIcon, 'message-square');
+        attachTooltip(commentBtn, 'Add comment');
+        commentBtn.addEventListener('click', () => {
+            const commentsFolder = this.sceneManager.getCommentsFolder();
+            if (!commentsFolder) return;
+            new AddCommentModal(
+                this.app,
+                this.plugin.commentsManager,
+                commentsFolder,
+                character.filePath,
+                character.name,
+                'character',
+                () => { if (this.rootContainer) this.renderView(this.rootContainer); },
+            ).open();
+        });
+
         // Portrait area (detail view — larger, clickable to change)
         const portraitArea = container.createDiv('character-detail-portrait');
         const renderPortrait = () => {
@@ -907,6 +931,7 @@ export class CharacterView extends ItemView {
         this.renderScenePanel(sidePanel, character.name);
         this.renderLinkedAliasesPanel(sidePanel, character.name);
         this.renderReferencesPanel(sidePanel, character.name);
+        this.renderCommentsSection(sidePanel, character);
     }
 
     private renderCategory(
@@ -2493,6 +2518,39 @@ export class CharacterView extends ItemView {
         const stat = parent.createDiv('character-stat-item');
         stat.createDiv({ cls: 'character-stat-value', text: value });
         stat.createDiv({ cls: 'character-stat-label', text: label });
+    }
+
+    // ── Comments section ────────────────────────────────
+
+    private renderCommentsSection(container: HTMLElement, character: Character): void {
+        if (!this.plugin.commentsManager) return;
+        const comments = this.plugin.commentsManager.getCommentsForFile(character.filePath);
+        if (!comments || comments.length === 0) return;
+
+        const section = container.createDiv('codex-side-section');
+        section.createEl('h4', { text: 'Comments' });
+
+        const capsuleRow = section.createDiv('sl-comments-capsule-row');
+        for (const comment of comments) {
+            renderCommentCapsule(
+                capsuleRow,
+                comment.title,
+                comment.status,
+                comment.filePath,
+                (filePath: string) => {
+                    this.plugin.activateView(COMMENTS_VIEW_TYPE);
+                    const leaves = this.app.workspace.getLeavesOfType(COMMENTS_VIEW_TYPE);
+                    for (const leaf of leaves) {
+                        const view = leaf.view as unknown as { selectComment?: (path: string) => void };
+                        if (view && typeof view.selectComment === 'function') {
+                            view.selectComment(filePath);
+                            this.app.workspace.revealLeaf(leaf);
+                            break;
+                        }
+                    }
+                },
+            );
+        }
     }
 
     /**

@@ -108,29 +108,30 @@ Displays the bundled `HELP.md` documentation in a dedicated pane.
 
 ### DynamicNarrativeView
 
-Single view with 5 internal tabs for game narrative entities. Includes a resizable inspector sidebar (mouse + touch support, session-only width), kanban boards for Scenarios/Objectives/Arcs, a quest grid for Quests, and a unified Overview. Uses `DNKanban`, `DNQuestGrid`, `DNInspector`, and `DNOverview` components. Features the standard plugin header toolbar with view switcher for cross-view navigation. The inspector panel is hidden when viewing the Quests tab.
+Single view with seven internal tabs for game narrative entities. Includes a resizable inspector sidebar (mouse + touch support, session-only width), vertical phase boards for Scenarios/Objective Variants/Arc Variants, type grids, a quest grid, and a unified Overview. Uses `DNKanban`, `DNTypeGrid`, `DNQuestGrid`, `DNInspector`, and `DNOverview` components. Features the standard plugin header toolbar with view switcher for cross-view navigation. The inspector panel is hidden when viewing the Type and Quests tabs.
 
 **Tabs:**
 | Tab | Component | Description |
 |---|---|---|
 | Overview | `DNOverview` | Collapsible lists for all 4 entity types with search, sort, and filter |
-| Scenarios | `DNKanban` | Kanban view for Scenarios with sidebar entity selector, phase columns, drag-and-drop |
-| Objectives | `DNKanban` | Kanban view for Objectives |
-| Arcs | `DNKanban` | Kanban view for Arcs |
+| Scenarios | `DNKanban` | Vertical phase panels with Conditions, Commands, linked Objective Variants, and drag-and-drop |
+| Objective Variants | `DNKanban` | Vertical phase panels with override-only content and linked Arc Variants split by Primary/Secondary |
+| Arc Variants | `DNKanban` | Vertical phase panels with override-only content and linked Quests grouped by category |
+| Objective/Arc Types | `DNTypeGrid` | Type editors that own and propagate phase definitions to their Variants |
 | Quests | `DNQuestGrid` | Quest list + editor + usage stats sidebar |
 
 **Constructor:** `DynamicNarrativeView(leaf: WorkspaceLeaf, plugin: SceneCardsPlugin)`
 
 **Key methods:**
 - `openInInspector(path)` -- single-click opens entity in inspector (skipped for quests)
-- `navigateToKanban(path, entityType)` -- double-click navigates to kanban tab
+- `navigateToKanban(path, entityType)` -- double-click navigates to the relevant Dynamic Narrative tab
 - `refresh()` -- reload data and refresh current tab, hides inspector on quests tab
 
 **Components used:**
 - `DNOverview` -- debounced search (200ms), sort, category filter, DNCreateModal for entity creation
-- `DNKanban` -- phase columns, sidebar with search, drag-and-drop cards, right-click context menu (Edit/Unlink), create child entities from column header
+- `DNKanban` -- sidebar with search, vertically stacked phase panels spanning the full width, three content columns, drag-and-drop cards, right-click context menu (Edit/priority/Unlink), and create/link child entities from each phase header
 - `DNQuestGrid` -- list panel, editor panel (category, type, description, phases), usage panel (transitive connection counts)
-- `DNInspector` -- entity fields, category selector, phase accordions with DNPhaseModal for custom phases, auto-save (600ms debounce). Features suggestor-based tag-pill inputs for Linked Locations, Linked Characters, and arc phase quest links (Goals/Limits/Events/Modifiers). Header includes file-open and delete buttons with confirmation dialog. Custom phase names use single-line inputs.
+- `DNInspector` -- entity fields, category selector, phase accordions with DNPhaseModal for Scenario/Type/Quest phase structure, auto-save (600ms debounce). Objective and Arc Variants expose only override content; their phase structure is owned by the corresponding Type. Features suggestor-based tag-pill inputs for Linked Locations, Linked Characters, and arc phase quest links (Goals/Limits/Events/Modifiers). Header includes file-open and delete buttons with confirmation dialog. Custom phase names use single-line inputs where applicable.
 
 **Mobile:** Inspector resize supports touch events. Touchstart/touchmove/touchend handlers registered alongside mouse events, properly cleaned up on view close.
 

@@ -5,11 +5,13 @@ import type SceneCardsPlugin from '../main';
 import { SceneManager } from '../services/SceneManager';
 import { CodexManager, MirroredSection } from '../services/CodexManager';
 import { CodexEntry, CodexCategoryDef, CodexFieldCategory, CodexFieldDef, BUILTIN_CODEX_CATEGORIES, makeCustomCodexCategory, CODEX_ICON_OPTIONS } from '../models/Codex';
-import { CODEX_VIEW_TYPE, CHARACTER_VIEW_TYPE, LOCATION_VIEW_TYPE } from '../constants';
+import { CODEX_VIEW_TYPE, CHARACTER_VIEW_TYPE, LOCATION_VIEW_TYPE, COMMENTS_VIEW_TYPE } from '../constants';
 import { renderViewSwitcher } from '../components/ViewSwitcher';
 import { applyMobileClass } from '../components/MobileAdapter';
 import { pickImage as pickImageModal, resolveImagePath } from '../components/ImagePicker';
 import { AddFieldModal } from '../components/AddFieldModal';
+import { AddCommentModal } from '../components/AddCommentModal';
+import { renderCommentCapsule } from '../components/CommentCapsule';
 import { attachTooltip } from '../components/Tooltip';
 import { openConfirmModal } from '../components/ConfirmModal';
 import {
@@ -482,6 +484,28 @@ export class CodexView extends ItemView {
         attachTooltip(deleteBtn, 'Delete');
         deleteBtn.addEventListener('click', () => this.confirmDeleteEntry(entry));
 
+        // Add Comment
+        const commentBtn = headerRight.createEl('button', {
+            cls: 'codex-detail-action-btn',
+            attr: { 'aria-label': 'Add comment' },
+        });
+        const commentIcon = commentBtn.createSpan();
+        obsidian.setIcon(commentIcon, 'message-square');
+        attachTooltip(commentBtn, 'Add comment');
+        commentBtn.addEventListener('click', () => {
+            const commentsFolder = this.sceneManager.getCommentsFolder();
+            if (!commentsFolder) return;
+            new AddCommentModal(
+                this.app,
+                this.plugin.commentsManager,
+                commentsFolder,
+                entry.filePath,
+                entry.name,
+                'codex',
+                () => { if (this.rootContainer) this.renderView(this.rootContainer); },
+            ).open();
+        });
+
         // ── Type label ─────────────────────────────────
         const typeLabel = container.createDiv('codex-detail-type-label');
         const typeIcon = typeLabel.createSpan({ cls: 'codex-detail-type-icon' });
@@ -536,9 +560,9 @@ export class CodexView extends ItemView {
         // Books (series-ready)
         this.renderBooksField(formPanel, draft);
 
-        // Side panel — gallery + notes + references
+        // Side panel — gallery + comments + references
         this.renderGallerySection(sidePanel, draft);
-        this.renderNotesSection(sidePanel, draft);
+        this.renderCommentsSection(sidePanel, entry);
         this.renderReferencesPanel(sidePanel, entry.name);
 
         // Show stale-entry warning if codex content changed since last review
@@ -1580,21 +1604,37 @@ export class CodexView extends ItemView {
         renderThumbs();
     }
 
-    // ── Notes section ──────────────────────────────────
+    // ── Comments section ────────────────────────────────
 
-    private renderNotesSection(container: HTMLElement, draft: CodexEntry): void {
+    private renderCommentsSection(container: HTMLElement, entry: CodexEntry): void {
+        const comments = this.plugin.commentsManager.getCommentsForFile(entry.filePath);
+        if (!comments || comments.length === 0) return;
+
         const section = container.createDiv('codex-side-section');
-        section.createEl('h4', { text: 'Notes' });
+        section.createEl('h4', { text: 'Comments' });
 
-        const textarea = section.createEl('textarea', {
-            cls: 'codex-notes-textarea',
-            attr: { placeholder: 'Free-form notes (markdown)…', rows: '8' },
-        });
-        textarea.value = draft.notes || '';
-        textarea.addEventListener('input', () => {
-            draft.notes = textarea.value;
-            this.scheduleSave(draft);
-        });
+        const capsuleRow = section.createDiv('sl-comments-capsule-row');
+        for (const comment of comments) {
+            renderCommentCapsule(
+                capsuleRow,
+                comment.title,
+                comment.status,
+                comment.filePath,
+                (filePath: string) => {
+                    this.plugin.activateView(COMMENTS_VIEW_TYPE);
+                    // Attempt to select the comment in the CommentsView
+                    const leaves = this.app.workspace.getLeavesOfType(COMMENTS_VIEW_TYPE);
+                    for (const leaf of leaves) {
+                        const view = leaf.view as unknown as { selectComment?: (path: string) => void };
+                        if (view && typeof view.selectComment === 'function') {
+                            view.selectComment(filePath);
+                            this.app.workspace.revealLeaf(leaf);
+                            break;
+                        }
+                    }
+                },
+            );
+        }
     }
 
     // ══════════════════════════════════════════════════

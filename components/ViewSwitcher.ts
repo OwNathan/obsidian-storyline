@@ -16,6 +16,7 @@ import {
     CODEX_VIEW_TYPE,
     MANUSCRIPT_VIEW_TYPE,
     DYNAMIC_NARRATIVE_VIEW_TYPE,
+    COMMENTS_VIEW_TYPE,
 } from '../constants';
 import { getBuiltinCodexCategory, makeCustomCodexCategory } from '../models/Codex';
 
@@ -34,6 +35,7 @@ export const VIEW_ENTRIES: ViewSwitcherEntry[] = [
     { type: MANUSCRIPT_VIEW_TYPE, label: 'Manuscript', icon: 'book-open-text' },
     { type: CODEX_VIEW_TYPE, label: 'Codex', icon: 'book-open' },
     { type: STATS_VIEW_TYPE, label: 'Stats', icon: 'bar-chart-2' },
+    { type: COMMENTS_VIEW_TYPE, label: 'Comments', icon: 'message-square' },
 ];
 
 /** View types that are considered "inside" the Codex umbrella */

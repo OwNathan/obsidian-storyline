@@ -11,6 +11,7 @@ import { DNKanban } from '../components/DNKanban';
 import { DNQuestGrid } from '../components/DNQuestGrid';
 import { DNTypeGrid } from '../components/DNTypeGrid';
 import { DNInspector } from '../components/DNInspector';
+import { DNUpdateBodyModal } from '../components/DNUpdateBodyModal';
 
 type DNTab = 'overview' | 'scenarios' | 'objective-types' | 'objective-variants' | 'arc-types' | 'arc-variants' | 'quests';
 
@@ -107,7 +108,32 @@ export class DynamicNarrativeView extends ItemView {
     }
 
     async refresh(): Promise<void> {
-        this.switchTab(this.activeTab);
+        // Re-render the active component in place instead of switchTab():
+        // switchTab destroys and recreates the component, wiping filter/sort/
+        // scroll state (the old behaviour reset filters after a quest rename,
+        // because vault rename events trigger refreshOpenViews). The manager is
+        // re-initialized in place by refreshOpenViews, so the existing
+        // component reads fresh data while keeping its UI state.
+        switch (this.activeTab) {
+            case 'overview':
+                this.overview?.render();
+                break;
+            case 'scenarios':
+            case 'objective-variants':
+            case 'arc-variants':
+                this.kanban?.render();
+                break;
+            case 'objective-types':
+            case 'arc-types':
+                this.typeGrid?.render();
+                break;
+            case 'quests':
+                this.questGrid?.render();
+                break;
+        }
+        if (!this.overview && !this.kanban && !this.questGrid && !this.typeGrid) {
+            this.switchTab(this.activeTab);
+        }
         if (this.activeTab === 'quests' || this.activeTab === 'objective-types' || this.activeTab === 'arc-types') {
             return;
         }
@@ -151,6 +177,14 @@ export class DynamicNarrativeView extends ItemView {
                 this.switchTab(tab.id);
             });
         }
+
+        const updateBtn = this.tabContainerEl.createDiv('dn-update-body-btn');
+        const updateIcon = updateBtn.createSpan('dn-update-body-btn-icon');
+        setIcon(updateIcon, 'refresh-cw');
+        updateBtn.createSpan('dn-update-body-btn-label').setText('Update Notes Body');
+        updateBtn.addEventListener('click', () => {
+            new DNUpdateBodyModal(this.plugin, this.manager).open();
+        });
     }
 
     private switchTab(tab: DNTab): void {
@@ -171,8 +205,12 @@ export class DynamicNarrativeView extends ItemView {
 
         const isTypeTab = tab === 'objective-types' || tab === 'arc-types';
 
-        if (isTypeTab) {
+        this.inspectorEl?.removeClass('dn-inspector-hidden');
+        this.resizeHandleEl?.removeClass('dn-resize-handle-hidden');
+
+        if (isTypeTab || tab === 'quests') {
             this.inspectorEl?.addClass('dn-inspector-hidden');
+            this.resizeHandleEl?.addClass('dn-resize-handle-hidden');
         }
 
         switch (tab) {
@@ -235,12 +273,10 @@ export class DynamicNarrativeView extends ItemView {
                 this.kanban.render(this.selectedEntityPath);
                 break;
             case 'quests':
-                this.inspectorEl?.addClass('dn-inspector-hidden');
                 this.questGrid = new DNQuestGrid(
                     this._contentEl,
                     this.manager,
                     this.plugin,
-                    (path) => this.openInInspector(path),
                 );
                 this.questGrid.render();
                 break;

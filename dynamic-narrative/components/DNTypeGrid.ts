@@ -1,11 +1,18 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { setIcon, Menu, TFile, Modal } from 'obsidian';
+import { setIcon, Menu, TFile, Modal, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
 import type { ObjectiveType } from '../models/Objective';
 import type { ArcType } from '../models/Arc';
 import { isDefaultPhase, debounce } from '../models/types';
 import { DNPhaseModal } from './DNPhaseModal';
+import { DNCreateModal } from './DNCreateModal';
+import { getCategoryColorClass } from '../../utils/categoryColor';
+import { AddCommentModal } from '../../components/AddCommentModal';
+import { renderCommentCapsule } from '../../components/CommentCapsule';
+import { openConfirmModal } from '../../components/ConfirmModal';
+import { attachTooltip } from '../../components/Tooltip';
+import { COMMENTS_VIEW_TYPE } from '../../constants';
 
 type SortKey = 'name' | 'created' | 'modified' | 'category';
 type SortDir = 'asc' | 'desc';
@@ -21,6 +28,7 @@ export class DNTypeGrid {
     private filterCategory = '';
     private sortKey: SortKey = 'name';
     private sortDir: SortDir = 'asc';
+    private collapsedPhases: Set<string> = new Set();
 
     constructor(
         containerEl: HTMLElement,
@@ -35,6 +43,11 @@ export class DNTypeGrid {
     }
 
     render(): void {
+        if (this.selectedPath && !this.manager.getEntity(this.selectedPath)) {
+            this.selectedPath = '';
+        }
+        const prevScrollTop = this.getListScrollTop();
+        const searchFocus = this.getSearchFocusState();
         this.containerEl.empty();
         this.containerEl.addClass('dn-type-grid');
 
@@ -52,11 +65,48 @@ export class DNTypeGrid {
             editorPanel.createDiv('dn-empty-state').setText('Select a type to edit.');
             usagePanel.empty();
         }
+
+        this.restoreListState(prevScrollTop, searchFocus);
     }
 
     destroy(): void {
         this.containerEl.empty();
         this.containerEl.removeClass('dn-type-grid');
+    }
+
+    private getListScrollTop(): number {
+        const list = this.containerEl.querySelector('.dn-type-list');
+        return list ? list.scrollTop : 0;
+    }
+
+    private getSearchFocusState(): { caret: number } | null {
+        const input = this.containerEl.querySelector('.dn-search-input') as HTMLInputElement | null;
+        if (input && document.activeElement === input) {
+            return { caret: input.selectionStart ?? input.value.length };
+        }
+        return null;
+    }
+
+    private restoreListState(prevScrollTop: number, searchFocus: { caret: number } | null): void {
+        const list = this.containerEl.querySelector('.dn-type-list');
+        if (list) {
+            if (prevScrollTop > 0) list.scrollTop = prevScrollTop;
+            const selectedItem = list.querySelector('.dn-type-list-item.is-selected') as HTMLElement | null;
+            if (selectedItem) {
+                const lr = list.getBoundingClientRect();
+                const sr = selectedItem.getBoundingClientRect();
+                if (sr.top < lr.top || sr.bottom > lr.bottom) {
+                    selectedItem.scrollIntoView({ block: 'nearest' });
+                }
+            }
+        }
+        if (searchFocus) {
+            const input = this.containerEl.querySelector('.dn-search-input') as HTMLInputElement | null;
+            if (input) {
+                input.focus();
+                input.setSelectionRange(searchFocus.caret, searchFocus.caret);
+            }
+        }
     }
 
     private getEntities(): Array<ObjectiveType | ArcType> {
@@ -80,6 +130,12 @@ export class DNTypeGrid {
         return this.manager.getCategories(this.entityType);
     }
 
+    private getVariantCount(entity: ObjectiveType | ArcType): number {
+        return this.entityType === 'objective-type'
+            ? this.manager.getObjectiveVariantsOfType(entity.filePath).length
+            : this.manager.getArcVariantsOfType(entity.filePath).length;
+    }
+
     private renderListPanel(panel: HTMLElement): void {
         panel.empty();
         const label = this.getTypeLabel();
@@ -92,7 +148,7 @@ export class DNTypeGrid {
             cls: 'dn-search-input',
         });
         searchInput.value = this.filterText;
-        const debouncedRender = debounce(() => this.render(), 200);
+        const debouncedRender = debounce(() => this.render(), 100);
         searchInput.addEventListener('input', () => {
             this.filterText = searchInput.value.toLowerCase();
             debouncedRender();
@@ -128,13 +184,23 @@ export class DNTypeGrid {
         });
 
         const createBtn = toolbar.createEl('button', { cls: 'dn-create-btn', text: `+ New ${label}` });
-        createBtn.addEventListener('click', async () => {
-            if (this.entityType === 'objective-type') {
-                await this.manager.createObjectiveType({ title: `New ${label}` });
-            } else {
-                await this.manager.createArcType({ title: `New ${label}` });
-            }
-            this.render();
+        createBtn.addEventListener('click', () => {
+            const modal = new DNCreateModal(
+                this.plugin,
+                this.entityType === 'objective-type' ? 'objective type' : 'arc type',
+                this.getCategories(),
+                async (title, category, description) => {
+                    if (this.entityType === 'objective-type') {
+                        const created = await this.manager.createObjectiveType({ title, category, description });
+                        this.selectedPath = created.filePath;
+                    } else {
+                        const created = await this.manager.createArcType({ title, category, description });
+                        this.selectedPath = created.filePath;
+                    }
+                    this.render();
+                },
+            );
+            modal.open();
         });
 
         const list = panel.createDiv('dn-type-list');
@@ -153,7 +219,9 @@ export class DNTypeGrid {
 
             const metaRow = item.createDiv('dn-type-list-meta');
             if (entity.category) {
-                metaRow.createSpan('dn-type-cat-badge').setText(entity.category);
+                const badge = metaRow.createSpan('dn-type-cat-badge');
+                badge.setText(entity.category);
+                badge.addClass(getCategoryColorClass(entity.category, this.getCategories()));
             }
             const phaseCount = entity.phases.length;
             metaRow.createSpan('dn-type-phase-count').setText(`${phaseCount} phase${phaseCount !== 1 ? 's' : ''}`);
@@ -171,16 +239,41 @@ export class DNTypeGrid {
         const entity = entities.find(e => e.filePath === this.selectedPath);
         if (!entity) return;
 
-        panel.createDiv('dn-type-editor-title').setText(entity.title);
+        const titleRow = panel.createDiv('dn-type-editor-title');
+        titleRow.createSpan('dn-type-editor-title-text').setText(entity.title);
+        const actions = titleRow.createDiv('dn-editor-actions');
+
+        const openBtn = actions.createEl('button', {
+            cls: 'codex-detail-action-btn',
+            attr: { 'aria-label': 'Open file' },
+        });
+        setIcon(openBtn.createSpan(), 'file');
+        attachTooltip(openBtn, 'Open file');
+        openBtn.addEventListener('click', () => this.openEntityFile(entity));
+
+        const deleteBtn = actions.createEl('button', {
+            cls: 'codex-detail-action-btn codex-detail-delete-btn',
+            attr: { 'aria-label': 'Delete' },
+        });
+        setIcon(deleteBtn.createSpan(), 'trash');
+        attachTooltip(deleteBtn, 'Delete');
+        deleteBtn.addEventListener('click', () => this.confirmDeleteEntity(entity));
+
+        const commentBtn = actions.createEl('button', {
+            cls: 'codex-detail-action-btn',
+            attr: { 'aria-label': 'Add comment' },
+        });
+        setIcon(commentBtn.createSpan(), 'message-square');
+        attachTooltip(commentBtn, 'Add comment');
+        commentBtn.addEventListener('click', () => this.openAddCommentModal(entity));
 
         const form = panel.createDiv('dn-type-editor-form');
 
         this.renderField(form, 'Title', 'text', entity.title, [], async (val) => {
-            if (this.entityType === 'objective-type') {
-                await this.manager.updateObjectiveType(entity.filePath, { title: val });
-            } else {
-                await this.manager.updateArcType(entity.filePath, { title: val });
-            }
+            const updated = this.entityType === 'objective-type'
+                ? await this.manager.updateObjectiveType(entity.filePath, { title: val })
+                : await this.manager.updateArcType(entity.filePath, { title: val });
+            if (updated) this.selectedPath = updated.filePath;
             this.render();
         });
 
@@ -209,16 +302,21 @@ export class DNTypeGrid {
         const addPhaseBtn = phasesHeader.createEl('button', { cls: 'dn-add-phase-btn', text: '+ Add Phase' });
         addPhaseBtn.addEventListener('click', () => {
             const modal = new DNPhaseModal(this.plugin.app, null, async (phase) => {
-                this.manager.addCustomPhase(entity, {
-                    ...phase,
-                    isDefault: false,
-                });
-                if (this.entityType === 'objective-type') {
-                    await this.manager.updateObjectiveType(entity.filePath, { phases: entity.phases });
+                const variantCount = this.getVariantCount(entity);
+                if (variantCount > 0) {
+                    openConfirmModal(this.plugin.app, {
+                        title: `Add phase to ${variantCount} variant${variantCount !== 1 ? 's' : ''}`,
+                        message: `This type has ${variantCount} variant${variantCount !== 1 ? 's' : ''}. The phase "${phase.name}" will be added to all of them. Continue?`,
+                        confirmLabel: 'Add & Propagate',
+                        onConfirm: async () => {
+                            await this.manager.addTypePhase(entity, { ...phase, isDefault: false });
+                            this.render();
+                        },
+                    });
                 } else {
-                    await this.manager.updateArcType(entity.filePath, { phases: entity.phases });
+                    await this.manager.addTypePhase(entity, { ...phase, isDefault: false });
+                    this.render();
                 }
-                this.render();
             });
             modal.open();
         });
@@ -244,20 +342,31 @@ export class DNTypeGrid {
                 setIcon(deleteBtn, 'trash-2');
                 deleteBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    this.manager.removeCustomPhase(entity, phase.name);
-                    if (this.entityType === 'objective-type') {
-                        await this.manager.updateObjectiveType(entity.filePath, { phases: entity.phases });
+                    const variantCount = this.getVariantCount(entity);
+                    if (variantCount > 0) {
+                        openConfirmModal(this.plugin.app, {
+                            title: `Remove phase from ${variantCount} variant${variantCount !== 1 ? 's' : ''}`,
+                            message: `This type has ${variantCount} variant${variantCount !== 1 ? 's' : ''}. The phase "${phase.name}" and its content in each variant will be removed. Continue?`,
+                            confirmLabel: 'Remove & Propagate',
+                            onConfirm: async () => {
+                                await this.manager.removeTypePhase(entity, phase.name);
+                                this.render();
+                            },
+                        });
                     } else {
-                        await this.manager.updateArcType(entity.filePath, { phases: entity.phases });
+                        await this.manager.removeTypePhase(entity, phase.name);
+                        this.render();
                     }
-                    this.render();
                 });
             }
 
             const toggle = phaseHeader.createSpan('dn-phase-toggle');
-            setIcon(toggle, 'chevron-down');
+            const phaseKey = `${entity.filePath}::${phase.name}`;
+            const isCollapsed = this.collapsedPhases.has(phaseKey);
+            setIcon(toggle, isCollapsed ? 'chevron-right' : 'chevron-down');
 
             const phaseBody = phaseEl.createDiv('dn-phase-body');
+            phaseBody.style.display = isCollapsed ? 'none' : '';
 
             this.renderCollapsiblePhaseField(phaseBody, 'Description', phase.description, async (val) => {
                 this.manager.updatePhaseFields(entity, phase.name, { description: val });
@@ -304,14 +413,18 @@ export class DNTypeGrid {
                 }
             });
 
-            let collapsed = false;
             phaseHeader.addEventListener('click', (e: MouseEvent) => {
                 const target = e.target as HTMLElement;
                 if (target.closest('.dn-phase-delete-btn')) return;
-                collapsed = !collapsed;
-                phaseBody.style.display = collapsed ? 'none' : '';
+                if (this.collapsedPhases.has(phaseKey)) {
+                    this.collapsedPhases.delete(phaseKey);
+                } else {
+                    this.collapsedPhases.add(phaseKey);
+                }
+                const isNowCollapsed = this.collapsedPhases.has(phaseKey);
+                phaseBody.style.display = isNowCollapsed ? 'none' : '';
                 toggle.empty();
-                setIcon(toggle, collapsed ? 'chevron-right' : 'chevron-down');
+                setIcon(toggle, isNowCollapsed ? 'chevron-right' : 'chevron-down');
             });
         }
     }
@@ -337,6 +450,85 @@ export class DNTypeGrid {
                 item.createSpan('dn-usage-item-cat').setText(variant.category);
             }
         }
+
+        this.renderCommentsSection(panel);
+    }
+
+    private renderCommentsSection(panel: HTMLElement): void {
+        if (!this.plugin.commentsManager) return;
+        const comments = this.plugin.commentsManager.getCommentsForFile(this.selectedPath);
+        if (!comments || comments.length === 0) return;
+
+        const section = panel.createDiv('dn-usage-comments');
+        section.createDiv('dn-section-title').setText('Comments');
+
+        const capsuleRow = section.createDiv('sl-comments-capsule-row');
+        for (const comment of comments) {
+            renderCommentCapsule(
+                capsuleRow,
+                comment.title,
+                comment.status,
+                comment.filePath,
+                (filePath: string) => {
+                    this.plugin.activateView(COMMENTS_VIEW_TYPE);
+                    const leaves = this.plugin.app.workspace.getLeavesOfType(COMMENTS_VIEW_TYPE);
+                    for (const leaf of leaves) {
+                        const view = leaf.view as unknown as { selectComment?: (path: string) => void };
+                        if (view && typeof view.selectComment === 'function') {
+                            view.selectComment(filePath);
+                            this.plugin.app.workspace.revealLeaf(leaf);
+                            break;
+                        }
+                    }
+                },
+            );
+        }
+    }
+
+    private openAddCommentModal(entity: ObjectiveType | ArcType): void {
+        if (!this.plugin.commentsManager) return;
+        const commentsFolder = this.plugin.sceneManager.getCommentsFolder();
+        if (!commentsFolder) return;
+        const category = this.entityType === 'objective-type' ? 'objective' : 'arc';
+        new AddCommentModal(
+            this.plugin.app,
+            this.plugin.commentsManager,
+            commentsFolder,
+            entity.filePath,
+            entity.title,
+            category,
+            () => this.render(),
+        ).open();
+    }
+
+    private openEntityFile(entity: ObjectiveType | ArcType): void {
+        const file = this.plugin.app.vault.getAbstractFileByPath(entity.filePath);
+        if (file instanceof TFile) {
+            const leaf = this.plugin.app.workspace.getLeaf('tab');
+            leaf.openFile(file, { state: { mode: 'source', source: false } });
+        } else {
+            new Notice(`Could not find file: ${entity.filePath}`);
+        }
+    }
+
+    private confirmDeleteEntity(entity: ObjectiveType | ArcType): void {
+        openConfirmModal(this.plugin.app, {
+            title: `Delete ${this.getTypeLabel().toLowerCase()}`,
+            message: `Are you sure you want to delete "${entity.title}"? The file will be moved to trash.`,
+            confirmLabel: 'Delete',
+            onConfirm: async () => {
+                if (this.entityType === 'objective-type') {
+                    const ok = await this.manager.deleteObjectiveType(entity.filePath);
+                    if (!ok) return;
+                } else {
+                    const ok = await this.manager.deleteArcType(entity.filePath);
+                    if (!ok) return;
+                }
+                this.selectedPath = '';
+                this.render();
+                new Notice(`"${entity.title}" deleted`);
+            },
+        });
     }
 
     private renderField(
@@ -453,12 +645,7 @@ export class DNTypeGrid {
         submitBtn.addEventListener('click', async () => {
             const val = input.value.trim();
             if (!val || val === currentName) { modal.close(); return; }
-            this.manager.renameCustomPhase(entity, currentName, val);
-            if (this.entityType === 'objective-type') {
-                await this.manager.updateObjectiveType(entity.filePath, { phases: entity.phases });
-            } else {
-                await this.manager.updateArcType(entity.filePath, { phases: entity.phases });
-            }
+            await this.manager.renameTypePhase(entity, currentName, val);
             modal.close();
             this.render();
         });

@@ -3,24 +3,24 @@ import { setIcon, Menu, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
 import type { DNPhase, DNLinkedChild, DNEntityType } from '../models/types';
-import { getOrderedPhases, deriveShortDesc, resolveWikilinkPath, debounce } from '../models/types';
+import { deriveShortDesc, resolveWikilinkPath, debounce } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
 import type { ArcVariant, ArcVariantPhase } from '../models/Arc';
-import type { Quest } from '../models/Quest';
 import { DNCreateModal, TypeChoice } from './DNCreateModal';
 import { DNEntitySelectModal } from './DNEntitySelectModal';
 
 type KanbanEntityType = 'scenario' | 'objective-variant' | 'arc-variant';
+type PhaseContentField = 'description' | 'startConditions' | 'startCommands' | 'endConditions' | 'endCommands';
 
 interface CardData {
     path: string;
     title: string;
     category: string;
     typeRef?: string;
-    questType?: string;
     isPrimary: boolean;
     mandatory: boolean;
+    index: number;
 }
 
 export class DNKanban {
@@ -48,6 +48,8 @@ export class DNKanban {
     }
 
     render(preselectedPath?: string): void {
+        const prevScrollTop = this.getSidebarScrollTop();
+        const searchFocus = this.getSidebarSearchFocus();
         this.containerEl.empty();
         this.containerEl.addClass('dn-kanban');
 
@@ -71,11 +73,48 @@ export class DNKanban {
         } else {
             board.createDiv('dn-empty-state').setText(`No ${this.getEntityLabel()}s found. Create one from the Overview tab.`);
         }
+
+        this.restoreSidebarState(prevScrollTop, searchFocus);
     }
 
     destroy(): void {
         this.containerEl.empty();
         this.containerEl.removeClass('dn-kanban');
+    }
+
+    private getSidebarScrollTop(): number {
+        const list = this.containerEl.querySelector('.dn-sidebar-list');
+        return list ? list.scrollTop : 0;
+    }
+
+    private getSidebarSearchFocus(): { caret: number } | null {
+        const input = this.containerEl.querySelector('.dn-sidebar-search') as HTMLInputElement | null;
+        if (input && document.activeElement === input) {
+            return { caret: input.selectionStart ?? input.value.length };
+        }
+        return null;
+    }
+
+    private restoreSidebarState(prevScrollTop: number, searchFocus: { caret: number } | null): void {
+        const list = this.containerEl.querySelector('.dn-sidebar-list');
+        if (list) {
+            if (prevScrollTop > 0) list.scrollTop = prevScrollTop;
+            const selectedItem = list.querySelector('.dn-sidebar-item.is-selected') as HTMLElement | null;
+            if (selectedItem) {
+                const lr = list.getBoundingClientRect();
+                const sr = selectedItem.getBoundingClientRect();
+                if (sr.top < lr.top || sr.bottom > lr.bottom) {
+                    selectedItem.scrollIntoView({ block: 'nearest' });
+                }
+            }
+        }
+        if (searchFocus) {
+            const input = this.containerEl.querySelector('.dn-sidebar-search') as HTMLInputElement | null;
+            if (input) {
+                input.focus();
+                input.setSelectionRange(searchFocus.caret, searchFocus.caret);
+            }
+        }
     }
 
     private getEntityLabel(): string {
@@ -113,7 +152,7 @@ export class DNKanban {
             cls: 'dn-sidebar-search',
         });
         searchInput.value = this.sidebarSearchText;
-        const debouncedRender = debounce(() => this.render(), 200);
+        const debouncedRender = debounce(() => this.render(), 100);
         searchInput.addEventListener('input', () => {
             this.sidebarSearchText = searchInput.value.toLowerCase();
             debouncedRender();
@@ -173,11 +212,11 @@ export class DNKanban {
             }
         }
 
-        const columnsContainer = board.createDiv('dn-kanban-columns');
+        const columnsContainer = board.createDiv('dn-phase-stack');
         const phases = this.getOrderedPhasesForEntity(entity);
 
         for (const phase of phases) {
-            this.renderColumn(columnsContainer, entity, phase);
+            this.renderPhasePanel(columnsContainer, entity, phase);
         }
     }
 
@@ -185,170 +224,169 @@ export class DNKanban {
         return this.manager.getOrderedPhasesForEntity(entity);
     }
 
-    private getEffectivePhase(entity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): DNPhase {
-        if (entity.type === 'objective-variant') {
-            const type = this.manager.getObjectiveType(entity.objectiveTypeId);
-            const tp = type?.phases.find(p => p.name === phase.name);
-            if (!tp) return phase;
-            const ov = phase.overrides;
-            return {
-                ...phase,
-                description: ov.includes('description') ? phase.description : tp.description,
-                startConditions: ov.includes('startConditions') ? phase.startConditions : tp.startConditions,
-                startCommands: ov.includes('startCommands') ? phase.startCommands : tp.startCommands,
-                endConditions: ov.includes('endConditions') ? phase.endConditions : tp.endConditions,
-                endCommands: ov.includes('endCommands') ? phase.endCommands : tp.endCommands,
-            };
-        }
-        if (entity.type === 'arc-variant') {
-            const type = this.manager.getArcType(entity.arcTypeId);
-            const tp = type?.phases.find(p => p.name === phase.name);
-            if (!tp) return phase;
-            const ov = phase.overrides;
-            return {
-                ...phase,
-                description: ov.includes('description') ? phase.description : tp.description,
-                startConditions: ov.includes('startConditions') ? phase.startConditions : tp.startConditions,
-                startCommands: ov.includes('startCommands') ? phase.startCommands : tp.startCommands,
-                endConditions: ov.includes('endConditions') ? phase.endConditions : tp.endConditions,
-                endCommands: ov.includes('endCommands') ? phase.endCommands : tp.endCommands,
-            };
-        }
-        return phase;
+    private isVariantEntity(entity: Scenario | ObjectiveVariant | ArcVariant): boolean {
+        return entity.type === 'objective-variant' || entity.type === 'arc-variant';
     }
 
-    private renderCapsules(container: HTMLElement, phase: DNPhase, entity: Scenario | ObjectiveVariant | ArcVariant): void {
-        const effective = this.getEffectivePhase(entity, phase);
-        const hasRow1 = !!(effective.startConditions || effective.startCommands);
-        const hasRow2 = !!(effective.endConditions || effective.endCommands);
+    private getDisplayedPhaseValue(
+        entity: Scenario | ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+        fieldName: PhaseContentField,
+    ): string {
+        if (this.isVariantEntity(entity) && !phase.overrides.includes(fieldName)) return '';
+        return phase[fieldName] || '';
+    }
 
-        if (!hasRow1 && !hasRow2) return;
+    private renderPhaseField(container: HTMLElement, label: string, value: string): void {
+        if (!value) return;
+        const field = container.createDiv('dn-phase-field-block');
+        field.createDiv('dn-phase-field-label').setText(label);
+        field.createDiv('dn-phase-field-value').setText(value);
+    }
 
-        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
-        const ov = phase.overrides;
+    private renderPhaseContentColumn(
+        container: HTMLElement,
+        entity: Scenario | ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+        title: string,
+        fields: Array<{ label: string; name: PhaseContentField }>,
+    ): void {
+        const column = container.createDiv('dn-phase-content-column');
+        column.createDiv('dn-phase-column-title').setText(title);
 
-        const capsulesEl = container.createDiv('dn-phase-capsules');
-
-        if (hasRow1) {
-            const row1 = capsulesEl.createDiv('dn-capsule-row');
-            if (effective.startConditions) {
-                const cap = row1.createDiv('dn-phase-capsule');
-                if (isVariant && ov.includes('startConditions')) cap.addClass('dn-capsule-overridden');
-                cap.createSpan('dn-capsule-label').setText('Start:');
-                cap.createSpan('dn-capsule-value').setText(effective.startConditions);
-            }
-            if (effective.startCommands) {
-                const cap = row1.createDiv('dn-phase-capsule');
-                if (isVariant && ov.includes('startCommands')) cap.addClass('dn-capsule-overridden');
-                cap.createSpan('dn-capsule-label').setText('Do:');
-                cap.createSpan('dn-capsule-value').setText(effective.startCommands);
-            }
+        let rendered = false;
+        for (const field of fields) {
+            const value = this.getDisplayedPhaseValue(entity, phase, field.name);
+            if (!value) continue;
+            this.renderPhaseField(column, field.label, value);
+            rendered = true;
         }
 
-        if (hasRow2) {
-            const row2 = capsulesEl.createDiv('dn-capsule-row');
-            if (effective.endConditions) {
-                const cap = row2.createDiv('dn-phase-capsule');
-                if (isVariant && ov.includes('endConditions')) cap.addClass('dn-capsule-overridden');
-                cap.createSpan('dn-capsule-label').setText('End:');
-                cap.createSpan('dn-capsule-value').setText(effective.endConditions);
-            }
-            if (effective.endCommands) {
-                const cap = row2.createDiv('dn-phase-capsule');
-                if (isVariant && ov.includes('endCommands')) cap.addClass('dn-capsule-overridden');
-                cap.createSpan('dn-capsule-label').setText('Do:');
-                cap.createSpan('dn-capsule-value').setText(effective.endCommands);
-            }
+        if (this.isVariantEntity(entity) && title === 'Conditions' && !rendered && phase.overrides.length === 0) {
+            column.createDiv('dn-no-overrides-placeholder').setText('No overrides - values inherited from type');
         }
     }
 
-    private renderColumn(container: HTMLElement, parentEntity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): void {
-        const column = container.createDiv('dn-kanban-column');
-        if (!phase.isDefault) column.addClass('dn-column-custom');
+    private renderEntityGroup(
+        container: HTMLElement,
+        label: string,
+        cards: CardData[],
+        parentEntity: Scenario | ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+        isPrimary: boolean,
+    ): void {
+        if (cards.length === 0) return;
+        const group = container.createDiv('dn-phase-entity-group');
+        const groupHeader = group.createDiv('dn-phase-entity-group-header');
+        groupHeader.createSpan('dn-phase-entity-group-label').setText(label);
+        groupHeader.createSpan('dn-phase-entity-group-count').setText(`(${cards.length})`);
 
-        const effectivePhase = this.getEffectivePhase(parentEntity, phase);
+        const groupBody = group.createDiv('dn-phase-group-body');
+        groupBody.setAttribute('data-phase', phase.name);
+        groupBody.setAttribute('data-parent', parentEntity.filePath);
+        groupBody.setAttribute('data-priority', isPrimary ? 'primary' : 'secondary');
 
-        const columnHeader = column.createDiv('dn-column-header');
-        columnHeader.createSpan('dn-column-title').setText(phase.name);
+        for (const card of cards) {
+            this.renderCard(groupBody, card, parentEntity, phase);
+        }
+
+        this.setupDropZone(groupBody, parentEntity, phase, isPrimary);
+    }
+
+    private renderLinkedEntities(
+        container: HTMLElement,
+        parentEntity: Scenario | ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+        childCards: CardData[],
+    ): void {
+        const column = container.createDiv('dn-phase-content-column dn-phase-entities-column');
+        column.createDiv('dn-phase-column-title').setText('Linked entities');
+
+        if (this.entityType === 'scenario' || this.entityType === 'objective-variant') {
+            this.renderEntityGroup(
+                column,
+                'Primary',
+                childCards.filter(card => card.isPrimary),
+                parentEntity,
+                phase,
+                true,
+            );
+            this.renderEntityGroup(
+                column,
+                'Secondary',
+                childCards.filter(card => !card.isPrimary),
+                parentEntity,
+                phase,
+                false,
+            );
+            return;
+        }
+
+        const questGroups = [
+            { category: 'Goal', label: 'Goals' },
+            { category: 'Limit', label: 'Limits' },
+            { category: 'Event', label: 'Events' },
+            { category: 'Modifier', label: 'Modifiers' },
+        ];
+        for (const questGroup of questGroups) {
+            this.renderEntityGroup(
+                column,
+                questGroup.label,
+                childCards.filter(card => card.category === questGroup.category),
+                parentEntity,
+                phase,
+                true,
+            );
+        }
+
+        const knownCategories = new Set(questGroups.map(group => group.category));
+        const otherCards = childCards.filter(card => !knownCategories.has(card.category));
+        if (otherCards.length > 0) {
+            this.renderEntityGroup(column, 'Other', otherCards, parentEntity, phase, true);
+        }
+    }
+
+    private renderPhasePanel(
+        container: HTMLElement,
+        parentEntity: Scenario | ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+    ): void {
+        const panel = container.createDiv('dn-phase-panel');
+        if (!phase.isDefault) panel.addClass('dn-phase-panel-custom');
 
         const childCards = this.getChildCardsForPhase(parentEntity, phase);
+        const header = panel.createDiv('dn-phase-panel-header');
+        const titleRow = header.createDiv('dn-phase-panel-title-row');
+        titleRow.createSpan('dn-phase-panel-title').setText(phase.name);
+        titleRow.createSpan('dn-phase-panel-count').setText(`(${childCards.length})`);
 
-        const cardCount = columnHeader.createSpan('dn-column-count');
-        cardCount.setText(`(${childCards.length})`);
-
-        const addBtn = columnHeader.createEl('button', { cls: 'dn-column-add-btn' });
+        const addBtn = titleRow.createEl('button', { cls: 'dn-column-add-btn' });
         setIcon(addBtn, 'plus');
         addBtn.setAttribute('aria-label', `Create ${this.getChildEntityType()} in ${phase.name}`);
-        addBtn.addEventListener('click', () => {
-            this.openCreateModal(parentEntity.filePath, phase.name);
-        });
+        addBtn.addEventListener('click', () => this.openCreateModal(parentEntity.filePath, phase.name));
 
-        const linkBtn = columnHeader.createEl('button', { cls: 'dn-column-link-btn' });
+        const linkBtn = titleRow.createEl('button', { cls: 'dn-column-link-btn' });
         setIcon(linkBtn, 'link');
         linkBtn.setAttribute('aria-label', `Add existing ${this.getChildEntityType()} to ${phase.name}`);
-        linkBtn.addEventListener('click', () => {
-            this.openEntitySelectModal(parentEntity.filePath, phase.name);
-        });
+        linkBtn.addEventListener('click', () => this.openEntitySelectModal(parentEntity.filePath, phase.name));
 
-        if (effectivePhase.description) {
-            const descEl = column.createDiv('dn-phase-desc');
-            descEl.setText(effectivePhase.description);
-            const isVariant = parentEntity.type === 'objective-variant' || parentEntity.type === 'arc-variant';
-            if (isVariant && phase.overrides.includes('description')) {
-                descEl.addClass('dn-phase-desc-overridden');
-            }
+        const description = this.getDisplayedPhaseValue(parentEntity, phase, 'description');
+        if (description) {
+            header.createDiv('dn-phase-panel-description').setText(description);
         }
 
-        this.renderCapsules(column, phase, parentEntity);
+        const body = panel.createDiv('dn-phase-panel-body');
+        this.renderPhaseContentColumn(body, parentEntity, phase, 'Conditions', [
+            { label: 'Start Conditions', name: 'startConditions' },
+            { label: 'End Conditions', name: 'endConditions' },
+        ]);
+        this.renderPhaseContentColumn(body, parentEntity, phase, 'Commands', [
+            { label: 'Start Commands', name: 'startCommands' },
+            { label: 'End Commands', name: 'endCommands' },
+        ]);
+        this.renderLinkedEntities(body, parentEntity, phase, childCards);
 
-        const splitsPriority = this.entityType === 'scenario' || this.entityType === 'objective-variant';
-
-        if (splitsPriority) {
-            const primaryCards = childCards.filter(c => c.isPrimary);
-            const secondaryCards = childCards.filter(c => !c.isPrimary);
-
-            const primaryRow = column.createDiv('dn-column-row');
-            primaryRow.addClass('dn-row-primary');
-            const primaryLabel = primaryRow.createDiv('dn-column-row-label');
-            primaryLabel.setText(`Primary (${primaryCards.length})`);
-            const primaryBody = primaryRow.createDiv('dn-column-row-body');
-            primaryBody.setAttribute('data-phase', phase.name);
-            primaryBody.setAttribute('data-parent', parentEntity.filePath);
-            primaryBody.setAttribute('data-priority', 'primary');
-
-            for (const card of primaryCards) {
-                this.renderCard(primaryBody, card, parentEntity, phase);
-            }
-
-            this.setupDropZone(primaryBody, parentEntity, phase, true);
-
-            const secondaryRow = column.createDiv('dn-column-row');
-            secondaryRow.addClass('dn-row-secondary');
-            const secondaryLabel = secondaryRow.createDiv('dn-column-row-label');
-            secondaryLabel.setText(`Secondary (${secondaryCards.length})`);
-            const secondaryBody = secondaryRow.createDiv('dn-column-row-body');
-            secondaryBody.setAttribute('data-phase', phase.name);
-            secondaryBody.setAttribute('data-parent', parentEntity.filePath);
-            secondaryBody.setAttribute('data-priority', 'secondary');
-
-            for (const card of secondaryCards) {
-                this.renderCard(secondaryBody, card, parentEntity, phase);
-            }
-
-            this.setupDropZone(secondaryBody, parentEntity, phase, false);
-
-            this.setupColumnHeaderDropZone(column, parentEntity, phase);
-        } else {
-            const columnBody = column.createDiv('dn-column-row-body');
-            columnBody.setAttribute('data-phase', phase.name);
-            columnBody.setAttribute('data-parent', parentEntity.filePath);
-
-            for (const card of childCards) {
-                this.renderCard(columnBody, card, parentEntity, phase);
-            }
-
-            this.setupDropZone(columnBody, parentEntity, phase, true);
-        }
+        this.setupPanelDropZone(panel, parentEntity, phase);
     }
 
     private getChildCardsForPhase(parentEntity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): CardData[] {
@@ -357,7 +395,9 @@ export class DNKanban {
         switch (this.entityType) {
             case 'scenario': {
                 const sp = phase as ScenarioPhase;
-                for (const link of sp.linkedObjectives || []) {
+                const linked = sp.linkedObjectives || [];
+                for (let idx = 0; idx < linked.length; idx++) {
+                    const link = linked[idx];
                     const resolvedPath = resolveWikilinkPath(link.id);
                     const obj = this.manager.getAllObjectiveVariants().find(o => o.filePath === resolvedPath);
                     if (obj) {
@@ -369,6 +409,7 @@ export class DNKanban {
                             typeRef: type ? type.title : undefined,
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
+                            index: idx,
                         });
                     }
                 }
@@ -376,7 +417,9 @@ export class DNKanban {
             }
             case 'objective-variant': {
                 const op = phase as ObjectiveVariantPhase;
-                for (const link of op.linkedArcs || []) {
+                const linked = op.linkedArcs || [];
+                for (let idx = 0; idx < linked.length; idx++) {
+                    const link = linked[idx];
                     const resolvedPath = resolveWikilinkPath(link.id);
                     const arc = this.manager.getAllArcVariants().find(a => a.filePath === resolvedPath);
                     if (arc) {
@@ -388,6 +431,7 @@ export class DNKanban {
                             typeRef: type ? type.title : undefined,
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
+                            index: idx,
                         });
                     }
                 }
@@ -402,6 +446,7 @@ export class DNKanban {
                     ...(ap.linkedEvents || []),
                     ...(ap.linkedModifiers || []),
                 ];
+                let questIdx = 0;
                 for (const wikilink of allLinks) {
                     const resolvedPath = resolveWikilinkPath(wikilink);
                     const quest = allQuests.find(q => q.filePath === resolvedPath);
@@ -410,11 +455,12 @@ export class DNKanban {
                             path: quest.filePath,
                             title: quest.title,
                             category: quest.category,
-                            questType: quest.questType,
                             isPrimary: true,
                             mandatory: false,
+                            index: questIdx,
                         });
                     }
+                    questIdx++;
                 }
                 break;
             }
@@ -452,6 +498,7 @@ export class DNKanban {
         cardEl.setAttribute('data-path', card.path);
         cardEl.setAttribute('data-phase', phase.name);
         cardEl.setAttribute('data-priority', card.isPrimary ? 'primary' : 'secondary');
+        cardEl.setAttribute('data-index', String(card.index));
 
         const titleEl = cardEl.createDiv('dn-card-title');
         titleEl.setText(card.title);
@@ -460,10 +507,6 @@ export class DNKanban {
         if (card.typeRef) {
             const typeRefEl = metaEl.createSpan('dn-card-variant');
             typeRefEl.setText(`Type: ${card.typeRef}`);
-        }
-        if (card.questType) {
-            const qtEl = metaEl.createSpan('dn-card-quest-type');
-            qtEl.setText(card.questType);
         }
         if (card.category) {
             const catBadge = metaEl.createSpan('dn-card-category');
@@ -493,7 +536,7 @@ export class DNKanban {
                     item.setTitle(label);
                     item.setIcon(card.isPrimary ? 'arrow-down' : 'arrow-up');
                     item.onClick(async () => {
-                        await this.manager.toggleLinkPriority(parentEntity.filePath, card.path, phase.name, !card.isPrimary);
+                        await this.manager.toggleLinkPriority(parentEntity.filePath, card.path, phase.name, !card.isPrimary, card.index);
                         this.render();
                     });
                 });
@@ -503,7 +546,7 @@ export class DNKanban {
                 item.setTitle('Unlink from phase');
                 item.setIcon('unlink');
                 item.onClick(async () => {
-                    await this.unlinkChildFromPhase(parentEntity.filePath, card.path, phase.name);
+                    await this.unlinkChildFromPhase(parentEntity.filePath, card.path, phase.name, card.index);
                     this.render();
                 });
             });
@@ -515,6 +558,7 @@ export class DNKanban {
             e.dataTransfer?.setData('text/dn-card-phase', phase.name);
             e.dataTransfer?.setData('text/dn-card-parent', parentEntity.filePath);
             e.dataTransfer?.setData('text/dn-card-priority', card.isPrimary ? 'primary' : 'secondary');
+            e.dataTransfer?.setData('text/dn-card-index', String(card.index));
             cardEl.addClass('dn-card-dragging');
         });
 
@@ -541,6 +585,8 @@ export class DNKanban {
             const fromPhase = e.dataTransfer?.getData('text/dn-card-phase');
             const fromParent = e.dataTransfer?.getData('text/dn-card-parent');
             const fromPriority = e.dataTransfer?.getData('text/dn-card-priority') || 'primary';
+            const fromIndexStr = e.dataTransfer?.getData('text/dn-card-index');
+            const fromIndex = fromIndexStr ? parseInt(fromIndexStr, 10) : undefined;
 
             if (!childPath || !fromPhase || fromParent !== parentEntity.filePath) return;
 
@@ -550,40 +596,42 @@ export class DNKanban {
             if (!phaseChanged && !priorityChanged) return;
 
             if (phaseChanged) {
-                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name);
+                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name, fromIndex);
             }
 
             if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective-variant')) {
-                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, targetIsPrimary);
+                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, targetIsPrimary, fromIndex);
             }
 
             this.render();
         });
     }
 
-    private setupColumnHeaderDropZone(columnEl: HTMLElement, parentEntity: Scenario | ObjectiveVariant | ArcVariant, targetPhase: DNPhase): void {
-        columnEl.addEventListener('dragover', (e: DragEvent) => {
+    private setupPanelDropZone(panelEl: HTMLElement, parentEntity: Scenario | ObjectiveVariant | ArcVariant, targetPhase: DNPhase): void {
+        panelEl.addEventListener('dragover', (e: DragEvent) => {
             const target = e.target as HTMLElement;
-            if (target.closest('.dn-column-row-body')) return;
+            if (target.closest('.dn-phase-group-body')) return;
             e.preventDefault();
-            columnEl.addClass('dn-drop-target');
+            panelEl.addClass('dn-drop-target');
         });
 
-        columnEl.addEventListener('dragleave', (e: DragEvent) => {
-            if ((e.relatedTarget as HTMLElement)?.closest('.dn-column-row-body')) return;
-            columnEl.removeClass('dn-drop-target');
+        panelEl.addEventListener('dragleave', (e: DragEvent) => {
+            if ((e.relatedTarget as HTMLElement)?.closest('.dn-phase-group-body')) return;
+            panelEl.removeClass('dn-drop-target');
         });
 
-        columnEl.addEventListener('drop', async (e: DragEvent) => {
+        panelEl.addEventListener('drop', async (e: DragEvent) => {
             const target = e.target as HTMLElement;
-            if (target.closest('.dn-column-row-body')) return;
+            if (target.closest('.dn-phase-group-body')) return;
             e.preventDefault();
-            columnEl.removeClass('dn-drop-target');
+            panelEl.removeClass('dn-drop-target');
 
             const childPath = e.dataTransfer?.getData('text/dn-card-path');
             const fromPhase = e.dataTransfer?.getData('text/dn-card-phase');
             const fromParent = e.dataTransfer?.getData('text/dn-card-parent');
             const fromPriority = e.dataTransfer?.getData('text/dn-card-priority') || 'primary';
+            const fromIndexStr = e.dataTransfer?.getData('text/dn-card-index');
+            const fromIndex = fromIndexStr ? parseInt(fromIndexStr, 10) : undefined;
 
             if (!childPath || !fromPhase || fromParent !== parentEntity.filePath) return;
 
@@ -593,29 +641,27 @@ export class DNKanban {
             if (!phaseChanged && !priorityChanged) return;
 
             if (phaseChanged) {
-                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name);
+                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name, fromIndex);
             }
 
             if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective-variant')) {
-                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, true);
+                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, true, fromIndex);
             }
 
             this.render();
         });
     }
 
-    private async unlinkChildFromPhase(parentPath: string, childPath: string, phaseName: string): Promise<void> {
+    private async unlinkChildFromPhase(parentPath: string, childPath: string, phaseName: string, index: number): Promise<void> {
         const parent = this.manager.getEntity(parentPath);
         if (!parent) return;
-
-        const wikilink = `[[${childPath}]]`;
 
         switch (this.entityType) {
             case 'scenario': {
                 const scenario = parent as Scenario;
                 const phase = scenario.phases.find(p => p.name === phaseName);
-                if (phase) {
-                    phase.linkedObjectives = phase.linkedObjectives.filter(c => resolveWikilinkPath(c.id) !== childPath);
+                if (phase && index >= 0 && index < phase.linkedObjectives.length) {
+                    phase.linkedObjectives.splice(index, 1);
                 }
                 await this.manager.updateScenario(parentPath, { phases: scenario.phases });
                 break;
@@ -623,8 +669,8 @@ export class DNKanban {
             case 'objective-variant': {
                 const objective = parent as ObjectiveVariant;
                 const phase = objective.phases.find(p => p.name === phaseName);
-                if (phase) {
-                    phase.linkedArcs = phase.linkedArcs.filter(c => resolveWikilinkPath(c.id) !== childPath);
+                if (phase && index >= 0 && index < phase.linkedArcs.length) {
+                    phase.linkedArcs.splice(index, 1);
                 }
                 await this.manager.updateObjectiveVariant(parentPath, { phases: objective.phases });
                 break;

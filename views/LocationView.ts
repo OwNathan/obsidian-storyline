@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { ButtonComponent, ItemView, Modal, Notice, Setting, TFile, TextComponent, WorkspaceLeaf } from 'obsidian';
 import * as obsidian from 'obsidian';
-import { LOCATION_VIEW_TYPE } from '../constants';
+import { LOCATION_VIEW_TYPE, COMMENTS_VIEW_TYPE } from '../constants';
+import { AddCommentModal } from '../components/AddCommentModal';
+import { renderCommentCapsule } from '../components/CommentCapsule';
 import { Scene, resolveStatusCfg } from '../models/Scene';
 import { coerceString } from '../utils/narrow';
 import {
@@ -620,6 +622,28 @@ export class LocationView extends ItemView {
         attachTooltip(deleteBtn, 'Delete');
         deleteBtn.addEventListener('click', () => this.confirmDelete(item));
 
+        // Add Comment
+        const commentBtn = headerRight.createEl('button', {
+            cls: 'codex-detail-action-btn',
+            attr: { 'aria-label': 'Add comment' },
+        });
+        const commentIcon = commentBtn.createSpan();
+        obsidian.setIcon(commentIcon, 'message-square');
+        attachTooltip(commentBtn, 'Add comment');
+        commentBtn.addEventListener('click', () => {
+            const commentsFolder = this.sceneManager.getCommentsFolder();
+            if (!commentsFolder) return;
+            new AddCommentModal(
+                this.app,
+                this.plugin.commentsManager,
+                commentsFolder,
+                item.filePath,
+                item.name,
+                'location',
+                () => { if (this.rootContainer) this.renderDetail(this.rootContainer); },
+            ).open();
+        });
+
         // Type label
         const typeLabel = container.createDiv('location-detail-type');
         obsidian.setIcon(typeLabel, isWorld ? 'globe' : 'map-pin');
@@ -709,6 +733,7 @@ export class LocationView extends ItemView {
 
         // Cross-entity references
         this.renderReferencesPanel(sidePanel, item.name);
+        this.renderCommentsSection(sidePanel, item);
     }
 
     private renderCategory(
@@ -1697,6 +1722,39 @@ export class LocationView extends ItemView {
         const stat = parent.createDiv('location-stat-item');
         stat.createDiv({ cls: 'location-stat-value', text: value });
         stat.createDiv({ cls: 'location-stat-label', text: label });
+    }
+
+    // ── Comments section ────────────────────────────────
+
+    private renderCommentsSection(container: HTMLElement, item: WorldOrLocation): void {
+        if (!this.plugin.commentsManager) return;
+        const comments = this.plugin.commentsManager.getCommentsForFile(item.filePath);
+        if (!comments || comments.length === 0) return;
+
+        const section = container.createDiv('codex-side-section');
+        section.createEl('h4', { text: 'Comments' });
+
+        const capsuleRow = section.createDiv('sl-comments-capsule-row');
+        for (const comment of comments) {
+            renderCommentCapsule(
+                capsuleRow,
+                comment.title,
+                comment.status,
+                comment.filePath,
+                (filePath: string) => {
+                    this.plugin.activateView(COMMENTS_VIEW_TYPE);
+                    const leaves = this.app.workspace.getLeavesOfType(COMMENTS_VIEW_TYPE);
+                    for (const leaf of leaves) {
+                        const view = leaf.view as unknown as { selectComment?: (path: string) => void };
+                        if (view && typeof view.selectComment === 'function') {
+                            view.selectComment(filePath);
+                            this.app.workspace.revealLeaf(leaf);
+                            break;
+                        }
+                    }
+                },
+            );
+        }
     }
 
     // ── Auto-save ──────────────────────────────────────

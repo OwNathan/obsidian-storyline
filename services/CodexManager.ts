@@ -337,10 +337,8 @@ export class CodexManager {
         // Issue #71 — mirror to top-level YAML keys for templates that opt in
         mirrorUniversalFieldsToTopLevel(fm, entry.universalFields);
 
-        // Build body: strip old mirrored sections, then rebuild with notes + current mirrored fields
-        const { notes: existingNotes } = parseMirroredBody(body);
-        const notesContent = entry.notes ?? (existingNotes || '');
-        const finalBody = buildMirroredBody(notesContent, mirrored ?? []);
+        // Build body: strip old mirrored sections, then rebuild with current mirrored fields
+        const finalBody = buildMirroredBody('', mirrored ?? []);
 
         const newContent = `---\n${stringifyYaml(fm)}---\n${finalBody ? '\n' + finalBody : ''}`;
 
@@ -450,7 +448,6 @@ export class CodexManager {
             gallery: this.parseGallery(safeFm.gallery),
             created: safeFm.created,
             modified: safeFm.modified,
-            notes: plainNotes || undefined,
             custom: safeFm.custom && typeof safeFm.custom === 'object' ? safeFm.custom as Record<string, string> : undefined,
             universalFields: hydrateUniversalFieldsFromTopLevel(
                 safeFm,

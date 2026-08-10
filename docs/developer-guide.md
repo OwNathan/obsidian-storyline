@@ -112,7 +112,7 @@ The Dynamic Narrative feature is isolated in `dynamic-narrative/` and adds a new
 | `dynamic-narrative/models/` | Data types: Scenario, Objective, Arc, Quest + shared types, type guards, utilities |
 | `dynamic-narrative/services/` | `DynamicNarrativeManager` — CRUD, file I/O, phase management, cascade rename, categories |
 | `dynamic-narrative/views/` | `DynamicNarrativeView` — Single ItemView with 5 tabs + resizable inspector |
-| `dynamic-narrative/components/` | UI components: overview, kanban, quest grid, inspector, modals (create, phase, category) |
+| `dynamic-narrative/components/` | UI components: overview, vertical phase board, type/quest grids, inspector, modals (create, phase, category) |
 
 ### Key patterns
 
@@ -127,7 +127,8 @@ The Dynamic Narrative feature is isolated in `dynamic-narrative/` and adds a new
 - **Vault events**: `delete` and `rename` events are handled by `DynamicNarrativeManager.handleFileDeleted()` and cascade rename.
 - **Debounced search**: Overview, Kanban, and QuestGrid use a 200ms debounce on search input.
 - **Resize handle**: Inspector resize supports both mouse and touch events with proper cleanup on close. Width is session-only (stored in-memory on the view).
-- **Phase management**: 5 hardcoded default phases (QuestSleeping, QuestAvailable, QuestStarted, QuestCompleted, QuestFailed) plus user-defined custom phases.
+- **Phase management**: 5 hardcoded default phases (QuestSleeping, QuestAvailable, QuestStarted, QuestCompleted, QuestFailed) plus user-defined custom phases. Objective and Arc Types own the phase structure; their Variants can only store field overrides and linked entities.
+- **Dynamic Narrative phase board**: Scenario, Objective Variant, and Arc Variant tabs use vertically stacked panels that span the full board width. Each panel shows Conditions, Commands, and linked entities; Objective/Arc Variants hide inherited Type content and show only overrides.
 - **Linked entity suggestors**: Linked Locations, Linked Characters, and Arc phase quest links (Goals/Limits/Events/Modifiers) use `renderTagPillInput` with autocomplete suggestions from `LocationManager`, `CharacterManager`, and `DynamicNarrativeManager.getAllQuests()` respectively.
 - **Open/delete actions**: Inspector header includes file-open (opens `.md` file in new tab) and delete (confirmation modal via `openConfirmModal`) buttons.
 - **Quest tab**: The inspector panel is hidden when the Quests tab is active.

@@ -22,6 +22,7 @@ export function createEmptyScenario(title: string): Scenario {
         description: '',
         created: now,
         modified: now,
+        dirty: true,
         type: 'scenario',
         category: '',
         linkedActs: [],

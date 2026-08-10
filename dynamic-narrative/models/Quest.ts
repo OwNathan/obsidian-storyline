@@ -7,7 +7,6 @@ export type QuestPhase = DNPhase;
 export interface Quest extends DNBase {
     type: 'quest';
     category: string;
-    questType: string;
     phases: QuestPhase[];
 }
 
@@ -20,9 +19,9 @@ export function createEmptyQuest(title: string): Quest {
         description: '',
         created: now,
         modified: now,
+        dirty: true,
         type: 'quest',
         category: '',
-        questType: '',
         phases: defaultPhases.map(p => ({ ...p })),
     };
 }

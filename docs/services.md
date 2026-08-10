@@ -306,13 +306,15 @@ Manages the Dynamic Narrative entity hierarchy (Scenarios, Objectives, Arcs, Que
 - `getConnectionsForQuest(questPath): { scenarios, objectives, arcs }` -- transitive usage count
 
 *Phase Management*
-- `addCustomPhase(entity, phase): void`
-- `removeCustomPhase(entity, phaseName): void`
-- `renameCustomPhase(entity, oldName, newName): void`
-- `reorderCustomPhases(entity, fromIndex, toIndex): void`
+- `addCustomPhase(entity, phase): void` -- Scenario, Type, and Quest phases; Objective/Arc Variant phases are Type-owned
+- `removeCustomPhase(entity, phaseName): void` -- direct custom phase removal for non-Variant entities
+- `renameCustomPhase(entity, oldName, newName): void` -- direct custom phase rename for non-Variant entities
+- `addTypePhase/removeTypePhase/renameTypePhase(type, ...): Promise<void>` -- mutate an Objective/Arc Type and propagate the phase structure to its Variants
+- `reorderCustomPhases(entity, fromIndex, toIndex): void` -- reorder custom phases for non-Variant entities
 - `updatePhaseFields(entity, phaseName, updates): void`
-- `getOrderedPhasesForEntity(entity): DNPhase[]` -- ordered columns (default → custom → completed/failed)
-- `reassignPhase(parentPath, childPath, fromPhase, toPhase): Promise<void>` -- drag between columns
+- `getOrderedPhasesForEntity(entity): DNPhase[]` -- ordered phase panels (default → custom → completed/failed)
+- `reassignPhase(parentPath, childPath, fromPhase, toPhase): Promise<void>` -- drag between phase panels
+- `syncAllDirtyBodies(onProgress?): Promise<number>` -- write reflected Markdown bodies with H3 phase headings, H4 field headings, and linked-entity wikilinks
 
 *Category Management*
 - `getCategories(entityType): string[]` -- settings or defaults

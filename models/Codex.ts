@@ -26,8 +26,6 @@ export interface CodexEntry {
     created?: string;
     /** Modified date (ISO) */
     modified?: string;
-    /** Free-form notes (markdown body) */
-    notes?: string;
     /** User-defined custom fields */
     custom?: Record<string, string>;
     /**

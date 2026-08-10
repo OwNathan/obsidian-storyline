@@ -9,6 +9,8 @@ import { SceneManager } from '../services/SceneManager';
 import type SceneCardsPlugin from '../main';
 import { renderTagPillInput, renderAutocompleteInput } from './InlineSuggest';
 import { AddFieldModal } from './AddFieldModal';
+import { AddCommentModal } from './AddCommentModal';
+import { renderCommentCapsule } from './CommentCapsule';
 import { UniversalFieldTemplate } from '../services/FieldTemplateService';
 import { parseActChapterInput, actChapterHasIllegalPathChars, isPrologueAct, isEpilogueAct, PROLOGUE_ACT, EPILOGUE_ACT } from '../utils/actChapter';
 import { Scene, SceneStatus, TIMELINE_MODES, TIMELINE_MODE_LABELS, TimelineMode, getStatusOrder, resolveStatusCfg, SceneCategory, getSceneCategoryOrder, resolveSceneCategoryCfg } from '../models/Scene';
@@ -772,6 +774,9 @@ export class InspectorComponent {
 
         // Snapshots / Version History
         this.renderSnapshots(scene);
+
+        // Comments
+        this.renderCommentsContainer(scene);
 
         // Action buttons
         const actions = this.container.createDiv('inspector-actions');
@@ -1602,6 +1607,62 @@ export class InspectorComponent {
         const displayMap = lm.getDisplayNameMap();
         return (value: string) => displayMap.get(value) || value;
     }
+
+    /**
+     * Render connected Comments at the bottom of the inspector.
+     * Container is only shown when at least one comment exists for the scene.
+     */
+    private renderCommentsContainer(scene: Scene): void {
+        if (!this.plugin.commentsManager) return;
+        const comments = this.plugin.commentsManager.getCommentsForFile(scene.filePath);
+        if (!comments || comments.length === 0) return;
+
+        const section = this.container.createDiv('inspector-section inspector-comments-section');
+
+        const header = section.createDiv('inspector-comments-header');
+        header.createSpan({ cls: 'inspector-section-title', text: 'Comments' });
+
+        const addBtn = header.createEl('button', {
+            cls: 'inspector-comments-add-btn',
+            attr: { 'aria-label': 'Add comment' },
+        });
+        obsidian.setIcon(addBtn.createSpan(), 'plus');
+        addBtn.addEventListener('click', () => {
+            const commentsFolder = this.sceneManager.getCommentsFolder();
+            if (!commentsFolder) return;
+            new AddCommentModal(
+                this.plugin.app,
+                this.plugin.commentsManager,
+                commentsFolder,
+                scene.filePath,
+                scene.title || 'Untitled',
+                'scene',
+                () => { this.onRefresh(); },
+            ).open();
+        });
+
+        const capsuleRow = section.createDiv('sl-comments-capsule-row');
+        for (const comment of comments) {
+            renderCommentCapsule(
+                capsuleRow,
+                comment.title,
+                comment.status,
+                comment.filePath,
+                (filePath: string) => {
+                    this.plugin.activateView('story-line-comments');
+                    const leaves = this.plugin.app.workspace.getLeavesOfType('story-line-comments');
+                    for (const leaf of leaves) {
+                        const view = leaf.view as unknown as { selectComment?: (path: string) => void };
+                        if (view && typeof view.selectComment === 'function') {
+                            view.selectComment(filePath);
+                            this.plugin.app.workspace.revealLeaf(leaf);
+                            break;
+                        }
+                    }
+                },
+            );
+        }
+    }
 }
 
 /**
@@ -1650,10 +1711,6 @@ class SnapshotLabelModal extends Modal {
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') doSave();
         });
-    }
-
-    onClose(): void {
-        this.contentEl.empty();
     }
 }
 /* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

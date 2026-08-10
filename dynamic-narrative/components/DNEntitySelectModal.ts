@@ -68,7 +68,7 @@ export class DNEntitySelectModal extends FuzzySuggestModal<SelectableEntity> {
                         path: q.filePath,
                         title: q.title,
                         category: q.category,
-                        typeLabel: q.questType || '',
+                        typeLabel: '',
                     });
                 }
                 break;

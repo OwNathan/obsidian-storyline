@@ -7,10 +7,12 @@ import { isDefaultPhase } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveType, ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
 import type { ArcType, ArcVariant, ArcVariantPhase } from '../models/Arc';
-import type { Quest, QuestPhase } from '../models/Quest';
+import type { Quest } from '../models/Quest';
 import { DNPhaseModal } from './DNPhaseModal';
 import { renderTagPillInput } from '../../components/InlineSuggest';
 import { openConfirmModal } from '../../components/ConfirmModal';
+import { AddCommentModal } from '../../components/AddCommentModal';
+import { renderCommentCapsule } from '../../components/CommentCapsule';
 import { attachTooltip } from '../../components/Tooltip';
 
 function unwrapWikilink(v: string): string {
@@ -40,6 +42,7 @@ export class DNInspector {
     }
 
     render(entity: DNEntity): void {
+        const prevScrollTop = this.containerEl.scrollTop;
         this.currentEntity = entity;
         this.containerEl.empty();
 
@@ -80,12 +83,6 @@ export class DNInspector {
             this.renderTypeRefField(form, entity as ArcVariant, 'arc-type');
         }
 
-        if (entity.type === 'quest') {
-            this.renderTextField(form, 'Quest Type', (entity as Quest).questType, async (val) => {
-                await this.updateEntity({ questType: val });
-            });
-        }
-
         if (entity.type === 'scenario') {
             this.renderActsField(form, entity as Scenario);
         }
@@ -116,6 +113,13 @@ export class DNInspector {
         }
 
         this.renderPhasesSection(form, entity);
+
+        // Connected Comments
+        if (entity.type !== 'quest') {
+            this.renderCommentsSection(form, entity);
+        }
+
+        this.containerEl.scrollTop = prevScrollTop;
     }
 
     setOnChange(callback: () => void): void {
@@ -214,24 +218,51 @@ export class DNInspector {
             this.renderPhaseAccordion(section, entity, phase);
         }
 
-        const addBtn = section.createEl('button', { cls: 'dn-add-phase-btn', text: '+ Add Custom Phase' });
-        addBtn.addEventListener('click', () => {
-            const modal = new DNPhaseModal(this.plugin.app, null, (phase) => {
-                this.manager.addCustomPhase(entity, {
-                    ...phase,
-                    isDefault: false,
+        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
+        if (!isVariant) {
+            const addBtn = section.createEl('button', { cls: 'dn-add-phase-btn', text: '+ Add Custom Phase' });
+            addBtn.addEventListener('click', () => {
+                const modal = new DNPhaseModal(this.plugin.app, null, (phase) => {
+                    void (async () => {
+                        const isType = entity.type === 'objective-type' || entity.type === 'arc-type';
+                        const doAdd = async (): Promise<void> => {
+                            if (isType) {
+                                await this.manager.addTypePhase(entity as ObjectiveType | ArcType, {
+                                    ...phase,
+                                    isDefault: false,
+                                });
+                            } else {
+                                this.manager.addCustomPhase(entity, {
+                                    ...phase,
+                                    isDefault: false,
+                                });
+                                await this.persistEntity();
+                            }
+                            this.render(entity);
+                        };
+                        if (isType) {
+                            const variantCount = this.getVariantCount(entity);
+                            if (variantCount > 0) {
+                                openConfirmModal(this.plugin.app, {
+                                    title: `Add phase to ${variantCount} variant${variantCount !== 1 ? 's' : ''}`,
+                                    message: `This type has ${variantCount} variant${variantCount !== 1 ? 's' : ''}. The phase "${phase.name}" will be added to all of them. Continue?`,
+                                    confirmLabel: 'Add & Propagate',
+                                    onConfirm: doAdd,
+                                });
+                                return;
+                            }
+                        }
+                        await doAdd();
+                    })();
                 });
-                void (async () => {
-                    await this.persistEntity();
-                    this.render(entity);
-                })();
+                modal.open();
             });
-            modal.open();
-        });
+        }
     }
 
     private renderPhaseAccordion(container: HTMLElement, entity: DNEntity, phase: DNPhase): void {
         const accordion = container.createDiv('dn-phase-accordion');
+        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
         if (!phase.isDefault) accordion.addClass('dn-phase-custom');
 
         const header = accordion.createDiv('dn-phase-header');
@@ -242,14 +273,34 @@ export class DNInspector {
             header.createSpan('dn-phase-default-badge').setText('default');
         }
 
-        if (!phase.isDefault) {
+        if (!phase.isDefault && !isVariant) {
             const deleteBtn = header.createEl('button', { cls: 'dn-phase-delete-btn' });
             setIcon(deleteBtn, 'trash-2');
             deleteBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
-                this.manager.removeCustomPhase(entity, phase.name);
-                await this.persistEntity();
-                this.render(entity);
+                const isType = entity.type === 'objective-type' || entity.type === 'arc-type';
+                const doRemove = async (): Promise<void> => {
+                    if (isType) {
+                        await this.manager.removeTypePhase(entity as ObjectiveType | ArcType, phase.name);
+                    } else {
+                        this.manager.removeCustomPhase(entity, phase.name);
+                        await this.persistEntity();
+                    }
+                    this.render(entity);
+                };
+                if (isType) {
+                    const variantCount = this.getVariantCount(entity);
+                    if (variantCount > 0) {
+                        openConfirmModal(this.plugin.app, {
+                            title: `Remove phase from ${variantCount} variant${variantCount !== 1 ? 's' : ''}`,
+                            message: `This type has ${variantCount} variant${variantCount !== 1 ? 's' : ''}. The phase "${phase.name}" and its content in each variant will be removed. Continue?`,
+                            confirmLabel: 'Remove & Propagate',
+                            onConfirm: doRemove,
+                        });
+                        return;
+                    }
+                }
+                await doRemove();
             });
         }
 
@@ -258,20 +309,23 @@ export class DNInspector {
 
         const body = accordion.createDiv('dn-phase-body');
 
-        if (!phase.isDefault) {
+        if (!phase.isDefault && !isVariant) {
             const nameField = body.createDiv('dn-phase-field');
             nameField.createEl('label', { text: 'Name', cls: 'dn-phase-field-label' });
             const nameInput = nameField.createEl('input', { type: 'text', cls: 'dn-phase-field-input' });
             nameInput.value = phase.name;
             nameInput.addEventListener('change', () => {
                 this.scheduleSave(async () => {
-                    this.manager.renameCustomPhase(entity, phase.name, nameInput.value);
-                    await this.persistEntity();
+                    if (entity.type === 'objective-type' || entity.type === 'arc-type') {
+                        await this.manager.renameTypePhase(entity as ObjectiveType | ArcType, phase.name, nameInput.value);
+                        this.render(entity);
+                    } else {
+                        this.manager.renameCustomPhase(entity, phase.name, nameInput.value);
+                        await this.persistEntity();
+                    }
                 });
             });
         }
-
-        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
 
         if (isVariant) {
             const variant = entity as ObjectiveVariant | ArcVariant;
@@ -581,6 +635,16 @@ export class DNInspector {
         this.onChangeCallback?.();
     }
 
+    private getVariantCount(entity: DNEntity): number {
+        if (entity.type === 'objective-type') {
+            return this.manager.getObjectiveVariantsOfType(entity.filePath).length;
+        }
+        if (entity.type === 'arc-type') {
+            return this.manager.getArcVariantsOfType(entity.filePath).length;
+        }
+        return 0;
+    }
+
     private async persistEntity(): Promise<void> {
         if (!this.currentEntity) return;
         await this.updateEntity({});
@@ -635,6 +699,68 @@ export class DNInspector {
                 new Notice(`"${entity.title}" deleted`);
             },
         });
+    }
+
+    private renderCommentsSection(container: HTMLElement, entity: DNEntity): void {
+        if (!this.plugin.commentsManager) return;
+        let category = 'scenario';
+        if (entity.type === 'objective-type' || entity.type === 'objective-variant') {
+            category = 'objective';
+        } else if (entity.type === 'arc-type' || entity.type === 'arc-variant') {
+            category = 'arc';
+        } else if (entity.type === 'quest') {
+            category = 'quest';
+        }
+
+        const comments = this.plugin.commentsManager.getCommentsForFile(entity.filePath);
+        if (!comments || comments.length === 0) return;
+
+        const section = container.createDiv('dn-inspector-comments');
+        section.createDiv('dn-section-title').setText('Comments');
+
+        const addBtn = section.createEl('button', {
+            cls: 'dn-add-comment-btn',
+            text: '+ add comment',
+        });
+        addBtn.addEventListener('click', () => {
+            const commentsFolder = this.plugin.sceneManager.getCommentsFolder();
+            if (!commentsFolder) return;
+            new AddCommentModal(
+                this.plugin.app,
+                this.plugin.commentsManager,
+                commentsFolder,
+                entity.filePath,
+                entity.title,
+                category as 'scenario' | 'objective' | 'arc' | 'quest',
+                () => {
+                    const updated = this.manager.getEntity(entity.filePath);
+                    if (updated) this.render(updated);
+                    else this.render(entity);
+                },
+            ).open();
+        });
+
+        const capsuleRow = section.createDiv('sl-comments-capsule-row');
+        for (const comment of comments) {
+            renderCommentCapsule(
+                capsuleRow,
+                comment.title,
+                comment.status,
+                comment.filePath,
+                (filePath: string) => {
+                    this.plugin.activateView('story-line-comments');
+                    const leaves = this.plugin.app.workspace.getLeavesOfType('story-line-comments');
+                    for (const leaf of leaves) {
+                        const view = leaf.view as unknown as { selectComment?: (path: string) => void };
+                        if (view && typeof view.selectComment === 'function') {
+                            view.selectComment(filePath);
+                            this.plugin.app.workspace.revealLeaf(leaf);
+                            break;
+                        }
+                    }
+                },
+            );
+        }
     }
 }
 
