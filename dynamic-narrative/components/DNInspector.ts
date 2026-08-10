@@ -2,8 +2,8 @@
 import { setIcon, Notice, TFile } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
-import type { DNEntity, DNPhase } from '../models/types';
-import { isDefaultPhase } from '../models/types';
+import type { DNEntity, DNPhase, DNLinkedChild } from '../models/types';
+import { isDefaultPhase, resolveWikilinkPath } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveType, ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
 import type { ArcType, ArcVariant, ArcVariantPhase } from '../models/Arc';
@@ -14,6 +14,8 @@ import { openConfirmModal } from '../../components/ConfirmModal';
 import { AddCommentModal } from '../../components/AddCommentModal';
 import { renderCommentCapsule } from '../../components/CommentCapsule';
 import { attachTooltip } from '../../components/Tooltip';
+import { DNEntitySelectModal } from './DNEntitySelectModal';
+import { DNCommentModal } from './DNCommentModal';
 
 function unwrapWikilink(v: string): string {
     return v.replace(/^\[\[/, '').replace(/\]\]$/, '');
@@ -376,6 +378,12 @@ export class DNInspector {
             });
         }
 
+        if (entity.type === 'scenario') {
+            this.renderLinkedChildSection(body, entity, phase as ScenarioPhase, 'Linked Objectives');
+        } else if (entity.type === 'objective-variant') {
+            this.renderLinkedChildSection(body, entity, phase as ObjectiveVariantPhase, 'Linked Arcs');
+        }
+
         if (entity.type === 'arc-variant') {
             const arcPhase = phase as ArcVariantPhase;
             this.renderLinkedEntitiesField(body, 'Linked Goals', arcPhase.linkedGoals,
@@ -589,6 +597,130 @@ export class DNInspector {
             },
             placeholder: placeholder ?? 'Add...',
         });
+    }
+
+    private renderLinkedChildSection(
+        container: HTMLElement,
+        entity: Scenario | ObjectiveVariant,
+        phase: ScenarioPhase | ObjectiveVariantPhase,
+        label: string,
+    ): void {
+        const section = container.createDiv('dn-inspector-linked-children');
+        const sectionHeader = section.createDiv('dn-inspector-linked-children-header');
+        sectionHeader.createEl('label', { text: label, cls: 'dn-field-label' });
+
+        const addBtn = sectionHeader.createEl('button', {
+            cls: 'dn-inspector-linked-add-btn',
+            attr: { type: 'button', 'aria-label': `Add ${label.toLowerCase()}` },
+        });
+        setIcon(addBtn, 'plus');
+        addBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.openLinkedChildSelectModal(entity, phase.name);
+        });
+
+        const links = entity.type === 'scenario'
+            ? (phase as ScenarioPhase).linkedObjectives
+            : (phase as ObjectiveVariantPhase).linkedArcs;
+
+        for (const group of [
+            { isPrimary: true, label: 'Primary' },
+            { isPrimary: false, label: 'Secondary' },
+        ]) {
+            const groupEl = section.createDiv('dn-inspector-linked-group');
+            const groupHeader = groupEl.createDiv('dn-inspector-linked-group-header');
+            groupHeader.createSpan('dn-inspector-linked-group-label').setText(group.label);
+            const groupLinks = links
+                .map((link, index) => ({ link, index }))
+                .filter(item => item.link.isPrimary === group.isPrimary);
+            groupHeader.createSpan('dn-inspector-linked-group-count').setText(`(${groupLinks.length})`);
+
+            const groupBody = groupEl.createDiv('dn-inspector-linked-group-body');
+            if (groupLinks.length === 0) {
+                groupBody.createDiv('dn-inspector-linked-empty').setText('No linked entities.');
+            } else {
+                for (const item of groupLinks) {
+                    this.renderLinkedChildCard(groupBody, entity, phase.name, item.link, item.index);
+                }
+            }
+        }
+    }
+
+    private renderLinkedChildCard(
+        container: HTMLElement,
+        entity: Scenario | ObjectiveVariant,
+        phaseName: string,
+        link: DNLinkedChild,
+        index: number,
+    ): void {
+        const card = container.createDiv('dn-inspector-linked-card');
+        const linkedPath = resolveWikilinkPath(link.id);
+        const child = entity.type === 'scenario'
+            ? this.manager.getAllObjectiveVariants().find(item => item.filePath === linkedPath)
+            : this.manager.getAllArcVariants().find(item => item.filePath === linkedPath);
+
+        const titleRow = card.createDiv('dn-inspector-linked-card-title-row');
+        titleRow.createDiv('dn-inspector-linked-card-title').setText(child?.title ?? linkedPath);
+
+        const commentBtn = titleRow.createEl('button', {
+            cls: 'dn-inspector-linked-action-btn',
+            attr: {
+                type: 'button',
+                'aria-label': link.comment ? 'Edit linked entity comment' : 'Add linked entity comment',
+                title: link.comment ? 'Edit comment' : 'Add comment',
+            },
+        });
+        setIcon(commentBtn, 'message-square');
+        if (link.comment) commentBtn.addClass('has-comment');
+        commentBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            new DNCommentModal(this.plugin.app, link.comment ?? '', async (comment) => {
+                await this.manager.updateLinkedComment(entity.filePath, phaseName, index, comment);
+                const updated = this.manager.getEntity(entity.filePath);
+                if (updated) this.render(updated);
+            }).open();
+        });
+
+        const deleteBtn = titleRow.createEl('button', {
+            cls: 'dn-inspector-linked-action-btn dn-inspector-linked-delete-btn',
+            attr: { type: 'button', 'aria-label': 'Remove linked entity', title: 'Remove linked entity' },
+        });
+        setIcon(deleteBtn, 'x');
+        deleteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await this.manager.unlinkLinkedChildFromPhase(entity.filePath, phaseName, index);
+            const updated = this.manager.getEntity(entity.filePath);
+            if (updated) this.render(updated);
+        });
+
+        if (link.comment) {
+            card.createDiv('dn-inspector-linked-card-comment').setText(link.comment);
+        }
+        if (link.mandatory) {
+            card.createSpan('dn-card-badge-mandatory').setText('Mandatory');
+        }
+    }
+
+    private openLinkedChildSelectModal(entity: Scenario | ObjectiveVariant, phaseName: string): void {
+        const childType = entity.type === 'scenario' ? 'objective-variant' : 'arc-variant';
+        const modal = new DNEntitySelectModal(
+            this.plugin.app,
+            this.manager,
+            childType,
+            async (childPath, copies) => {
+                let added = 0;
+                for (let i = 0; i < copies; i++) {
+                    const linked = entity.type === 'scenario'
+                        ? await this.manager.linkExistingObjectiveVariant(entity.filePath, phaseName, childPath)
+                        : await this.manager.linkExistingArcVariant(entity.filePath, phaseName, childPath);
+                    if (linked) added++;
+                }
+                const updated = this.manager.getEntity(entity.filePath);
+                if (updated) this.render(updated);
+                return added;
+            },
+        );
+        modal.open();
     }
 
     private getLinkedLocations(entity: DNEntity): string[] {

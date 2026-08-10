@@ -33,6 +33,7 @@ export interface DNLinkedChild {
     id: string;
     isPrimary: boolean;
     mandatory: boolean;
+    comment?: string;
 }
 
 export const DEFAULT_DN_PHASES: string[] = [

@@ -9,6 +9,7 @@ import type { ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objectiv
 import type { ArcVariant, ArcVariantPhase } from '../models/Arc';
 import { DNCreateModal, TypeChoice } from './DNCreateModal';
 import { DNEntitySelectModal } from './DNEntitySelectModal';
+import { DNCommentModal } from './DNCommentModal';
 
 type KanbanEntityType = 'scenario' | 'objective-variant' | 'arc-variant';
 type PhaseContentField = 'description' | 'startConditions' | 'startCommands' | 'endConditions' | 'endCommands';
@@ -21,6 +22,7 @@ interface CardData {
     isPrimary: boolean;
     mandatory: boolean;
     index: number;
+    comment?: string;
 }
 
 export class DNKanban {
@@ -410,6 +412,7 @@ export class DNKanban {
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
                             index: idx,
+                            comment: link.comment,
                         });
                     }
                 }
@@ -432,6 +435,7 @@ export class DNKanban {
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
                             index: idx,
+                            comment: link.comment,
                         });
                     }
                 }
@@ -500,8 +504,33 @@ export class DNKanban {
         cardEl.setAttribute('data-priority', card.isPrimary ? 'primary' : 'secondary');
         cardEl.setAttribute('data-index', String(card.index));
 
-        const titleEl = cardEl.createDiv('dn-card-title');
+        const titleRow = cardEl.createDiv('dn-card-title-row');
+        const titleEl = titleRow.createDiv('dn-card-title');
         titleEl.setText(card.title);
+
+        if (this.entityType === 'scenario' || this.entityType === 'objective-variant') {
+            const commentBtn = titleRow.createEl('button', {
+                cls: 'dn-card-comment-btn',
+                attr: {
+                    type: 'button',
+                    'aria-label': card.comment ? 'Edit linked entity comment' : 'Add linked entity comment',
+                    title: card.comment ? 'Edit comment' : 'Add comment',
+                },
+            });
+            setIcon(commentBtn, 'message-square');
+            if (card.comment) commentBtn.addClass('has-comment');
+            commentBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                new DNCommentModal(this.plugin.app, card.comment ?? '', async (comment) => {
+                    await this.manager.updateLinkedComment(parentEntity.filePath, phase.name, card.index, comment);
+                    this.render();
+                }).open();
+            });
+        }
+
+        if (card.comment) {
+            cardEl.createDiv('dn-card-comment').setText(card.comment);
+        }
 
         const metaEl = cardEl.createDiv('dn-card-meta');
         if (card.typeRef) {
@@ -586,7 +615,8 @@ export class DNKanban {
             const fromParent = e.dataTransfer?.getData('text/dn-card-parent');
             const fromPriority = e.dataTransfer?.getData('text/dn-card-priority') || 'primary';
             const fromIndexStr = e.dataTransfer?.getData('text/dn-card-index');
-            const fromIndex = fromIndexStr ? parseInt(fromIndexStr, 10) : undefined;
+            const parsedIndex = fromIndexStr ? Number.parseInt(fromIndexStr, 10) : Number.NaN;
+            const fromIndex = Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : undefined;
 
             if (!childPath || !fromPhase || fromParent !== parentEntity.filePath) return;
 
@@ -595,12 +625,13 @@ export class DNKanban {
 
             if (!phaseChanged && !priorityChanged) return;
 
+            let targetIndex = fromIndex;
             if (phaseChanged) {
-                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name, fromIndex);
+                targetIndex = await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name, fromIndex);
             }
 
             if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective-variant')) {
-                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, targetIsPrimary, fromIndex);
+                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, targetIsPrimary, targetIndex);
             }
 
             this.render();
@@ -631,7 +662,8 @@ export class DNKanban {
             const fromParent = e.dataTransfer?.getData('text/dn-card-parent');
             const fromPriority = e.dataTransfer?.getData('text/dn-card-priority') || 'primary';
             const fromIndexStr = e.dataTransfer?.getData('text/dn-card-index');
-            const fromIndex = fromIndexStr ? parseInt(fromIndexStr, 10) : undefined;
+            const parsedIndex = fromIndexStr ? Number.parseInt(fromIndexStr, 10) : Number.NaN;
+            const fromIndex = Number.isInteger(parsedIndex) && parsedIndex >= 0 ? parsedIndex : undefined;
 
             if (!childPath || !fromPhase || fromParent !== parentEntity.filePath) return;
 
@@ -640,12 +672,13 @@ export class DNKanban {
 
             if (!phaseChanged && !priorityChanged) return;
 
+            let targetIndex = fromIndex;
             if (phaseChanged) {
-                await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name, fromIndex);
+                targetIndex = await this.manager.reassignPhase(parentEntity.filePath, childPath, fromPhase, targetPhase.name, fromIndex);
             }
 
             if (priorityChanged && (this.entityType === 'scenario' || this.entityType === 'objective-variant')) {
-                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, true, fromIndex);
+                await this.manager.toggleLinkPriority(parentEntity.filePath, childPath, targetPhase.name, true, targetIndex);
             }
 
             this.render();
@@ -658,21 +691,11 @@ export class DNKanban {
 
         switch (this.entityType) {
             case 'scenario': {
-                const scenario = parent as Scenario;
-                const phase = scenario.phases.find(p => p.name === phaseName);
-                if (phase && index >= 0 && index < phase.linkedObjectives.length) {
-                    phase.linkedObjectives.splice(index, 1);
-                }
-                await this.manager.updateScenario(parentPath, { phases: scenario.phases });
+                await this.manager.unlinkLinkedChildFromPhase(parentPath, phaseName, index);
                 break;
             }
             case 'objective-variant': {
-                const objective = parent as ObjectiveVariant;
-                const phase = objective.phases.find(p => p.name === phaseName);
-                if (phase && index >= 0 && index < phase.linkedArcs.length) {
-                    phase.linkedArcs.splice(index, 1);
-                }
-                await this.manager.updateObjectiveVariant(parentPath, { phases: objective.phases });
+                await this.manager.unlinkLinkedChildFromPhase(parentPath, phaseName, index);
                 break;
             }
             case 'arc-variant': {
@@ -724,19 +747,25 @@ export class DNKanban {
             this.plugin.app,
             this.manager,
             childType,
-            async (childPath) => {
-                switch (this.entityType) {
-                    case 'scenario':
-                        await this.manager.linkExistingObjectiveVariant(parentPath, phaseName, childPath);
-                        break;
-                    case 'objective-variant':
-                        await this.manager.linkExistingArcVariant(parentPath, phaseName, childPath);
-                        break;
-                    case 'arc-variant':
-                        await this.manager.linkExistingQuest(parentPath, phaseName, childPath);
-                        break;
+            async (childPath, copies) => {
+                let added = 0;
+                for (let i = 0; i < copies; i++) {
+                    let linked = false;
+                    switch (this.entityType) {
+                        case 'scenario':
+                            linked = await this.manager.linkExistingObjectiveVariant(parentPath, phaseName, childPath);
+                            break;
+                        case 'objective-variant':
+                            linked = await this.manager.linkExistingArcVariant(parentPath, phaseName, childPath);
+                            break;
+                        case 'arc-variant':
+                            linked = await this.manager.linkExistingQuest(parentPath, phaseName, childPath);
+                            break;
+                    }
+                    if (linked) added++;
                 }
                 this.render();
+                return added;
             },
         );
         modal.open();

@@ -429,6 +429,7 @@ export class DynamicNarrativeManager {
             id: (item['objective-id'] || item['arc-id'] || '') as string,
             isPrimary: item['is-primary'] !== false,
             mandatory: item['mandatory'] === true,
+            comment: typeof item['comment'] === 'string' ? item['comment'] : undefined,
         }));
     }
 
@@ -562,11 +563,15 @@ export class DynamicNarrativeManager {
     private serializeScenarioPhase(p: ScenarioPhase): Record<string, unknown> {
         const obj = this.serializeBasePhase(p);
         if (p.linkedObjectives.length > 0) {
-            obj['linked-objectives'] = p.linkedObjectives.map(c => ({
-                'objective-id': c.id,
-                'is-primary': c.isPrimary,
-                'mandatory': c.mandatory,
-            }));
+            obj['linked-objectives'] = p.linkedObjectives.map(c => {
+                const linked: Record<string, unknown> = {
+                    'objective-id': c.id,
+                    'is-primary': c.isPrimary,
+                    'mandatory': c.mandatory,
+                };
+                if (c.comment) linked.comment = c.comment;
+                return linked;
+            });
         }
         return obj;
     }
@@ -578,11 +583,15 @@ export class DynamicNarrativeManager {
     private serializeObjectiveVariantPhase(p: ObjectiveVariantPhase): Record<string, unknown> {
         const obj = this.serializeBasePhase(p);
         if (p.linkedArcs.length > 0) {
-            obj['linked-arcs'] = p.linkedArcs.map(c => ({
-                'arc-id': c.id,
-                'is-primary': c.isPrimary,
-                'mandatory': c.mandatory,
-            }));
+            obj['linked-arcs'] = p.linkedArcs.map(c => {
+                const linked: Record<string, unknown> = {
+                    'arc-id': c.id,
+                    'is-primary': c.isPrimary,
+                    'mandatory': c.mandatory,
+                };
+                if (c.comment) linked.comment = c.comment;
+                return linked;
+            });
         }
         return obj;
     }
@@ -1136,6 +1145,50 @@ ${entity.description}
         return true;
     }
 
+    async updateLinkedComment(parentPath: string, phaseName: string, index: number, comment: string): Promise<boolean> {
+        const parent = this.getEntity(parentPath);
+        if (!parent || index < 0) return false;
+
+        let link: DNLinkedChild | undefined;
+        if (parent.type === 'scenario') {
+            const phase = (parent as Scenario).phases.find(p => p.name === phaseName);
+            link = phase?.linkedObjectives[index];
+        } else if (parent.type === 'objective-variant') {
+            const phase = (parent as ObjectiveVariant).phases.find(p => p.name === phaseName);
+            link = phase?.linkedArcs[index];
+        }
+        if (!link) return false;
+
+        const normalized = comment.trim().length > 0 ? comment : undefined;
+        link.comment = normalized;
+        await this.writeEntityFile(parent);
+        await this.saveSystemJson();
+        return true;
+    }
+
+    async unlinkLinkedChildFromPhase(parentPath: string, phaseName: string, index: number): Promise<boolean> {
+        const parent = this.getEntity(parentPath);
+        if (!parent || index < 0) return false;
+
+        if (parent.type === 'scenario') {
+            const scenario = parent as Scenario;
+            const phase = scenario.phases.find(p => p.name === phaseName);
+            if (!phase || index >= phase.linkedObjectives.length) return false;
+            phase.linkedObjectives.splice(index, 1);
+        } else if (parent.type === 'objective-variant') {
+            const objective = parent as ObjectiveVariant;
+            const phase = objective.phases.find(p => p.name === phaseName);
+            if (!phase || index >= phase.linkedArcs.length) return false;
+            phase.linkedArcs.splice(index, 1);
+        } else {
+            return false;
+        }
+
+        await this.writeEntityFile(parent);
+        await this.saveSystemJson();
+        return true;
+    }
+
     private getQuestListKey(category: string): 'linkedGoals' | 'linkedLimits' | 'linkedEvents' | 'linkedModifiers' {
         switch (category) {
             case 'Goal': return 'linkedGoals';
@@ -1422,7 +1475,7 @@ ${entity.description}
 
     // ─── Phase Reassignment (drag between columns) ───────────────
 
-    async reassignPhase(parentPath: string, childPath: string, fromPhase: string, toPhase: string, fromIndex?: number): Promise<void> {
+    async reassignPhase(parentPath: string, childPath: string, fromPhase: string, toPhase: string, fromIndex?: number): Promise<number | undefined> {
         const parent = this.getEntity(parentPath);
         if (!parent) return;
 
@@ -1434,7 +1487,12 @@ ${entity.description}
                 const fromP = scenario.phases.find(p => p.name === fromPhase);
                 const toP = scenario.phases.find(p => p.name === toPhase);
                 if (!fromP || !toP) return;
-                const idx = fromIndex !== undefined ? fromIndex : fromP.linkedObjectives.findIndex(c => resolveWikilinkPath(c.id) === childPath);
+                const indexedLink = fromIndex !== undefined && fromIndex >= 0 && fromIndex < fromP.linkedObjectives.length
+                    ? fromP.linkedObjectives[fromIndex]
+                    : undefined;
+                const idx = indexedLink && resolveWikilinkPath(indexedLink.id) === childPath
+                    ? fromIndex as number
+                    : fromP.linkedObjectives.findIndex(c => resolveWikilinkPath(c.id) === childPath);
                 if (idx < 0 || idx >= fromP.linkedObjectives.length) return;
                 const [child] = fromP.linkedObjectives.splice(idx, 1);
                 toP.linkedObjectives.push(child);
@@ -1445,7 +1503,12 @@ ${entity.description}
                 const fromP = objective.phases.find(p => p.name === fromPhase);
                 const toP = objective.phases.find(p => p.name === toPhase);
                 if (!fromP || !toP) return;
-                const idx = fromIndex !== undefined ? fromIndex : fromP.linkedArcs.findIndex(c => resolveWikilinkPath(c.id) === childPath);
+                const indexedLink = fromIndex !== undefined && fromIndex >= 0 && fromIndex < fromP.linkedArcs.length
+                    ? fromP.linkedArcs[fromIndex]
+                    : undefined;
+                const idx = indexedLink && resolveWikilinkPath(indexedLink.id) === childPath
+                    ? fromIndex as number
+                    : fromP.linkedArcs.findIndex(c => resolveWikilinkPath(c.id) === childPath);
                 if (idx < 0 || idx >= fromP.linkedArcs.length) return;
                 const [child] = fromP.linkedArcs.splice(idx, 1);
                 toP.linkedArcs.push(child);
@@ -1471,6 +1534,15 @@ ${entity.description}
 
         await this.writeEntityFile(parent);
         await this.saveSystemJson();
+        if (parent.type === 'scenario') {
+            const toP = (parent as Scenario).phases.find(p => p.name === toPhase);
+            return toP ? toP.linkedObjectives.length - 1 : undefined;
+        }
+        if (parent.type === 'objective-variant') {
+            const toP = (parent as ObjectiveVariant).phases.find(p => p.name === toPhase);
+            return toP ? toP.linkedArcs.length - 1 : undefined;
+        }
+        return undefined;
     }
 
     async toggleLinkPriority(parentPath: string, childPath: string, phaseName: string, isPrimary: boolean, index?: number): Promise<void> {
@@ -1482,8 +1554,11 @@ ${entity.description}
                 const scenario = parent as Scenario;
                 const phase = scenario.phases.find(p => p.name === phaseName);
                 if (!phase) return;
-                const link = index !== undefined
-                    ? (index >= 0 && index < phase.linkedObjectives.length ? phase.linkedObjectives[index] : undefined)
+                const indexedLink = index !== undefined && index >= 0 && index < phase.linkedObjectives.length
+                    ? phase.linkedObjectives[index]
+                    : undefined;
+                const link = indexedLink && resolveWikilinkPath(indexedLink.id) === childPath
+                    ? indexedLink
                     : phase.linkedObjectives.find(c => resolveWikilinkPath(c.id) === childPath);
                 if (link) link.isPrimary = isPrimary;
                 break;
@@ -1492,8 +1567,11 @@ ${entity.description}
                 const objective = parent as ObjectiveVariant;
                 const phase = objective.phases.find(p => p.name === phaseName);
                 if (!phase) return;
-                const link = index !== undefined
-                    ? (index >= 0 && index < phase.linkedArcs.length ? phase.linkedArcs[index] : undefined)
+                const indexedLink = index !== undefined && index >= 0 && index < phase.linkedArcs.length
+                    ? phase.linkedArcs[index]
+                    : undefined;
+                const link = indexedLink && resolveWikilinkPath(indexedLink.id) === childPath
+                    ? indexedLink
                     : phase.linkedArcs.find(c => resolveWikilinkPath(c.id) === childPath);
                 if (link) link.isPrimary = isPrimary;
                 break;
