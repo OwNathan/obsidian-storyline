@@ -114,9 +114,9 @@ Single view with seven internal tabs for game narrative entities. Includes a res
 | Tab | Component | Description |
 |---|---|---|
 | Overview | `DNOverview` | Collapsible lists for all 4 entity types with search, sort, and filter |
-| Scenarios | `DNKanban` | Vertical phase panels with Conditions, Commands, linked Objective Variants, and drag-and-drop |
-| Objective Variants | `DNKanban` | Vertical phase panels with override-only content and linked Arc Variants split by Primary/Secondary; linked Arc capsules show the Arc Type without a label prefix |
-| Arc Variants | `DNKanban` | Root-level Conditions/Commands Overrides plus Goals/Limits and Events/Modifiers quest groups; linked quest comments use the same one-line preview and hover tooltip as the other boards; no phase panels or drag-and-drop |
+| Scenarios | `DNKanban` | Vertical phase panels with Conditions, Commands, linked Objective Variants, copy/paste, and drag-and-drop |
+| Objective Variants | `DNKanban` | Vertical phase panels with override-only content, linked Arc Variants split by Primary/Secondary, and type-compatible copy/paste; linked Arc capsules show the Arc Type without a label prefix |
+| Arc Variants | `DNKanban` | Root-level Conditions/Commands Overrides plus Goals/Limits and Events/Modifiers quest groups with category-compatible copy/paste; linked quest comments use the same one-line preview and hover tooltip as the other boards; no phase panels or drag-and-drop |
 | Objective/Arc Types | `DNTypeGrid` | Type editors that own and propagate phase definitions to their Variants |
 | Quests | `DNQuestGrid` | Quest list + editor + usage stats sidebar |
 
@@ -129,9 +129,9 @@ Single view with seven internal tabs for game narrative entities. Includes a res
 
 **Components used:**
 - `DNOverview` -- debounced search (200ms), sort, category filter, DNCreateModal for entity creation
-- `DNKanban` -- sidebar with search, vertically stacked phase panels spanning the full width, three content columns, drag-and-drop cards, right-click context menu (Edit/priority/Unlink), and create/link child entities from each phase header
+- `DNKanban` -- sidebar with search, vertically stacked phase panels spanning the full width, three content columns, drag-and-drop cards, right-click context menu (Edit/priority/Unlink), create/link child entities, and type-compatible in-memory copy/paste from each phase or quest-group header. Paste supports overwrite, additive missing, and unique-only modes when the target already contains links
 - `DNQuestGrid` -- list panel, editor panel (category, type, description, phases), usage panel (transitive connection counts)
-- `DNInspector` -- entity fields, category selector where applicable, phase accordions with DNPhaseModal for Scenario/Type/Quest phase structure, auto-save (600ms debounce). Objective Variants expose per-phase overrides; Arc Variants expose root-level Conditions/Commands Overrides and four root-level quest lists, with Arc Type phases shown read-only. Features suggestor-based tag-pill inputs for Scenario/Objective Linked Locations, Linked Characters, and Arc Variant quest links. Header includes file-open and delete buttons with confirmation dialog. Custom phase names use single-line inputs where applicable.
+- `DNInspector` -- entity fields, category selector where applicable, phase accordions with DNPhaseModal for Scenario/Type/Quest phase structure, auto-save (600ms debounce). Objective Variants expose per-phase overrides; Arc Variants expose root-level Conditions/Commands Overrides and four root-level quest lists, with Arc Type phases shown read-only. Features suggestor-based tag-pill inputs for Scenario/Objective Linked Locations, Linked Characters, and Arc Variant quest links. Header includes file-open, clone, and delete buttons; cloning opens a name-only dialog and copies the entity data without recursively cloning linked entities. Custom phase names use single-line inputs where applicable.
 
 **Mobile:** Inspector resize supports touch events. Touchstart/touchmove/touchend handlers registered alongside mouse events, properly cleaned up on view close.
 

@@ -295,18 +295,23 @@ Manages the Dynamic Narrative entity hierarchy (Scenarios, Objectives, Arcs, Que
 - `createScenario/Objective/Arc/Quest(data): Promise<entity>` -- create file + system JSON entry
 - `updateScenario/Objective/Arc/Quest(filePath, updates): Promise<void>` -- update with undo recording (deep-cloned snapshots)
 - `deleteScenario/Objective/Arc/Quest(filePath): Promise<void>` -- delete file + remove from maps
+- `cloneEntity(filePath, newTitle): Promise<DNEntity | undefined>` -- clone any Dynamic Narrative entity with a new validated title; linked entities remain shared
+- `entityTitleExists(entityType, title, excludePath?): boolean` -- check same-type title collisions
 
 *Hierarchy & Linking*
 - `createAndLinkObjective(scenarioPath, phaseName, data): Promise<Objective>` -- create objective and link to scenario phase
 - `createAndLinkArc(objectivePath, phaseName, data): Promise<Arc>` -- create arc and link to objective phase
 - `createAndLinkQuest(arcPath, category, data): Promise<Quest>` -- create quest and link to the Arc Variant root list selected by the quest category
 - `linkExistingQuest(arcPath, questPath): Promise<boolean>` -- link an existing Quest to the Arc Variant root list selected by its category
+- `pasteLinksIntoPhase(parentPath, phaseName, entries, mode): Promise<number>` -- paste compatible Objective/Arc Variant links with overwrite, additive, or unique-only semantics
+- `pasteLinksIntoQuestList(arcPath, listKey, entries, mode): Promise<number>` -- paste Quest links into one category list without creating duplicate quests
 - `unlinkQuestFromArcVariant(arcPath, questPath): Promise<boolean>` -- remove a Quest from all Arc Variant root lists
 - `getLinkedObjectives(scenarioPath, phaseName?): DNLinkedChild[]`
 - `getLinkedArcs(objectivePath, phaseName?): DNLinkedChild[]`
 - `getLinkedQuests(arcPath): string[]`
 - `updateLinkedComment(parentPath, target, comment): Promise<boolean>` -- update a phase-linked child or an Arc Variant quest link comment
 - `getConnectionsForQuest(questPath): { scenarios, objectives, arcs }` -- transitive usage count
+- `dnClipboard` -- in-memory, type-specific Dynamic Narrative clipboard; cleared when the manager is initialized or destroyed
 
 *Phase Management*
 - `addCustomPhase(entity, phase): void` -- Scenario, Type, and Quest phases; Objective/Arc Variant phases are Type-owned

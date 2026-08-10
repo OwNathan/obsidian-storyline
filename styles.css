@@ -14258,6 +14258,129 @@ body.dn-resizing .dn-resize-handle::after {
     height: 14px;
 }
 
+/* ─── Dynamic Narrative clipboard buttons ──────────────────────── */
+.dn-column-copy-btn,
+.dn-column-paste-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-s);
+    flex-shrink: 0;
+}
+
+.dn-column-copy-btn:hover,
+.dn-column-paste-btn:hover:not(:disabled) {
+    color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
+
+.dn-column-copy-btn svg,
+.dn-column-paste-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dn-column-paste-btn:disabled {
+    color: var(--text-faint);
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+/* ─── Dynamic Narrative clone/paste modals ─────────────────────── */
+.dn-clone-modal,
+.dn-paste-modal {
+    padding: 4px;
+}
+
+.dn-clone-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 14px 0;
+}
+
+.dn-clone-label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-medium);
+}
+
+.dn-clone-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+}
+
+.dn-clone-input:focus {
+    border-color: var(--interactive-accent);
+    outline: none;
+}
+
+.dn-clone-error {
+    min-height: 16px;
+    color: var(--text-error);
+    font-size: var(--font-ui-smaller);
+}
+
+.dn-clone-error:not(.is-visible) {
+    visibility: hidden;
+}
+
+.dn-clone-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.dn-paste-summary {
+    margin: 12px 0;
+    color: var(--text-muted);
+}
+
+.dn-paste-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 14px 0 8px;
+}
+
+.dn-paste-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+}
+
+.dn-paste-option-description {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.dn-paste-option button,
+.dn-paste-cancel {
+    flex-shrink: 0;
+}
+
+.dn-paste-cancel {
+    margin-top: 8px;
+}
+
 /* ─── Dynamic Narrative header type badge ───────────────────────── */
 .dn-kanban-header-type {
     display: inline-block;

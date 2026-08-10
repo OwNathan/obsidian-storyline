@@ -2,7 +2,16 @@
 import { setIcon, Menu, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
-import type { DNPhase, DNEntityType, DNLinkedCommentTarget, DNArcVariantQuestList } from '../models/types';
+import type {
+    DNPhase,
+    DNEntityType,
+    DNLinkedChild,
+    DNLinkedCommentTarget,
+    DNArcVariantQuestList,
+    DNClipboardPhaseEntry,
+    DNClipboardQuestEntry,
+    DNPasteMode,
+} from '../models/types';
 import { deriveShortDesc, resolveWikilinkPath, debounce } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
@@ -10,9 +19,12 @@ import type { ArcVariant } from '../models/Arc';
 import { DNCreateModal, TypeChoice } from './DNCreateModal';
 import { DNEntitySelectModal } from './DNEntitySelectModal';
 import { renderDNLinkedComment } from './DNLinkedComment';
+import { DNPasteModal } from './DNPasteModal';
+import { attachTooltip } from '../../components/Tooltip';
 
 type KanbanEntityType = 'scenario' | 'objective-variant' | 'arc-variant';
 type PhaseContentField = 'description' | 'startConditions' | 'startCommands' | 'endConditions' | 'endCommands';
+type DNQuestCategory = 'Goal' | 'Limit' | 'Event' | 'Modifier';
 
 interface CardData {
     path: string;
@@ -297,7 +309,7 @@ export class DNKanban {
             entity.commandsOverride,
         );
 
-        const rows: Array<Array<{ label: string; category: string; listKey: DNArcVariantQuestList }>> = [
+        const rows: Array<Array<{ label: string; category: DNQuestCategory; listKey: DNArcVariantQuestList }>> = [
             [
                 { label: 'Goals', category: 'Goal', listKey: 'linkedGoals' },
                 { label: 'Limits', category: 'Limit', listKey: 'linkedLimits' },
@@ -338,7 +350,7 @@ export class DNKanban {
         container: HTMLElement,
         entity: ArcVariant,
         label: string,
-        category: string,
+        category: DNQuestCategory,
         listKey: DNArcVariantQuestList,
     ): void {
         const group = container.createDiv('dn-arc-variant-quest-group');
@@ -363,6 +375,22 @@ export class DNKanban {
         });
         setIcon(linkBtn, 'link');
         linkBtn.addEventListener('click', () => this.openArcVariantEntitySelectModal(entity.filePath, category));
+
+        const copyBtn = this.createClipboardButton(actions, 'copy', `Copy ${label.toLowerCase()}`);
+        attachTooltip(copyBtn, `Copy ${label.toLowerCase()}`);
+        copyBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.copyQuestGroup(entity, category, listKey);
+        });
+
+        const pasteBtn = this.createClipboardButton(actions, 'clipboard-paste', `Paste ${label.toLowerCase()}`);
+        const canPaste = this.canPasteQuestGroup(category);
+        pasteBtn.disabled = !canPaste;
+        attachTooltip(pasteBtn, canPaste ? `Paste ${label.toLowerCase()}` : this.getClipboardMismatchMessage('quest-links'));
+        pasteBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (!pasteBtn.disabled) this.pasteQuestGroup(entity, category, listKey);
+        });
 
         const body = group.createDiv('dn-arc-variant-quest-group-body');
         if (questCards.length === 0) {
@@ -549,6 +577,25 @@ export class DNKanban {
         linkBtn.setAttribute('aria-label', `Add existing ${this.getChildEntityType()} to ${phase.name}`);
         linkBtn.addEventListener('click', () => this.openEntitySelectModal(parentEntity.filePath, phase.name));
 
+        const copyBtn = this.createClipboardButton(titleRow, 'copy', `Copy linked entities from ${phase.name}`);
+        attachTooltip(copyBtn, `Copy linked entities from ${phase.name}`);
+        copyBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.copyPhaseLinks(parentEntity, phase);
+        });
+
+        const phaseChildType = this.getPhaseChildType();
+        const pasteBtn = this.createClipboardButton(titleRow, 'clipboard-paste', `Paste linked entities into ${phase.name}`);
+        const canPaste = this.canPastePhase(phaseChildType);
+        pasteBtn.disabled = !canPaste;
+        attachTooltip(pasteBtn, canPaste
+            ? `Paste linked entities into ${phase.name}`
+            : this.getClipboardMismatchMessage('phase-links'));
+        pasteBtn.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (!pasteBtn.disabled) this.pastePhaseLinks(parentEntity, phase);
+        });
+
         const description = this.getDisplayedPhaseValue(parentEntity, phase, 'description');
         if (description) {
             header.createDiv('dn-phase-panel-description').setText(description);
@@ -631,6 +678,154 @@ export class DNKanban {
             case 'objective-variant': return 'arc-variant';
             case 'arc-variant': return 'quest';
         }
+    }
+
+    private getPhaseChildType(): 'objective-variant' | 'arc-variant' {
+        return this.entityType === 'scenario' ? 'objective-variant' : 'arc-variant';
+    }
+
+    private createClipboardButton(container: HTMLElement, icon: string, ariaLabel: string): HTMLButtonElement {
+        const button = container.createEl('button', {
+            cls: icon === 'copy' ? 'dn-column-copy-btn' : 'dn-column-paste-btn',
+            attr: { type: 'button', 'aria-label': ariaLabel },
+        });
+        setIcon(button, icon);
+        return button;
+    }
+
+    private getPhaseLinks(
+        parentEntity: Scenario | ObjectiveVariant | ArcVariant,
+        phase: DNPhase,
+    ): DNLinkedChild[] {
+        if (parentEntity.type === 'scenario') {
+            return (phase as ScenarioPhase).linkedObjectives ?? [];
+        }
+        if (parentEntity.type === 'objective-variant') {
+            return (phase as ObjectiveVariantPhase).linkedArcs ?? [];
+        }
+        return [];
+    }
+
+    private canPastePhase(childType: 'objective-variant' | 'arc-variant'): boolean {
+        const clipboard = this.manager.dnClipboard;
+        return clipboard?.kind === 'phase-links' && clipboard.childType === childType;
+    }
+
+    private canPasteQuestGroup(category: DNQuestCategory): boolean {
+        const clipboard = this.manager.dnClipboard;
+        return clipboard?.kind === 'quest-links' && clipboard.category === category;
+    }
+
+    private getClipboardMismatchMessage(expectedKind: 'phase-links' | 'quest-links'): string {
+        const clipboard = this.manager.dnClipboard;
+        if (!clipboard) return 'Clipboard is empty.';
+        if (expectedKind === 'phase-links' && clipboard.kind === 'phase-links') {
+            return `Clipboard contains ${clipboard.childType} links.`;
+        }
+        if (expectedKind === 'quest-links' && clipboard.kind === 'quest-links') {
+            return `Clipboard contains ${clipboard.category} quests.`;
+        }
+        return 'Clipboard contains a different entity type.';
+    }
+
+    private copyPhaseLinks(parentEntity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): void {
+        const childType = this.getPhaseChildType();
+        const entries: DNClipboardPhaseEntry[] = this.getPhaseLinks(parentEntity, phase)
+            .map(link => {
+                const path = resolveWikilinkPath(link.id);
+                if (this.manager.getEntity(path)?.type !== childType) return null;
+                const entry: DNClipboardPhaseEntry = {
+                    path,
+                    isPrimary: Boolean(link.isPrimary),
+                    mandatory: Boolean(link.mandatory),
+                };
+                if (link.comment?.trim()) entry.comment = link.comment.trim();
+                return entry;
+            })
+            .filter((entry): entry is DNClipboardPhaseEntry => entry !== null);
+
+        if (entries.length === 0) {
+            new Notice('There are no linked entities to copy.');
+            return;
+        }
+
+        this.manager.dnClipboard = { kind: 'phase-links', childType, entries };
+        new Notice(`Copied ${entries.length} linked ${childType === 'objective-variant' ? 'objective variant' : 'arc variant'}${entries.length === 1 ? '' : 's'}.`);
+        this.render();
+    }
+
+    private copyQuestGroup(entity: ArcVariant, category: DNQuestCategory, listKey: DNArcVariantQuestList): void {
+        const entries: DNClipboardQuestEntry[] = entity[listKey]
+            .map(link => {
+                const path = resolveWikilinkPath(link.id);
+                if (this.manager.getEntity(path)?.type !== 'quest') return null;
+                const entry: DNClipboardQuestEntry = { path };
+                if (link.comment?.trim()) entry.comment = link.comment.trim();
+                return entry;
+            })
+            .filter((entry): entry is DNClipboardQuestEntry => entry !== null);
+
+        if (entries.length === 0) {
+            new Notice('There are no quests to copy.');
+            return;
+        }
+
+        this.manager.dnClipboard = { kind: 'quest-links', category, entries };
+        new Notice(`Copied ${entries.length} ${category.toLowerCase()} quest${entries.length === 1 ? '' : 's'}.`);
+        this.render();
+    }
+
+    private pastePhaseLinks(parentEntity: Scenario | ObjectiveVariant | ArcVariant, phase: DNPhase): void {
+        const clipboard = this.manager.dnClipboard;
+        const childType = this.getPhaseChildType();
+        if (!clipboard || clipboard.kind !== 'phase-links' || clipboard.childType !== childType) return;
+
+        const entries = clipboard.entries.map(entry => ({ ...entry }));
+        const targetLinks = this.getPhaseLinks(parentEntity, phase);
+        const apply = async (mode: DNPasteMode): Promise<void> => {
+            const added = await this.manager.pasteLinksIntoPhase(parentEntity.filePath, phase.name, entries, mode);
+            new Notice(`Pasted ${added} linked entit${added === 1 ? 'y' : 'ies'}.`);
+            this.render();
+        };
+
+        if (targetLinks.length === 0) {
+            void apply('merge');
+            return;
+        }
+
+        new DNPasteModal(
+            this.plugin.app,
+            phase.name,
+            targetLinks.length,
+            entries.length,
+            apply,
+        ).open();
+    }
+
+    private pasteQuestGroup(entity: ArcVariant, category: DNQuestCategory, listKey: DNArcVariantQuestList): void {
+        const clipboard = this.manager.dnClipboard;
+        if (!clipboard || clipboard.kind !== 'quest-links' || clipboard.category !== category) return;
+
+        const entries = clipboard.entries.map(entry => ({ ...entry }));
+        const targetLinks = entity[listKey];
+        const apply = async (mode: DNPasteMode): Promise<void> => {
+            const added = await this.manager.pasteLinksIntoQuestList(entity.filePath, listKey, entries, mode);
+            new Notice(`Pasted ${added} quest${added === 1 ? '' : 's'}.`);
+            this.render();
+        };
+
+        if (targetLinks.length === 0) {
+            void apply('merge');
+            return;
+        }
+
+        new DNPasteModal(
+            this.plugin.app,
+            `${category} quests`,
+            targetLinks.length,
+            entries.length,
+            apply,
+        ).open();
     }
 
     private getTypeChoices(): TypeChoice[] {

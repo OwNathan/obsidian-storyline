@@ -25,6 +25,32 @@ export interface DNLinkedEntity {
     comment?: string;
 }
 
+export interface DNClipboardPhaseEntry {
+    path: string;
+    isPrimary: boolean;
+    mandatory: boolean;
+    comment?: string;
+}
+
+export interface DNClipboardQuestEntry {
+    path: string;
+    comment?: string;
+}
+
+export type DNClipboard =
+    | {
+        kind: 'phase-links';
+        childType: 'objective-variant' | 'arc-variant';
+        entries: DNClipboardPhaseEntry[];
+    }
+    | {
+        kind: 'quest-links';
+        category: 'Goal' | 'Limit' | 'Event' | 'Modifier';
+        entries: DNClipboardQuestEntry[];
+    };
+
+export type DNPasteMode = 'overwrite' | 'merge' | 'unique';
+
 export type DNLinkedCommentTarget =
     | { kind: 'phase'; phaseName: string; index: number }
     | { kind: 'arc-variant'; listKey: DNArcVariantQuestList; index: number };

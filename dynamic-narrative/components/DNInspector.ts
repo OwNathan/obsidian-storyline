@@ -16,6 +16,7 @@ import { renderCommentCapsule } from '../../components/CommentCapsule';
 import { attachTooltip } from '../../components/Tooltip';
 import { DNEntitySelectModal } from './DNEntitySelectModal';
 import { renderDNLinkedComment } from './DNLinkedComment';
+import { DNCloneModal } from './DNCloneModal';
 
 function unwrapWikilink(v: string): string {
     return v.replace(/^\[\[/, '').replace(/\]\]$/, '');
@@ -31,6 +32,7 @@ export class DNInspector {
     private currentEntity: DNEntity | null = null;
     private saveTimer: number | null = null;
     private onChangeCallback: (() => void) | null = null;
+    private onOpenEntityCallback: ((path: string) => void) | null = null;
 
     constructor(
         containerEl: HTMLElement,
@@ -62,6 +64,14 @@ export class DNInspector {
         setIcon(openBtn.createSpan(), 'file');
         attachTooltip(openBtn, 'Open file');
         openBtn.addEventListener('click', () => this.openEntityFile(entity));
+
+        const cloneBtn = headerActions.createEl('button', {
+            cls: 'codex-detail-action-btn',
+            attr: { 'aria-label': 'Clone' },
+        });
+        setIcon(cloneBtn.createSpan(), 'copy');
+        attachTooltip(cloneBtn, 'Clone');
+        cloneBtn.addEventListener('click', () => this.confirmCloneEntity(entity));
 
         const deleteBtn = headerActions.createEl('button', {
             cls: 'codex-detail-action-btn codex-detail-delete-btn',
@@ -126,6 +136,10 @@ export class DNInspector {
 
     setOnChange(callback: () => void): void {
         this.onChangeCallback = callback;
+    }
+
+    setOnOpenEntity(callback: (path: string) => void): void {
+        this.onOpenEntityCallback = callback;
     }
 
     clear(): void {
@@ -878,6 +892,29 @@ export class DNInspector {
                 new Notice(`"${entity.title}" deleted`);
             },
         });
+    }
+
+    private confirmCloneEntity(entity: DNEntity): void {
+        const modal = new DNCloneModal(
+            this.plugin.app,
+            this.manager,
+            entity,
+            async (newTitle) => {
+                const clone = await this.manager.cloneEntity(entity.filePath, newTitle);
+                if (!clone) {
+                    new Notice(`Could not clone "${entity.title}".`);
+                    return;
+                }
+                new Notice(`"${clone.title}" cloned.`);
+                if (this.onOpenEntityCallback) {
+                    this.onOpenEntityCallback(clone.filePath);
+                } else {
+                    this.render(clone);
+                }
+                this.onChangeCallback?.();
+            },
+        );
+        modal.open();
     }
 
     private renderCommentsSection(container: HTMLElement, entity: DNEntity): void {

@@ -83,6 +83,7 @@ export class DynamicNarrativeView extends ItemView {
         this.setupResizeHandle();
 
         this.inspector = new DNInspector(this.inspectorEl, this.manager, this.plugin);
+        this.inspector.setOnOpenEntity((path) => this.openInInspector(path));
         this.inspector.setOnChange(() => {
             if (this.activeTab === 'overview') {
                 this.overview?.render();

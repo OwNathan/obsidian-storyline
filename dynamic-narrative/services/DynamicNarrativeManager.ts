@@ -13,6 +13,10 @@ import {
     DNLinkedEntity,
     DNLinkedChild,
     DNLinkedCommentTarget,
+    DNClipboard,
+    DNClipboardPhaseEntry,
+    DNClipboardQuestEntry,
+    DNPasteMode,
     DNPhase,
     DEFAULT_DN_PHASES,
     DEFAULT_SCENARIO_CATEGORIES,
@@ -61,6 +65,8 @@ export class DynamicNarrativeManager {
     private arcVariants: Map<string, ArcVariant> = new Map();
     private quests: Map<string, Quest> = new Map();
 
+    dnClipboard: DNClipboard | null = null;
+
     private projectFolder: string = '';
     private systemFilePath: string = '';
     private initialized = false;
@@ -76,6 +82,7 @@ export class DynamicNarrativeManager {
     async initialize(projectFolder: string): Promise<void> {
         this.projectFolder = projectFolder;
         this.systemFilePath = normalizePath(`${projectFolder}/System/${SYSTEM_FILE_NAME}`);
+        this.dnClipboard = null;
         await this.ensureFolders();
         await this.loadAll();
         this.initialized = true;
@@ -1059,6 +1066,158 @@ ${entity.description}
         await this.deleteEntityCommon(filePath, 'quest');
     }
 
+    entityTitleExists(entityType: DNEntityType, title: string, excludePath = ''): boolean {
+        const normalizedTitle = title.trim().toLowerCase();
+        if (!normalizedTitle) return false;
+        return Array.from(this.getMapForType(entityType).values()).some(entity =>
+            entity.filePath !== excludePath && entity.title.trim().toLowerCase() === normalizedTitle,
+        );
+    }
+
+    async cloneEntity(sourcePath: string, newTitle: string): Promise<DNEntity | undefined> {
+        const source = this.getEntity(sourcePath);
+        if (!source) return undefined;
+        const title = newTitle.trim();
+        if (!title || title.toLowerCase() === source.title.trim().toLowerCase()) return undefined;
+        if (this.entityTitleExists(source.type, title, source.filePath)) return undefined;
+
+        const clone = deepClone(source);
+        clone.title = title;
+        clone.filePath = '';
+        clone.created = '';
+        clone.modified = '';
+        clone.dirty = true;
+        return this.createEntity(clone);
+    }
+
+    async pasteLinksIntoPhase(
+        parentPath: string,
+        phaseName: string,
+        entries: DNClipboardPhaseEntry[],
+        mode: DNPasteMode,
+    ): Promise<number> {
+        const parent = this.getEntity(parentPath);
+        let links: DNLinkedChild[] | undefined;
+        let childType: 'objective-variant' | 'arc-variant';
+
+        if (parent?.type === 'scenario') {
+            links = parent.phases.find(phase => phase.name === phaseName)?.linkedObjectives;
+            childType = 'objective-variant';
+        } else if (parent?.type === 'objective-variant') {
+            links = parent.phases.find(phase => phase.name === phaseName)?.linkedArcs;
+            childType = 'arc-variant';
+        } else {
+            return 0;
+        }
+
+        if (!links) return 0;
+
+        const makeLink = (entry: DNClipboardPhaseEntry): DNLinkedChild | null => {
+            const path = resolveWikilinkPath(entry.path);
+            if (this.getEntity(path)?.type !== childType) return null;
+            const link: DNLinkedChild = {
+                id: `[[${path}]]`,
+                isPrimary: entry.isPrimary,
+                mandatory: entry.mandatory,
+            };
+            const comment = entry.comment?.trim();
+            if (comment) link.comment = comment;
+            return link;
+        };
+
+        if (mode === 'overwrite') {
+            const replacement = entries.map(makeLink).filter((link): link is DNLinkedChild => link !== null);
+            links.splice(0, links.length, ...replacement);
+            await this.writeEntityFile(parent);
+            await this.saveSystemJson();
+            return replacement.length;
+        }
+
+        let added = 0;
+        for (const entry of entries) {
+            const link = makeLink(entry);
+            if (!link) continue;
+            const path = resolveWikilinkPath(link.id);
+            const alreadyPresent = mode === 'unique'
+                ? links.some(existing => resolveWikilinkPath(existing.id) === path)
+                : links.some(existing =>
+                    resolveWikilinkPath(existing.id) === path
+                    && (existing.comment?.trim() ?? '') === (link.comment?.trim() ?? ''),
+                );
+            if (alreadyPresent) continue;
+            links.push(link);
+            added++;
+        }
+
+        if (added > 0) {
+            await this.writeEntityFile(parent);
+            await this.saveSystemJson();
+        }
+        return added;
+    }
+
+    async pasteLinksIntoQuestList(
+        arcPath: string,
+        listKey: DNArcVariantQuestList,
+        entries: DNClipboardQuestEntry[],
+        mode: DNPasteMode,
+    ): Promise<number> {
+        const arc = this.arcVariants.get(arcPath);
+        if (!arc) return 0;
+
+        const links = arc[listKey];
+        const otherListPaths = new Set(
+            QUEST_LINK_LISTS
+                .filter(key => key !== listKey)
+                .flatMap(key => arc[key].map(link => resolveWikilinkPath(link.id))),
+        );
+        const makeLink = (entry: DNClipboardQuestEntry): DNLinkedEntity | null => {
+            const path = resolveWikilinkPath(entry.path);
+            if (this.getEntity(path)?.type !== 'quest') return null;
+            const link: DNLinkedEntity = { id: `[[${path}]]` };
+            const comment = entry.comment?.trim();
+            if (comment) link.comment = comment;
+            return link;
+        };
+
+        if (mode === 'overwrite') {
+            const seen = new Set<string>();
+            const replacement: DNLinkedEntity[] = [];
+            for (const entry of entries) {
+                const link = makeLink(entry);
+                if (!link) continue;
+                const path = resolveWikilinkPath(link.id);
+                if (seen.has(path) || otherListPaths.has(path)) continue;
+                seen.add(path);
+                replacement.push(link);
+            }
+            links.splice(0, links.length, ...replacement);
+            await this.writeEntityFile(arc);
+            await this.saveSystemJson();
+            return replacement.length;
+        }
+
+        const existingPaths = new Set(
+            QUEST_LINK_LISTS.flatMap(key => arc[key].map(link => resolveWikilinkPath(link.id))),
+        );
+        let added = 0;
+        for (const entry of entries) {
+            const link = makeLink(entry);
+            if (!link) continue;
+            const path = resolveWikilinkPath(link.id);
+            if (existingPaths.has(path)) continue;
+            existingPaths.add(path);
+            links.push(link);
+            added++;
+        }
+
+        if (added > 0) {
+            await this.writeEntityFile(arc);
+            await this.saveSystemJson();
+        }
+        return added;
+    }
+
     // ─── Type → Variant phase synchronization ────────────────────
 
     getObjectiveVariantsOfType(typePath: string): ObjectiveVariant[] {
@@ -1601,6 +1760,7 @@ ${entity.description}
     async cascadeRename(oldPath: string, newPath: string): Promise<void> {
         const oldWikilink = `[[${oldPath}]]`;
         const newWikilink = `[[${newPath}]]`;
+        this.updateClipboardPath(oldPath, newPath);
 
         for (const scenario of this.scenarios.values()) {
             let changed = false;
@@ -1786,6 +1946,7 @@ ${entity.description}
     // ─── Vault Event Handlers ────────────────────────────────────
 
     handleFileDeleted(filePath: string): void {
+        this.removeClipboardPath(filePath);
         let removed = false;
         if (this.scenarios.delete(filePath)) removed = true;
         else if (this.objectiveTypes.delete(filePath)) removed = true;
@@ -1813,11 +1974,48 @@ ${entity.description}
         this.arcTypes.clear();
         this.arcVariants.clear();
         this.quests.clear();
+        this.dnClipboard = null;
         this.initialized = false;
         this._saveQueue = Promise.resolve();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────
+
+    private updateClipboardPath(oldPath: string, newPath: string): void {
+        if (!this.dnClipboard) return;
+        if (this.dnClipboard.kind === 'phase-links') {
+            for (const entry of this.dnClipboard.entries) {
+                if (resolveWikilinkPath(entry.path) === oldPath) entry.path = newPath;
+            }
+        } else {
+            for (const entry of this.dnClipboard.entries) {
+                if (resolveWikilinkPath(entry.path) === oldPath) entry.path = newPath;
+            }
+        }
+    }
+
+    private removeClipboardPath(filePath: string): void {
+        const clipboard = this.dnClipboard;
+        if (!clipboard) return;
+        if (clipboard.kind === 'phase-links') {
+            const entries = clipboard.entries.filter(entry => resolveWikilinkPath(entry.path) !== filePath);
+            if (entries.length === 0) {
+                this.dnClipboard = null;
+                return;
+            }
+            this.dnClipboard = {
+                kind: 'phase-links',
+                childType: clipboard.childType,
+                entries,
+            };
+            return;
+        }
+
+        const entries = clipboard.entries.filter(entry => resolveWikilinkPath(entry.path) !== filePath);
+        this.dnClipboard = entries.length > 0
+            ? { kind: 'quest-links', category: clipboard.category, entries }
+            : null;
+    }
 
     private getUniquePath(folder: string, fileName: string): string {
         const dot = fileName.lastIndexOf('.');
