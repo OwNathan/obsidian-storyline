@@ -272,7 +272,7 @@ Mid-level goal. 5 default phases. Fields: `type`, `category`, `linkedLocations`,
 
 ### Arc (`dynamic-narrative/models/Arc.ts`)
 
-Quest thread. 5 default phases. Fields: `type`, `category`, `linkedLocations`, `dynamicLocations`, `phases` (`ArcPhase[]`). ArcPhase adds `linkedGoals/limitations/events/modifiers`. Creator: `createEmptyArc(title)`.
+Arc Type/Variant quest thread. `ArcType` owns the phase structure. `ArcVariant` stores `type`, `arcTypeId`, `conditionsOverride`, `commandsOverride`, and root-level `linkedGoals`, `linkedLimits`, `linkedEvents`, and `linkedModifiers` references, each with an optional comment; it does not store phases. Arc Variant phases are always read from the referenced Arc Type. Arc Types and Arc Variants do not have categories or location fields. Creator: `createEmptyArcVariant(title, arcTypeId)`.
 
 ### Quest (`dynamic-narrative/models/Quest.ts`)
 
@@ -280,7 +280,7 @@ Leaf quest. 5 default phases. Fields: `type`, `category`, `questType`, `phases` 
 
 ### Hierarchy
 
-`Scenario → Objective → Arc → Quest`. Linked via phase arrays: `ScenarioPhase.linkedObjectives`, `ObjectivePhase.linkedArcs`, `ArcPhase.linkedGoals/Limits/Events/Modifiers`.
+`Scenario → Objective Variant → Arc Variant → Quest`. Scenarios and Objective Variants link children through phase arrays; Arc Variants link Goals, Limits, Events, and Modifiers through root-level lists rather than phase arrays.
 
 ### System JSON (`System/dynamic-narrative.json`)
 

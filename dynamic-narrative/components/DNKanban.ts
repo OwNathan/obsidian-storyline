@@ -2,14 +2,14 @@
 import { setIcon, Menu, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
-import type { DNPhase, DNLinkedChild, DNEntityType } from '../models/types';
+import type { DNPhase, DNEntityType, DNLinkedCommentTarget, DNArcVariantQuestList } from '../models/types';
 import { deriveShortDesc, resolveWikilinkPath, debounce } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
-import type { ArcVariant, ArcVariantPhase } from '../models/Arc';
+import type { ArcVariant } from '../models/Arc';
 import { DNCreateModal, TypeChoice } from './DNCreateModal';
 import { DNEntitySelectModal } from './DNEntitySelectModal';
-import { DNCommentModal } from './DNCommentModal';
+import { renderDNLinkedComment } from './DNLinkedComment';
 
 type KanbanEntityType = 'scenario' | 'objective-variant' | 'arc-variant';
 type PhaseContentField = 'description' | 'startConditions' | 'startCommands' | 'endConditions' | 'endCommands';
@@ -23,6 +23,7 @@ interface CardData {
     mandatory: boolean;
     index: number;
     comment?: string;
+    commentTarget: DNLinkedCommentTarget;
 }
 
 export class DNKanban {
@@ -171,8 +172,10 @@ export class DNKanban {
             if (entity.filePath === this.selectedPath) item.addClass('is-selected');
 
             item.createSpan('dn-sidebar-item-name').setText(entity.title);
-            const catBadge = item.createSpan('dn-sidebar-item-cat');
-            catBadge.setText(entity.category || '');
+            const category = this.getEntityCategory(entity);
+            if (category) {
+                item.createSpan('dn-sidebar-item-cat').setText(category);
+            }
 
             item.addEventListener('click', () => {
                 this.selectedPath = entity.filePath;
@@ -197,8 +200,10 @@ export class DNKanban {
         headerEl.createDiv('dn-kanban-header-name').setText(entity.title);
         if (showFull) {
             headerEl.createDiv('dn-kanban-header-desc').setText(deriveShortDesc(entity.description));
-            const catBadge = headerEl.createSpan('dn-kanban-header-cat');
-            catBadge.setText(entity.category || '');
+            const category = this.getEntityCategory(entity);
+            if (category) {
+                headerEl.createSpan('dn-kanban-header-cat').setText(category);
+            }
             if (entity.type === 'objective-variant') {
                 const type = this.manager.getObjectiveType(entity.objectiveTypeId);
                 if (type) {
@@ -212,6 +217,11 @@ export class DNKanban {
                     typeBadge.setText(`Type: ${type.title}`);
                 }
             }
+        }
+
+        if (entity.type === 'arc-variant') {
+            this.renderArcVariantBoard(board, entity);
+            return;
         }
 
         const columnsContainer = board.createDiv('dn-phase-stack');
@@ -267,6 +277,173 @@ export class DNKanban {
         if (this.isVariantEntity(entity) && title === 'Conditions' && !rendered && phase.overrides.length === 0) {
             column.createDiv('dn-no-overrides-placeholder').setText('No overrides - values inherited from type');
         }
+    }
+
+    private renderArcVariantBoard(board: HTMLElement, entity: ArcVariant): void {
+        const overrides = board.createDiv('dn-arc-variant-overrides');
+        overrides.createDiv('dn-arc-variant-section-title').setText('Overrides');
+        this.renderArcVariantOverrideField(
+            overrides,
+            entity,
+            'Conditions Override',
+            'conditionsOverride',
+            entity.conditionsOverride,
+        );
+        this.renderArcVariantOverrideField(
+            overrides,
+            entity,
+            'Commands Override',
+            'commandsOverride',
+            entity.commandsOverride,
+        );
+
+        const rows: Array<Array<{ label: string; category: string; listKey: DNArcVariantQuestList }>> = [
+            [
+                { label: 'Goals', category: 'Goal', listKey: 'linkedGoals' },
+                { label: 'Limits', category: 'Limit', listKey: 'linkedLimits' },
+            ],
+            [
+                { label: 'Events', category: 'Event', listKey: 'linkedEvents' },
+                { label: 'Modifiers', category: 'Modifier', listKey: 'linkedModifiers' },
+            ],
+        ];
+
+        for (const row of rows) {
+            const rowEl = board.createDiv('dn-arc-variant-quest-row');
+            for (const group of row) {
+                this.renderArcVariantQuestGroup(rowEl, entity, group.label, group.category, group.listKey);
+            }
+        }
+    }
+
+    private renderArcVariantOverrideField(
+        container: HTMLElement,
+        entity: ArcVariant,
+        label: string,
+        fieldName: 'conditionsOverride' | 'commandsOverride',
+        value: string,
+    ): void {
+        const field = container.createDiv('dn-arc-variant-override-field');
+        field.createEl('label', { text: label, cls: 'dn-arc-variant-field-label' });
+        const input = field.createEl('textarea', { cls: 'dn-arc-variant-field-input' });
+        input.value = value;
+        input.addEventListener('change', async () => {
+            await this.manager.updateArcVariant(entity.filePath, {
+                [fieldName]: input.value,
+            } as Partial<ArcVariant>);
+        });
+    }
+
+    private renderArcVariantQuestGroup(
+        container: HTMLElement,
+        entity: ArcVariant,
+        label: string,
+        category: string,
+        listKey: DNArcVariantQuestList,
+    ): void {
+        const group = container.createDiv('dn-arc-variant-quest-group');
+        const header = group.createDiv('dn-arc-variant-quest-group-header');
+        const title = header.createDiv('dn-arc-variant-quest-group-title');
+        title.createSpan().setText(label);
+
+        const questCards = this.getArcVariantQuestCards(entity, listKey);
+        title.createSpan('dn-arc-variant-quest-group-count').setText(`(${questCards.length})`);
+
+        const actions = header.createDiv('dn-arc-variant-quest-group-actions');
+        const addBtn = actions.createEl('button', {
+            cls: 'dn-column-add-btn',
+            attr: { type: 'button', 'aria-label': `Create ${category} quest` },
+        });
+        setIcon(addBtn, 'plus');
+        addBtn.addEventListener('click', () => this.openArcVariantCreateModal(entity.filePath, category));
+
+        const linkBtn = actions.createEl('button', {
+            cls: 'dn-column-link-btn',
+            attr: { type: 'button', 'aria-label': `Add existing ${category} quest` },
+        });
+        setIcon(linkBtn, 'link');
+        linkBtn.addEventListener('click', () => this.openArcVariantEntitySelectModal(entity.filePath, category));
+
+        const body = group.createDiv('dn-arc-variant-quest-group-body');
+        if (questCards.length === 0) {
+            body.createDiv('dn-arc-variant-empty').setText(`No ${label.toLowerCase()} linked.`);
+        } else {
+            for (const card of questCards) {
+                this.renderArcVariantQuestCard(body, card, entity);
+            }
+        }
+    }
+
+    private getArcVariantQuestCards(entity: ArcVariant, listKey: DNArcVariantQuestList): CardData[] {
+        const cards: CardData[] = [];
+        const links = entity[listKey];
+        const quests = this.manager.getAllQuests();
+        for (let index = 0; index < links.length; index++) {
+            const link = links[index];
+            const resolvedPath = resolveWikilinkPath(link.id);
+            const quest = quests.find(item => item.filePath === resolvedPath);
+            if (!quest) continue;
+            cards.push({
+                path: quest.filePath,
+                title: quest.title,
+                category: quest.category,
+                isPrimary: true,
+                mandatory: false,
+                index,
+                comment: link.comment,
+                commentTarget: { kind: 'arc-variant', listKey, index },
+            });
+        }
+        return cards;
+    }
+
+    private renderArcVariantQuestCard(container: HTMLElement, card: CardData, parentEntity: ArcVariant): void {
+        const cardEl = container.createDiv('dn-card dn-arc-variant-quest-card');
+        const titleRow = cardEl.createDiv('dn-card-title-row');
+        titleRow.createDiv('dn-card-title').setText(card.title);
+
+        renderDNLinkedComment(
+            cardEl,
+            titleRow,
+            this.plugin.app,
+            card.comment,
+            async (comment) => {
+                await this.manager.updateLinkedComment(parentEntity.filePath, card.commentTarget, comment);
+                this.render();
+            },
+        );
+
+        const metaEl = cardEl.createDiv('dn-card-meta');
+        if (card.category) {
+            metaEl.createSpan('dn-card-category').setText(card.category);
+        }
+
+        cardEl.addEventListener('click', () => {
+            this.onOpenInspector(card.path);
+        });
+
+        cardEl.addEventListener('contextmenu', (e: MouseEvent) => {
+            e.preventDefault();
+            const menu = new Menu();
+            menu.addItem(item => {
+                item.setTitle('Edit');
+                item.setIcon('pencil');
+                item.onClick(() => this.onOpenInspector(card.path));
+            });
+            menu.addItem(item => {
+                item.setTitle('Unlink from arc variant');
+                item.setIcon('unlink');
+                item.onClick(async () => {
+                    await this.manager.unlinkQuestFromArcVariant(parentEntity.filePath, card.path);
+                    this.render();
+                });
+            });
+            menu.showAtMouseEvent(e);
+        });
+    }
+
+    private getEntityCategory(entity: Scenario | ObjectiveVariant | ArcVariant): string {
+        return entity.type === 'arc-variant' ? '' : entity.category;
     }
 
     private renderEntityGroup(
@@ -413,6 +590,7 @@ export class DNKanban {
                             mandatory: link.mandatory,
                             index: idx,
                             comment: link.comment,
+                            commentTarget: { kind: 'phase', phaseName: phase.name, index: idx },
                         });
                     }
                 }
@@ -430,41 +608,15 @@ export class DNKanban {
                         results.push({
                             path: arc.filePath,
                             title: arc.title,
-                            category: arc.category,
+                            category: '',
                             typeRef: type ? type.title : undefined,
                             isPrimary: link.isPrimary,
                             mandatory: link.mandatory,
                             index: idx,
                             comment: link.comment,
+                            commentTarget: { kind: 'phase', phaseName: phase.name, index: idx },
                         });
                     }
-                }
-                break;
-            }
-            case 'arc-variant': {
-                const ap = phase as ArcVariantPhase;
-                const allQuests = this.manager.getAllQuests();
-                const allLinks = [
-                    ...(ap.linkedGoals || []),
-                    ...(ap.linkedLimits || []),
-                    ...(ap.linkedEvents || []),
-                    ...(ap.linkedModifiers || []),
-                ];
-                let questIdx = 0;
-                for (const wikilink of allLinks) {
-                    const resolvedPath = resolveWikilinkPath(wikilink);
-                    const quest = allQuests.find(q => q.filePath === resolvedPath);
-                    if (quest) {
-                        results.push({
-                            path: quest.filePath,
-                            title: quest.title,
-                            category: quest.category,
-                            isPrimary: true,
-                            mandatory: false,
-                            index: questIdx,
-                        });
-                    }
-                    questIdx++;
                 }
                 break;
             }
@@ -508,36 +660,23 @@ export class DNKanban {
         const titleEl = titleRow.createDiv('dn-card-title');
         titleEl.setText(card.title);
 
-        if (this.entityType === 'scenario' || this.entityType === 'objective-variant') {
-            const commentBtn = titleRow.createEl('button', {
-                cls: 'dn-card-comment-btn',
-                attr: {
-                    type: 'button',
-                    'aria-label': card.comment ? 'Edit linked entity comment' : 'Add linked entity comment',
-                    title: card.comment ? 'Edit comment' : 'Add comment',
-                },
-            });
-            setIcon(commentBtn, 'message-square');
-            if (card.comment) commentBtn.addClass('has-comment');
-            commentBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                new DNCommentModal(this.plugin.app, card.comment ?? '', async (comment) => {
-                    await this.manager.updateLinkedComment(parentEntity.filePath, phase.name, card.index, comment);
-                    this.render();
-                }).open();
-            });
-        }
-
-        if (card.comment) {
-            cardEl.createDiv('dn-card-comment').setText(card.comment);
-        }
+        renderDNLinkedComment(
+            cardEl,
+            titleRow,
+            this.plugin.app,
+            card.comment,
+            async (comment) => {
+                await this.manager.updateLinkedComment(parentEntity.filePath, card.commentTarget, comment);
+                this.render();
+            },
+        );
 
         const metaEl = cardEl.createDiv('dn-card-meta');
         if (card.typeRef) {
             const typeRefEl = metaEl.createSpan('dn-card-variant');
-            typeRefEl.setText(`Type: ${card.typeRef}`);
+            typeRefEl.setText(this.entityType === 'objective-variant' ? card.typeRef : `Type: ${card.typeRef}`);
         }
-        if (card.category) {
+        if (card.category && this.entityType !== 'objective-variant') {
             const catBadge = metaEl.createSpan('dn-card-category');
             catBadge.setText(card.category);
         }
@@ -698,18 +837,6 @@ export class DNKanban {
                 await this.manager.unlinkLinkedChildFromPhase(parentPath, phaseName, index);
                 break;
             }
-            case 'arc-variant': {
-                const arc = parent as ArcVariant;
-                const phase = arc.phases.find(p => p.name === phaseName);
-                if (phase) {
-                    phase.linkedGoals = phase.linkedGoals.filter(l => resolveWikilinkPath(l) !== childPath);
-                    phase.linkedLimits = phase.linkedLimits.filter(l => resolveWikilinkPath(l) !== childPath);
-                    phase.linkedEvents = phase.linkedEvents.filter(l => resolveWikilinkPath(l) !== childPath);
-                    phase.linkedModifiers = phase.linkedModifiers.filter(l => resolveWikilinkPath(l) !== childPath);
-                }
-                await this.manager.updateArcVariant(parentPath, { phases: arc.phases });
-                break;
-            }
         }
     }
 
@@ -728,10 +855,7 @@ export class DNKanban {
                         await this.manager.createAndLinkObjectiveVariant(parentPath, phaseName, typeId, { title, category, description });
                         break;
                     case 'objective-variant':
-                        await this.manager.createAndLinkArcVariant(parentPath, phaseName, typeId, { title, category, description });
-                        break;
-                    case 'arc-variant':
-                        await this.manager.createAndLinkQuest(parentPath, phaseName, category, { title, description });
+                        await this.manager.createAndLinkArcVariant(parentPath, phaseName, typeId, { title, description });
                         break;
                 }
                 this.render();
@@ -758,15 +882,46 @@ export class DNKanban {
                         case 'objective-variant':
                             linked = await this.manager.linkExistingArcVariant(parentPath, phaseName, childPath);
                             break;
-                        case 'arc-variant':
-                            linked = await this.manager.linkExistingQuest(parentPath, phaseName, childPath);
-                            break;
                     }
                     if (linked) added++;
                 }
                 this.render();
                 return added;
             },
+        );
+        modal.open();
+    }
+
+    private openArcVariantCreateModal(parentPath: string, category: string): void {
+        const categories = this.manager.getCategories('quest');
+        const modal = new DNCreateModal(
+            this.plugin,
+            'quest',
+            categories,
+            async (title, selectedCategory, description) => {
+                await this.manager.createAndLinkQuest(parentPath, selectedCategory, { title, description });
+                this.render();
+            },
+            [],
+            category,
+        );
+        modal.open();
+    }
+
+    private openArcVariantEntitySelectModal(parentPath: string, category: string): void {
+        const modal = new DNEntitySelectModal(
+            this.plugin.app,
+            this.manager,
+            'quest',
+            async (childPath, copies) => {
+                let added = 0;
+                for (let i = 0; i < copies; i++) {
+                    if (await this.manager.linkExistingQuest(parentPath, childPath)) added++;
+                }
+                this.render();
+                return added;
+            },
+            category,
         );
         modal.open();
     }
@@ -802,7 +957,7 @@ export class DNKanban {
                         await this.manager.createObjectiveVariant({ title, category, description, objectiveTypeId: typeId });
                         break;
                     case 'arc-variant':
-                        await this.manager.createArcVariant({ title, category, description, arcTypeId: typeId });
+                        await this.manager.createArcVariant({ title, description, arcTypeId: typeId });
                         break;
                 }
                 this.render();

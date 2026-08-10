@@ -299,22 +299,25 @@ Manages the Dynamic Narrative entity hierarchy (Scenarios, Objectives, Arcs, Que
 *Hierarchy & Linking*
 - `createAndLinkObjective(scenarioPath, phaseName, data): Promise<Objective>` -- create objective and link to scenario phase
 - `createAndLinkArc(objectivePath, phaseName, data): Promise<Arc>` -- create arc and link to objective phase
-- `createAndLinkQuest(arcPath, phaseName, category, data): Promise<Quest>` -- create quest and link to arc phase by category
+- `createAndLinkQuest(arcPath, category, data): Promise<Quest>` -- create quest and link to the Arc Variant root list selected by the quest category
+- `linkExistingQuest(arcPath, questPath): Promise<boolean>` -- link an existing Quest to the Arc Variant root list selected by its category
+- `unlinkQuestFromArcVariant(arcPath, questPath): Promise<boolean>` -- remove a Quest from all Arc Variant root lists
 - `getLinkedObjectives(scenarioPath, phaseName?): DNLinkedChild[]`
 - `getLinkedArcs(objectivePath, phaseName?): DNLinkedChild[]`
-- `getLinkedQuests(arcPath, phaseName?): string[]`
+- `getLinkedQuests(arcPath): string[]`
+- `updateLinkedComment(parentPath, target, comment): Promise<boolean>` -- update a phase-linked child or an Arc Variant quest link comment
 - `getConnectionsForQuest(questPath): { scenarios, objectives, arcs }` -- transitive usage count
 
 *Phase Management*
 - `addCustomPhase(entity, phase): void` -- Scenario, Type, and Quest phases; Objective/Arc Variant phases are Type-owned
 - `removeCustomPhase(entity, phaseName): void` -- direct custom phase removal for non-Variant entities
 - `renameCustomPhase(entity, oldName, newName): void` -- direct custom phase rename for non-Variant entities
-- `addTypePhase/removeTypePhase/renameTypePhase(type, ...): Promise<void>` -- mutate an Objective/Arc Type and propagate the phase structure to its Variants
+- `addTypePhase/removeTypePhase/renameTypePhase(type, ...): Promise<void>` -- mutate an Objective/Arc Type; Objective Variant phase changes are propagated, while Arc Variants read phases directly from their Arc Type
 - `reorderCustomPhases(entity, fromIndex, toIndex): void` -- reorder custom phases for non-Variant entities
 - `updatePhaseFields(entity, phaseName, updates): void`
-- `getOrderedPhasesForEntity(entity): DNPhase[]` -- ordered phase panels (default → custom → completed/failed)
-- `reassignPhase(parentPath, childPath, fromPhase, toPhase): Promise<void>` -- drag between phase panels
-- `syncAllDirtyBodies(onProgress?): Promise<number>` -- write reflected Markdown bodies with H3 phase headings, H4 field headings, and linked-entity wikilinks
+- `getOrderedPhasesForEntity(entity): DNPhase[]` -- ordered phase panels (default → custom → completed/failed); Arc Variants return their Arc Type phases
+- `reassignPhase(parentPath, childPath, fromPhase, toPhase): Promise<void>` -- drag between Scenario/Objective Variant phase panels
+- `syncAllDirtyBodies(onProgress?): Promise<number>` -- write reflected Markdown bodies; Arc Variant bodies contain only root-level overrides and quest lists
 
 *Category Management*
 - `getCategories(entityType): string[]` -- settings or defaults

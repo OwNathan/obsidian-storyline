@@ -4,7 +4,6 @@ import type { DNEntityType } from '../models/types';
 import {
     DEFAULT_SCENARIO_CATEGORIES,
     DEFAULT_OBJECTIVE_CATEGORIES,
-    DEFAULT_ARC_CATEGORIES,
     DEFAULT_QUEST_CATEGORIES,
 } from '../models/types';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
@@ -100,7 +99,7 @@ export class DNCategoryModal extends Modal {
             case 'objective-type':
             case 'objective-variant': return DEFAULT_OBJECTIVE_CATEGORIES;
             case 'arc-type':
-            case 'arc-variant': return DEFAULT_ARC_CATEGORIES;
+            case 'arc-variant': return [];
             case 'quest': return DEFAULT_QUEST_CATEGORIES;
         }
     }

@@ -127,47 +127,33 @@ This data is the same that is also in the json and must be updated accordingly
 #### JSON 
 - All the generic data the plugin needs
 - A text field for a description
-- A category. Default categories are: Primary, Secondary.
-- A list of linked locations
-- A boolean to define if it works with dynamic locations or not
-- A list of arc phases, each of them containing the following data:
-	- Name
-	- Description
-	- Phase Start Conditions
-	- Phase Start Commands
-	- Phase End Conditions
-	- Phase End Commands
-	- A list of linked Goals
-	- A list of Linked Limits
-	- A list of linked Events
-	- A list of linked Modifiers
+- A reference to its Arc Type
+- A Conditions Override text field
+- A Commands Override text field
+- A root-level list of linked Goals
+- A root-level list of linked Limits
+- A root-level list of linked Events
+- A root-level list of linked Modifiers
+- No phase list: phases are always defined by the referenced Arc Type
 
 
-The following phases always exists as defaults and cannot be removed: QuestSleeping, QuestAvailable, QuestStarted, QuestCompleted, QuestFailed
+The referenced Arc Type defines the phases, including the default phases QuestSleeping, QuestAvailable, QuestStarted, QuestCompleted, and QuestFailed.
 #### Frontmatter
 This data is unique to the frontmatter:
 - The tag `storyline-arc`
 - `short-desc` for a description in the metadata
 
 This data is the same that is also in the json and must be updated accordingly
-- `arc-category`
-- A list of `arc-phases`, each of them containing the following data:
-	- `phase-name` text field
-	- `phase-description` text field
-	- `phase-start-conditions` text field 
-	- `phase-start-commands` text field 
-	- `phase-end-conditions`  text field 
-	- `phase-end-commands` text field
-	- `linked-goals` direct obsidian links in a list
-	- `linked-limits` direct obsidian links in a list
-	- `linked-events` direct obsidian links in a list
-	- `linked-modifiers` direct obsidian links in a list
+- `arc-type-ref`
+- `conditions-override` text field
+- `commands-override` text field
+- `linked-goals`, `linked-limits`, `linked-events`, and `linked-modifiers` root-level lists of quest references (`quest-id`) with optional per-link `comment`
 
 #### Body
 - H1 called `Overview`
-- H1 called `Game Details`
-	- H2 called `Main Purpose`
-	- H2 called `Integration Analysis`
+- H2 called `Conditions Override`
+- H2 called `Commands Override`
+- H2 sections called `Goals`, `Limits`, `Events`, and `Modifiers` when the corresponding list is not empty
 
 
 
@@ -226,6 +212,6 @@ Items in the kanban view can be reordered freely. We can use the same concept us
 - In the Overview view, the user has separated lists for all entities and can sort or filter these lists. Entities can be clicked and edited using the inspector.
 - The Scenarios view uses vertically stacked phase panels, with a three-column layout for Conditions, Commands, and linked Objective Variants. Each panel shows its phase name, description, and create/link actions. Clicking on an Objective Variant opens an inspector to edit its data.
 - The Objective Variants view uses the same vertical phase-panel layout, showing only Variant overrides for phase content and linked Arc Variants split into Primary and Secondary groups. Clicking on an Arc Variant opens an inspector to edit its data.
-- The Arc Variants view uses the same vertical phase-panel layout, showing only Variant overrides and linked Quests grouped as Goals, Limits, Events, and Modifiers. Clicking on a Quest opens an inspector to edit its data.
+- The Arc Variants view uses a root-level layout: a large Conditions Override / Commands Override editor followed by Goals/Limits and Events/Modifiers containers. Quests are linked to the Arc Variant itself, grouped by category, and are not assigned to phases. Clicking on a Quest opens an inspector to edit its data.
 - Quests do not need a kanban. They must have a view similar to codex entities, with a grid list with all the quests that can be filtered or sorted. When clicking on a quest, the view switches to the editor view similar to the one used for the codex, with a list of quests on the left. In the right sidebar, we can show usage data, for example how many Scenarios, Objective, and Arcs are directly or indirecly connected to this quest. 
 	- We don't need images for Quests, so the UI must be copied from the codex and adjusted accordingly. The Grid view too should not use images.

@@ -28,7 +28,7 @@ Tracks all modifications to the shared obsidian-storyline codebase. Use this whe
 - **`handleFileChange()` returns `boolean`** — `true` if the file was processed (scene/notes `.md` file), `false` if filtered out. Used by `main.ts` to conditionally trigger a view refresh.
 
 ### settings.ts
-- Interface: Added `dnScenarioCategories`, `dnObjectiveCategories`, `dnArcCategories`, `dnQuestCategories`, `dnKanbanShowFullHeader`
+- Interface: Added `dnScenarioCategories`, `dnObjectiveCategories`, `dnQuestCategories`, `dnKanbanShowFullHeader`
 - `DEFAULT_SETTINGS`: Added defaults for all DN fields
 - Settings tab UI: Added "Dynamic Narrative" section with category management and kanban header toggle
 - **Removed `dnInspectorWidth`** — inspector width is now session-only (stored in-memory on the view), not persisted to settings
@@ -175,21 +175,21 @@ Tracks all modifications to the shared obsidian-storyline codebase. Use this whe
 - `types.ts` — Shared types (DNBase, DNPhase, DNLinkedChild, DNEntity, DNEntityType, DEFAULT_DN_PHASES, helpers, type guards, deepClone, debounce, resolveWikilinkPath)
 - `Scenario.ts` — Scenario interface and ScenarioPhase (no default phases)
 - `Objective.ts` — Objective interface and ObjectivePhase (5 default phases)
-- `Arc.ts` — Arc interface and ArcPhase (5 default phases, dynamicLocations)
+- `Arc.ts` — Arc Type/Variant interfaces; Arc Types own phases and Arc Variants store root-level overrides and quest links
 - `Quest.ts` — Quest interface and QuestPhase (5 default phases)
 
 ### dynamic-narrative/services/
-- `DynamicNarrativeManager.ts` — Full CRUD, file I/O with error handling, frontmatter round-tripping with body section preservation, hierarchy queries, auto-linking, phase management, cascade rename, category management, save queue mutex, vault event handlers, destroy cleanup
+- `DynamicNarrativeManager.ts` — Full CRUD, file I/O with error handling, frontmatter round-tripping with body section preservation, hierarchy queries, auto-linking, phase management, Arc Variant root-level quest linking, cascade rename, category management, save queue mutex, vault event handlers, destroy cleanup
 
 ### dynamic-narrative/views/
 - `DynamicNarrativeView.ts` — Single ItemView with 5 tabs (Overview, Scenarios, Objectives, Arcs, Quests), plugin header toolbar with `renderViewSwitcher`, resizable inspector with mouse + touch support, inspector hidden for Quests tab, session-only inspector width saved to local `_inspectorWidth` property
 
 ### dynamic-narrative/components/
 - `DNOverview.ts` — Overview tab with debounced sortable/filterable entity lists, DNCreateModal for creation
-- `DNKanban.ts` — Reusable Dynamic Narrative phase board with debounced sidebar search, vertically stacked phase panels, three-column content layout, drag-and-drop, create modal, and context menu
+- `DNKanban.ts` — Reusable Dynamic Narrative board with debounced sidebar search, phase panels for Scenario/Objective Variant, a root-level Arc Variant layout, create/link modals, and context menus
 - `DNQuestGrid.ts` — Quest grid/list + editor + usage sidebar with debounced search
 - `DNInspector.ts` — Entity inspector with:
-  - **Suggestor-based linked entity inputs** — `renderTagPillInput` for Linked Locations, Linked Characters, and arc phase quest links (Linked Goals/Limits/Events/Modifiers)
+  - **Suggestor-based linked entity inputs** — `renderTagPillInput` for Linked Locations, Linked Characters, and Arc Variant root quest links (Linked Goals/Limits/Events/Modifiers)
   - **Open/delete buttons** in header (`codex-detail-action-btn` class), open file in new tab, delete with `openConfirmModal` dialog
   - **Single-line phase name input** — custom phase names use `<input>` instead of `<textarea>`
   - Phase accordions with auto-save (600ms debounce), DNPhaseModal integration

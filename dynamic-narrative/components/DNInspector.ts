@@ -2,11 +2,11 @@
 import { setIcon, Notice, TFile } from 'obsidian';
 import type SceneCardsPlugin from '../../main';
 import type { DynamicNarrativeManager } from '../services/DynamicNarrativeManager';
-import type { DNEntity, DNPhase, DNLinkedChild } from '../models/types';
+import type { DNEntity, DNPhase, DNLinkedChild, DNLinkedEntity } from '../models/types';
 import { isDefaultPhase, resolveWikilinkPath } from '../models/types';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveType, ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
-import type { ArcType, ArcVariant, ArcVariantPhase } from '../models/Arc';
+import type { ArcType, ArcVariant } from '../models/Arc';
 import type { Quest } from '../models/Quest';
 import { DNPhaseModal } from './DNPhaseModal';
 import { renderTagPillInput } from '../../components/InlineSuggest';
@@ -15,7 +15,7 @@ import { AddCommentModal } from '../../components/AddCommentModal';
 import { renderCommentCapsule } from '../../components/CommentCapsule';
 import { attachTooltip } from '../../components/Tooltip';
 import { DNEntitySelectModal } from './DNEntitySelectModal';
-import { DNCommentModal } from './DNCommentModal';
+import { renderDNLinkedComment } from './DNLinkedComment';
 
 function unwrapWikilink(v: string): string {
     return v.replace(/^\[\[/, '').replace(/\]\]$/, '');
@@ -77,7 +77,9 @@ export class DNInspector {
             await this.updateEntity({ title: val });
         });
 
-        this.renderCategoryField(form, entity);
+        if (entity.type !== 'arc-type' && entity.type !== 'arc-variant') {
+            this.renderCategoryField(form, entity);
+        }
 
         if (entity.type === 'objective-variant') {
             this.renderTypeRefField(form, entity as ObjectiveVariant, 'objective-type');
@@ -89,17 +91,15 @@ export class DNInspector {
             this.renderActsField(form, entity as Scenario);
         }
 
-        if (entity.type === 'arc-variant') {
-            this.renderCheckboxField(form, 'Dynamic Locations', (entity as ArcVariant).dynamicLocations, async (val) => {
-                await this.updateEntity({ dynamicLocations: val });
-            });
-        }
-
         this.renderTextareaField(form, 'Description', entity.description, async (val) => {
             await this.updateEntity({ description: val });
         });
 
-        if (entity.type === 'scenario' || entity.type === 'objective-variant' || entity.type === 'arc-variant') {
+        if (entity.type === 'arc-variant') {
+            this.renderArcVariantFields(form, entity as ArcVariant);
+        }
+
+        if (entity.type === 'scenario' || entity.type === 'objective-variant') {
             this.renderLinkedEntitiesField(form, 'Linked Locations', this.getLinkedLocations(entity),
                 () => this.plugin.locationManager?.getAllLocations().map(l => l.name) ?? [],
                 async (val) => { await this.updateEntity({ linkedLocations: val }); },
@@ -141,7 +141,10 @@ export class DNInspector {
         }
     }
 
-    private renderCategoryField(container: HTMLElement, entity: DNEntity): void {
+    private renderCategoryField(
+        container: HTMLElement,
+        entity: Scenario | ObjectiveType | ObjectiveVariant | Quest,
+    ): void {
         const categories = this.manager.getCategories(entity.type);
         const field = container.createDiv('dn-field');
         field.createEl('label', { text: 'Category', cls: 'dn-field-label' });
@@ -210,9 +213,60 @@ export class DNInspector {
         });
     }
 
+    private renderArcVariantFields(container: HTMLElement, entity: ArcVariant): void {
+        this.renderTextareaField(container, 'Conditions Override', entity.conditionsOverride, async (val) => {
+            await this.updateEntity({ conditionsOverride: val });
+        });
+        this.renderTextareaField(container, 'Commands Override', entity.commandsOverride, async (val) => {
+            await this.updateEntity({ commandsOverride: val });
+        });
+
+        const questGroups: Array<{
+            label: string;
+            category: string;
+            values: DNLinkedEntity[];
+            field: 'linkedGoals' | 'linkedLimits' | 'linkedEvents' | 'linkedModifiers';
+        }> = [
+            { label: 'Linked Goals', category: 'Goal', values: entity.linkedGoals, field: 'linkedGoals' },
+            { label: 'Linked Limits', category: 'Limit', values: entity.linkedLimits, field: 'linkedLimits' },
+            { label: 'Linked Events', category: 'Event', values: entity.linkedEvents, field: 'linkedEvents' },
+            { label: 'Linked Modifiers', category: 'Modifier', values: entity.linkedModifiers, field: 'linkedModifiers' },
+        ];
+
+        for (const group of questGroups) {
+            this.renderLinkedEntitiesField(
+                container,
+                group.label,
+                group.values.map(link => unwrapWikilink(link.id)),
+                () => this.manager.getAllQuests()
+                    .filter(quest => quest.category === group.category)
+                    .map(quest => quest.title),
+                async (val) => {
+                    const updatedLinks = val.map(value => {
+                        const id = wrapWikilink(value);
+                        const existing = group.values.find(link =>
+                            resolveWikilinkPath(link.id) === resolveWikilinkPath(id),
+                        );
+                        return existing ? { ...existing, id } : { id };
+                    });
+                    await this.updateEntity({ [group.field]: updatedLinks });
+                },
+                `Add ${group.category.toLowerCase()} quest...`,
+            );
+        }
+    }
+
     private renderPhasesSection(container: HTMLElement, entity: DNEntity): void {
         const section = container.createDiv('dn-inspector-phases');
         section.createDiv('dn-section-title').setText('Phases');
+
+        if (entity.type === 'arc-variant') {
+            const phases = this.manager.getOrderedPhasesForEntity(entity);
+            for (const phase of phases) {
+                this.renderReadOnlyPhaseAccordion(section, phase);
+            }
+            return;
+        }
 
         const phases = this.manager.getOrderedPhasesForEntity(entity);
 
@@ -220,7 +274,7 @@ export class DNInspector {
             this.renderPhaseAccordion(section, entity, phase);
         }
 
-        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
+        const isVariant = entity.type === 'objective-variant';
         if (!isVariant) {
             const addBtn = section.createEl('button', { cls: 'dn-add-phase-btn', text: '+ Add Custom Phase' });
             addBtn.addEventListener('click', () => {
@@ -242,7 +296,7 @@ export class DNInspector {
                             }
                             this.render(entity);
                         };
-                        if (isType) {
+                        if (isType && entity.type === 'objective-type') {
                             const variantCount = this.getVariantCount(entity);
                             if (variantCount > 0) {
                                 openConfirmModal(this.plugin.app, {
@@ -262,9 +316,45 @@ export class DNInspector {
         }
     }
 
+    private renderReadOnlyPhaseAccordion(container: HTMLElement, phase: DNPhase): void {
+        const accordion = container.createDiv('dn-phase-accordion dn-phase-read-only');
+        if (!phase.isDefault) accordion.addClass('dn-phase-custom');
+
+        const header = accordion.createDiv('dn-phase-header');
+        header.createSpan('dn-phase-name').setText(phase.name);
+        if (phase.isDefault) {
+            header.createSpan('dn-phase-default-badge').setText('default');
+        }
+
+        const toggle = header.createSpan('dn-phase-toggle');
+        setIcon(toggle, 'chevron-down');
+
+        const body = accordion.createDiv('dn-phase-body');
+        const fields: Array<{ label: string; value: string }> = [
+            { label: 'Description', value: phase.description },
+            { label: 'Start Conditions', value: phase.startConditions },
+            { label: 'End Conditions', value: phase.endConditions },
+            { label: 'Start Commands', value: phase.startCommands },
+            { label: 'End Commands', value: phase.endCommands },
+        ];
+        for (const fieldData of fields) {
+            const field = body.createDiv('dn-phase-field');
+            field.createEl('label', { text: fieldData.label, cls: 'dn-phase-field-label' });
+            field.createDiv('dn-field-inherited').setText(fieldData.value || '—');
+        }
+
+        let collapsed = false;
+        header.addEventListener('click', () => {
+            collapsed = !collapsed;
+            body.style.display = collapsed ? 'none' : '';
+            toggle.empty();
+            setIcon(toggle, collapsed ? 'chevron-right' : 'chevron-down');
+        });
+    }
+
     private renderPhaseAccordion(container: HTMLElement, entity: DNEntity, phase: DNPhase): void {
         const accordion = container.createDiv('dn-phase-accordion');
-        const isVariant = entity.type === 'objective-variant' || entity.type === 'arc-variant';
+        const isVariant = entity.type === 'objective-variant';
         if (!phase.isDefault) accordion.addClass('dn-phase-custom');
 
         const header = accordion.createDiv('dn-phase-header');
@@ -290,7 +380,7 @@ export class DNInspector {
                     }
                     this.render(entity);
                 };
-                if (isType) {
+                if (isType && entity.type === 'objective-type') {
                     const variantCount = this.getVariantCount(entity);
                     if (variantCount > 0) {
                         openConfirmModal(this.plugin.app, {
@@ -329,8 +419,8 @@ export class DNInspector {
             });
         }
 
-        if (isVariant) {
-            const variant = entity as ObjectiveVariant | ArcVariant;
+        if (entity.type === 'objective-variant') {
+            const variant = entity;
             this.renderVariantOverrideField(body, variant, phase, 'Description', 'description', async (val) => {
                 this.manager.updatePhaseFields(entity, phase.name, { description: val });
                 await this.persistEntity();
@@ -384,42 +474,6 @@ export class DNInspector {
             this.renderLinkedChildSection(body, entity, phase as ObjectiveVariantPhase, 'Linked Arcs');
         }
 
-        if (entity.type === 'arc-variant') {
-            const arcPhase = phase as ArcVariantPhase;
-            this.renderLinkedEntitiesField(body, 'Linked Goals', arcPhase.linkedGoals,
-                () => this.manager.getAllQuests().filter(q => q.category === 'Goal').map(q => q.title),
-                async (val) => {
-                    this.manager.updatePhaseFields(entity, phase.name, { linkedGoals: val } as any);
-                    await this.persistEntity();
-                },
-                'Add goal quest...',
-            );
-            this.renderLinkedEntitiesField(body, 'Linked Limits', arcPhase.linkedLimits,
-                () => this.manager.getAllQuests().filter(q => q.category === 'Limit').map(q => q.title),
-                async (val) => {
-                    this.manager.updatePhaseFields(entity, phase.name, { linkedLimits: val } as any);
-                    await this.persistEntity();
-                },
-                'Add limit quest...',
-            );
-            this.renderLinkedEntitiesField(body, 'Linked Events', arcPhase.linkedEvents,
-                () => this.manager.getAllQuests().filter(q => q.category === 'Event').map(q => q.title),
-                async (val) => {
-                    this.manager.updatePhaseFields(entity, phase.name, { linkedEvents: val } as any);
-                    await this.persistEntity();
-                },
-                'Add event quest...',
-            );
-            this.renderLinkedEntitiesField(body, 'Linked Modifiers', arcPhase.linkedModifiers,
-                () => this.manager.getAllQuests().filter(q => q.category === 'Modifier').map(q => q.title),
-                async (val) => {
-                    this.manager.updatePhaseFields(entity, phase.name, { linkedModifiers: val } as any);
-                    await this.persistEntity();
-                },
-                'Add modifier quest...',
-            );
-        }
-
         let collapsed = false;
         header.addEventListener('click', (e: MouseEvent) => {
             const target = e.target as HTMLElement;
@@ -469,7 +523,7 @@ export class DNInspector {
 
     private renderVariantOverrideField(
         container: HTMLElement,
-        entity: ObjectiveVariant | ArcVariant,
+        entity: ObjectiveVariant,
         phase: DNPhase,
         label: string,
         fieldName: string,
@@ -662,24 +716,21 @@ export class DNInspector {
         const titleRow = card.createDiv('dn-inspector-linked-card-title-row');
         titleRow.createDiv('dn-inspector-linked-card-title').setText(child?.title ?? linkedPath);
 
-        const commentBtn = titleRow.createEl('button', {
-            cls: 'dn-inspector-linked-action-btn',
-            attr: {
-                type: 'button',
-                'aria-label': link.comment ? 'Edit linked entity comment' : 'Add linked entity comment',
-                title: link.comment ? 'Edit comment' : 'Add comment',
-            },
-        });
-        setIcon(commentBtn, 'message-square');
-        if (link.comment) commentBtn.addClass('has-comment');
-        commentBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            new DNCommentModal(this.plugin.app, link.comment ?? '', async (comment) => {
-                await this.manager.updateLinkedComment(entity.filePath, phaseName, index, comment);
+        renderDNLinkedComment(
+            card,
+            titleRow,
+            this.plugin.app,
+            link.comment,
+            async (comment) => {
+                await this.manager.updateLinkedComment(
+                    entity.filePath,
+                    { kind: 'phase', phaseName, index },
+                    comment,
+                );
                 const updated = this.manager.getEntity(entity.filePath);
                 if (updated) this.render(updated);
-            }).open();
-        });
+            },
+        );
 
         const deleteBtn = titleRow.createEl('button', {
             cls: 'dn-inspector-linked-action-btn dn-inspector-linked-delete-btn',
@@ -693,9 +744,6 @@ export class DNInspector {
             if (updated) this.render(updated);
         });
 
-        if (link.comment) {
-            card.createDiv('dn-inspector-linked-card-comment').setText(link.comment);
-        }
         if (link.mandatory) {
             card.createSpan('dn-card-badge-mandatory').setText('Mandatory');
         }
@@ -727,7 +775,6 @@ export class DNInspector {
         switch (entity.type) {
             case 'scenario': return (entity as Scenario).linkedLocations;
             case 'objective-variant': return (entity as ObjectiveVariant).linkedLocations;
-            case 'arc-variant': return (entity as ArcVariant).linkedLocations;
             default: return [];
         }
     }

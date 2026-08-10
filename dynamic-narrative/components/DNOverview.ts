@@ -132,8 +132,10 @@ export class DNOverview {
             const nameEl = item.createSpan('dn-entity-name');
             nameEl.setText(entity.title);
 
-            const catEl = item.createSpan('dn-entity-category');
-            catEl.setText(entity.category || '—');
+            const category = this.getEntityCategory(entity);
+            if (category) {
+                item.createSpan('dn-entity-category').setText(category);
+            }
 
             item.addEventListener('click', (e: MouseEvent) => {
                 if (e.detail === 2) {
@@ -155,6 +157,11 @@ export class DNOverview {
         });
     }
 
+    private getEntityCategory(entity: OverviewEntity): string {
+        if (entity.type === 'arc-type' || entity.type === 'arc-variant') return '';
+        return 'category' in entity ? entity.category : '';
+    }
+
     private filterAndSort(entities: OverviewEntity[]): OverviewEntity[] {
         let result = [...entities];
 
@@ -162,7 +169,7 @@ export class DNOverview {
             result = result.filter(e =>
                 e.title.toLowerCase().includes(this.filterText) ||
                 e.description.toLowerCase().includes(this.filterText) ||
-                e.category.toLowerCase().includes(this.filterText)
+                this.getEntityCategory(e).toLowerCase().includes(this.filterText)
             );
         }
 
@@ -179,7 +186,7 @@ export class DNOverview {
                     cmp = (a.modified || '').localeCompare(b.modified || '');
                     break;
                 case 'category':
-                    cmp = (a.category || '').localeCompare(b.category || '');
+                    cmp = this.getEntityCategory(a).localeCompare(this.getEntityCategory(b));
                     break;
             }
             return this.sortDir === 'asc' ? cmp : -cmp;
@@ -204,7 +211,7 @@ export class DNOverview {
                     if (entityType === 'objective-variant') {
                         await this.manager.createObjectiveVariant({ title, category, description, objectiveTypeId: typeId });
                     } else {
-                        await this.manager.createArcVariant({ title, category, description, arcTypeId: typeId });
+                        await this.manager.createArcVariant({ title, description, arcTypeId: typeId });
                     }
                     this.render();
                 },
@@ -227,7 +234,7 @@ export class DNOverview {
                         await this.manager.createObjectiveType({ title, category, description });
                         break;
                     case 'arc-type':
-                        await this.manager.createArcType({ title, category, description });
+                        await this.manager.createArcType({ title, description });
                         break;
                     case 'quest':
                         await this.manager.createQuest({ title, category, description });

@@ -3,18 +3,20 @@ import { App, Notice, TFile, TFolder, normalizePath, parseYaml, stringifyYaml } 
 import type SceneCardsPlugin from '../../main';
 import type { Scenario, ScenarioPhase } from '../models/Scenario';
 import type { ObjectiveType, ObjectiveVariant, ObjectiveVariantPhase } from '../models/Objective';
-import type { ArcType, ArcVariant, ArcVariantPhase } from '../models/Arc';
+import type { ArcType, ArcVariant } from '../models/Arc';
 import type { Quest, QuestPhase } from '../models/Quest';
 import {
     DNBase,
     DNEntityType,
     DNEntity,
+    DNArcVariantQuestList,
+    DNLinkedEntity,
     DNLinkedChild,
+    DNLinkedCommentTarget,
     DNPhase,
     DEFAULT_DN_PHASES,
     DEFAULT_SCENARIO_CATEGORIES,
     DEFAULT_OBJECTIVE_CATEGORIES,
-    DEFAULT_ARC_CATEGORIES,
     DEFAULT_QUEST_CATEGORIES,
     createDefaultPhases,
     createDefaultPhase,
@@ -46,7 +48,7 @@ const SYSTEM_FILE_NAME = 'dynamic-narrative.json';
 const DN_FOLDER_NAME = 'DynamicNarrative';
 const SUBFOLDERS = ['Scenarios', 'ObjectiveTypes', 'ObjectiveVariants', 'ArcTypes', 'ArcVariants', 'Quests'] as const;
 
-const QUEST_LINK_LISTS = ['linkedGoals', 'linkedLimits', 'linkedEvents', 'linkedModifiers'] as const;
+const QUEST_LINK_LISTS: DNArcVariantQuestList[] = ['linkedGoals', 'linkedLimits', 'linkedEvents', 'linkedModifiers'];
 
 export class DynamicNarrativeManager {
     private app: App;
@@ -117,12 +119,34 @@ export class DynamicNarrativeManager {
                 this.objectiveVariants.set(path, entity);
             }
             for (const [path, entity] of Object.entries(systemData.arcTypes ?? {})) {
-                entity.type = 'arc-type';
-                this.arcTypes.set(path, entity);
+                const arcType = { ...entity } as ArcType & { category?: unknown };
+                delete arcType.category;
+                arcType.type = 'arc-type';
+                this.arcTypes.set(path, arcType);
             }
             for (const [path, entity] of Object.entries(systemData.arcVariants ?? {})) {
-                entity.type = 'arc-variant';
-                this.arcVariants.set(path, entity);
+                const arcVariant = { ...entity } as ArcVariant & {
+                    category?: unknown;
+                    linkedLocations?: unknown;
+                    dynamicLocations?: unknown;
+                    phases?: unknown;
+                };
+                delete arcVariant.category;
+                delete arcVariant.linkedLocations;
+                delete arcVariant.dynamicLocations;
+                delete arcVariant.phases;
+                arcVariant.conditionsOverride = typeof arcVariant.conditionsOverride === 'string'
+                    ? arcVariant.conditionsOverride
+                    : '';
+                arcVariant.commandsOverride = typeof arcVariant.commandsOverride === 'string'
+                    ? arcVariant.commandsOverride
+                    : '';
+                arcVariant.linkedGoals = this.parseLinkedEntities(arcVariant.linkedGoals);
+                arcVariant.linkedLimits = this.parseLinkedEntities(arcVariant.linkedLimits);
+                arcVariant.linkedEvents = this.parseLinkedEntities(arcVariant.linkedEvents);
+                arcVariant.linkedModifiers = this.parseLinkedEntities(arcVariant.linkedModifiers);
+                arcVariant.type = 'arc-variant';
+                this.arcVariants.set(path, arcVariant);
             }
             for (const [path, entity] of Object.entries(systemData.quests ?? {})) {
                 entity.type = 'quest';
@@ -306,27 +330,28 @@ export class DynamicNarrativeManager {
             modified: (fm.modified as string) || new Date().toISOString(),
             dirty: fm['dirty'] !== false,
             type: 'arc-type',
-            category: (fm['arc-type-category'] as string) || '',
             phases,
         };
     }
 
     private parseArcVariantFromFm(fm: Record<string, unknown>, body: string, filePath: string): ArcVariant {
-        const phases = this.parseArcVariantPhases(fm['arc-variant-phases']);
         const description = (fm.description as string) ?? this.extractBodySection(body, 'Overview');
+        const hasLegacyPhaseData = Array.isArray(fm['arc-variant-phases']);
         return {
             filePath,
             title: (fm.title as string) || this.titleFromPath(filePath),
             description,
             created: (fm.created as string) || '',
             modified: (fm.modified as string) || new Date().toISOString(),
-            dirty: fm['dirty'] !== false,
+            dirty: fm['dirty'] !== false || hasLegacyPhaseData,
             type: 'arc-variant',
             arcTypeId: this.parseTypeRef(fm['arc-type-ref']),
-            category: (fm['arc-variant-category'] as string) || '',
-            linkedLocations: this.parseStringList(fm['linked-locations']),
-            dynamicLocations: Boolean(fm['dynamic-locations']),
-            phases,
+            conditionsOverride: (fm['conditions-override'] as string) || '',
+            commandsOverride: (fm['commands-override'] as string) || '',
+            linkedGoals: this.parseLinkedEntities(fm['linked-goals']),
+            linkedLimits: this.parseLinkedEntities(fm['linked-limits']),
+            linkedEvents: this.parseLinkedEntities(fm['linked-events']),
+            linkedModifiers: this.parseLinkedEntities(fm['linked-modifiers']),
         };
     }
 
@@ -407,17 +432,6 @@ export class DynamicNarrativeManager {
         }));
     }
 
-    private parseArcVariantPhases(raw: unknown): ArcVariantPhase[] {
-        if (!Array.isArray(raw)) return [];
-        return raw.map((p: Record<string, unknown>) => ({
-            ...this.parseBasePhase(p),
-            linkedGoals: this.parseStringList(p['linked-goals']),
-            linkedLimits: this.parseStringList(p['linked-limits']),
-            linkedEvents: this.parseStringList(p['linked-events']),
-            linkedModifiers: this.parseStringList(p['linked-modifiers']),
-        }));
-    }
-
     private parseQuestPhases(raw: unknown): QuestPhase[] {
         if (!Array.isArray(raw)) return [];
         return raw.map((p: Record<string, unknown>) => this.parseBasePhase(p) as QuestPhase);
@@ -431,6 +445,25 @@ export class DynamicNarrativeManager {
             mandatory: item['mandatory'] === true,
             comment: typeof item['comment'] === 'string' ? item['comment'] : undefined,
         }));
+    }
+
+    private parseLinkedEntities(raw: unknown): DNLinkedEntity[] {
+        if (!Array.isArray(raw)) return [];
+        return raw.flatMap((item: unknown) => {
+            if (typeof item === 'string') {
+                return item.trim().length > 0 ? [{ id: item }] : [];
+            }
+            if (!item || typeof item !== 'object') return [];
+            const record = item as Record<string, unknown>;
+            const id = [record.id, record['quest-id']].find((value): value is string => typeof value === 'string');
+            if (!id || id.trim().length === 0) return [];
+            return [{
+                id,
+                comment: typeof record.comment === 'string' && record.comment.trim().length > 0
+                    ? record.comment
+                    : undefined,
+            }];
+        });
     }
 
     private parseStringList(raw: unknown): string[] {
@@ -505,7 +538,6 @@ export class DynamicNarrativeManager {
                 fm.tags = ['storyline-arc-type'];
                 fm.title = at.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
-                fm['arc-type-category'] = at.category;
                 if (at.phases.length > 0) {
                     fm['arc-type-phases'] = at.phases.map(p => this.serializePlainPhase(p));
                 }
@@ -517,12 +549,12 @@ export class DynamicNarrativeManager {
                 fm.title = av.title;
                 if (shortDesc) fm['short-desc'] = shortDesc;
                 if (av.arcTypeId) fm['arc-type-ref'] = `[[${av.arcTypeId}]]`;
-                fm['arc-variant-category'] = av.category;
-                if (av.linkedLocations.length > 0) fm['linked-locations'] = av.linkedLocations;
-                if (av.dynamicLocations) fm['dynamic-locations'] = true;
-                if (av.phases.length > 0) {
-                    fm['arc-variant-phases'] = av.phases.map(p => this.serializeArcVariantPhase(p));
-                }
+                if (av.conditionsOverride) fm['conditions-override'] = av.conditionsOverride;
+                if (av.commandsOverride) fm['commands-override'] = av.commandsOverride;
+                if (av.linkedGoals.length > 0) fm['linked-goals'] = this.serializeLinkedEntities(av.linkedGoals);
+                if (av.linkedLimits.length > 0) fm['linked-limits'] = this.serializeLinkedEntities(av.linkedLimits);
+                if (av.linkedEvents.length > 0) fm['linked-events'] = this.serializeLinkedEntities(av.linkedEvents);
+                if (av.linkedModifiers.length > 0) fm['linked-modifiers'] = this.serializeLinkedEntities(av.linkedModifiers);
                 break;
             }
             case 'quest': {
@@ -596,13 +628,12 @@ export class DynamicNarrativeManager {
         return obj;
     }
 
-    private serializeArcVariantPhase(p: ArcVariantPhase): Record<string, unknown> {
-        const obj = this.serializeBasePhase(p);
-        if (p.linkedGoals.length > 0) obj['linked-goals'] = p.linkedGoals;
-        if (p.linkedLimits.length > 0) obj['linked-limits'] = p.linkedLimits;
-        if (p.linkedEvents.length > 0) obj['linked-events'] = p.linkedEvents;
-        if (p.linkedModifiers.length > 0) obj['linked-modifiers'] = p.linkedModifiers;
-        return obj;
+    private serializeLinkedEntities(links: DNLinkedEntity[]): Array<Record<string, unknown>> {
+        return links.map(link => {
+            const result: Record<string, unknown> = { 'quest-id': link.id };
+            if (link.comment) result.comment = link.comment;
+            return result;
+        });
     }
 
     private stripFrontmatter(content: string): string {
@@ -657,6 +688,27 @@ export class DynamicNarrativeManager {
 # Overview
 ${entity.description}
 `;
+
+        if (entity.type === 'arc-variant') {
+            const arc = entity as ArcVariant;
+            body += `\n## Conditions Override\n${arc.conditionsOverride}\n`;
+            body += `\n## Commands Override\n${arc.commandsOverride}\n`;
+            for (const [heading, links] of [
+                ['Goals', arc.linkedGoals],
+                ['Limits', arc.linkedLimits],
+                ['Events', arc.linkedEvents],
+                ['Modifiers', arc.linkedModifiers],
+            ] as Array<[string, DNLinkedEntity[]]>) {
+                const validLinks = links.filter(link => link.id.trim().length > 0);
+                if (validLinks.length === 0) continue;
+                body += `\n## ${heading}\n`;
+                for (const link of validLinks) {
+                    body += `- ${this.toMarkdownWikilink(link.id)}\n`;
+                }
+            }
+            return body;
+        }
+
         body += '\n## Phases\n';
         for (const phase of entity.phases) {
             body += `\n### ${phase.name}\n`;
@@ -673,12 +725,6 @@ ${entity.description}
                 case 'objective-variant':
                     body = this.appendLinkedChildMarkdownSection(body, 'Linked Arcs', (phase as ObjectiveVariantPhase).linkedArcs);
                     break;
-                case 'arc-variant':
-                    body = this.appendLinkedMarkdownSection(body, 'Linked Goals', (phase as ArcVariantPhase).linkedGoals);
-                    body = this.appendLinkedMarkdownSection(body, 'Linked Limits', (phase as ArcVariantPhase).linkedLimits);
-                    body = this.appendLinkedMarkdownSection(body, 'Linked Events', (phase as ArcVariantPhase).linkedEvents);
-                    body = this.appendLinkedMarkdownSection(body, 'Linked Modifiers', (phase as ArcVariantPhase).linkedModifiers);
-                    break;
             }
         }
         return body;
@@ -687,7 +733,9 @@ ${entity.description}
     private async writeEntityFile(entity: DNEntity): Promise<void> {
         try {
             const file = this.app.vault.getAbstractFileByPath(entity.filePath);
-            let body = this.buildSkeletonBody();
+            let body = entity.type === 'arc-variant'
+                ? this.buildReflectedBody(entity)
+                : this.buildSkeletonBody();
             if (file && file instanceof TFile) {
                 const existing = await this.app.vault.read(file);
                 body = this.stripFrontmatter(existing);
@@ -913,6 +961,7 @@ ${entity.description}
     async createArcType(data: Partial<ArcType>): Promise<ArcType> {
         const entity = createEmptyArcType(data.title || 'New Arc Type');
         Object.assign(entity, data);
+        delete (entity as ArcType & { category?: unknown }).category;
         entity.type = 'arc-type';
         if (!entity.phases || entity.phases.length === 0) {
             entity.phases = createDefaultPhases();
@@ -924,7 +973,9 @@ ${entity.description}
         const entity = this.arcTypes.get(filePath);
         if (!entity) return undefined;
         const phasesBefore = entity.phases.map(p => p.name);
-        const updatedEntity = await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'arc type');
+        const cleanUpdates = { ...updates } as Partial<ArcType> & { category?: unknown };
+        delete cleanUpdates.category;
+        const updatedEntity = await this.updateEntityCommon(filePath, cleanUpdates as Record<string, unknown>, 'arc type');
         const updated = this.arcTypes.get(entity.filePath);
         if (updated) {
             await this.propagateTypePhaseChanges(updated, phasesBefore);
@@ -947,13 +998,43 @@ ${entity.description}
     async createArcVariant(data: Partial<ArcVariant>): Promise<ArcVariant> {
         const entity = createEmptyArcVariant(data.title || 'New Arc Variant', data.arcTypeId || '');
         Object.assign(entity, data);
+        const legacyFields = entity as ArcVariant & {
+            category?: unknown;
+            linkedLocations?: unknown;
+            dynamicLocations?: unknown;
+            phases?: unknown;
+        };
+        delete legacyFields.category;
+        delete legacyFields.linkedLocations;
+        delete legacyFields.dynamicLocations;
+        delete legacyFields.phases;
+        entity.conditionsOverride = typeof entity.conditionsOverride === 'string' ? entity.conditionsOverride : '';
+        entity.commandsOverride = typeof entity.commandsOverride === 'string' ? entity.commandsOverride : '';
+        entity.linkedGoals = this.parseLinkedEntities(entity.linkedGoals);
+        entity.linkedLimits = this.parseLinkedEntities(entity.linkedLimits);
+        entity.linkedEvents = this.parseLinkedEntities(entity.linkedEvents);
+        entity.linkedModifiers = this.parseLinkedEntities(entity.linkedModifiers);
         entity.type = 'arc-variant';
-        this.syncArcVariantPhases(entity);
         return this.createEntity(entity);
     }
 
     async updateArcVariant(filePath: string, updates: Partial<ArcVariant>): Promise<void> {
-        await this.updateEntityCommon(filePath, updates as Record<string, unknown>, 'arc variant');
+        const cleanUpdates = { ...updates } as Partial<ArcVariant> & {
+            category?: unknown;
+            linkedLocations?: unknown;
+            dynamicLocations?: unknown;
+            phases?: unknown;
+        };
+        delete cleanUpdates.category;
+        delete cleanUpdates.linkedLocations;
+        delete cleanUpdates.dynamicLocations;
+        delete cleanUpdates.phases;
+        for (const listKey of QUEST_LINK_LISTS) {
+            if (listKey in cleanUpdates) {
+                cleanUpdates[listKey] = this.parseLinkedEntities(cleanUpdates[listKey]);
+            }
+        }
+        await this.updateEntityCommon(filePath, cleanUpdates as Record<string, unknown>, 'arc variant');
     }
 
     async deleteArcVariant(filePath: string): Promise<void> {
@@ -1014,41 +1095,9 @@ ${entity.description}
         variant.phases = result;
     }
 
-    private syncArcVariantPhases(variant: ArcVariant): void {
-        const type = this.arcTypes.get(variant.arcTypeId);
-        if (!type) return;
-        const orderedTypePhases = getOrderedPhases(type.phases, true);
-        const result: ArcVariantPhase[] = [];
-        for (const tp of orderedTypePhases) {
-            const existing = variant.phases.find(p => p.name === tp.name);
-            if (existing) {
-                result.push({ ...existing, isDefault: tp.isDefault });
-            } else {
-                result.push({
-                    name: tp.name,
-                    description: '',
-                    startConditions: '',
-                    startCommands: '',
-                    endConditions: '',
-                    endCommands: '',
-                    isDefault: tp.isDefault,
-                    overrides: [],
-                    linkedGoals: [],
-                    linkedLimits: [],
-                    linkedEvents: [],
-                    linkedModifiers: [],
-                });
-            }
-        }
-        variant.phases = result;
-    }
-
     private syncAllVariants(): void {
         for (const variant of this.objectiveVariants.values()) {
             this.syncObjectiveVariantPhases(variant);
-        }
-        for (const variant of this.arcVariants.values()) {
-            this.syncArcVariantPhases(variant);
         }
     }
 
@@ -1061,11 +1110,6 @@ ${entity.description}
         if (type.type === 'objective-type') {
             for (const variant of this.getObjectiveVariantsOfType(type.filePath)) {
                 this.syncObjectiveVariantPhases(variant);
-                await this.writeEntityFile(variant);
-            }
-        } else if (type.type === 'arc-type') {
-            for (const variant of this.getArcVariantsOfType(type.filePath)) {
-                this.syncArcVariantPhases(variant);
                 await this.writeEntityFile(variant);
             }
         }
@@ -1086,9 +1130,9 @@ ${entity.description}
         return variant;
     }
 
-    async createAndLinkQuest(arcVariantPath: string, phaseName: string, category: string, data: Partial<Quest>): Promise<Quest> {
+    async createAndLinkQuest(arcVariantPath: string, category: string, data: Partial<Quest>): Promise<Quest> {
         const quest = await this.createQuest({ ...data, category });
-        await this.linkExistingQuest(arcVariantPath, phaseName, quest.filePath);
+        await this.linkExistingQuest(arcVariantPath, quest.filePath);
         return quest;
     }
 
@@ -1126,36 +1170,55 @@ ${entity.description}
         return true;
     }
 
-    async linkExistingQuest(arcVariantPath: string, phaseName: string, questPath: string): Promise<boolean> {
+    async linkExistingQuest(arcVariantPath: string, questPath: string): Promise<boolean> {
         const arc = this.arcVariants.get(arcVariantPath);
         const quest = this.quests.get(questPath);
         if (!arc || !quest) return false;
 
-        const phase = arc.phases.find(p => p.name === phaseName);
-        if (!phase) return false;
-
         const wikilink = `[[${questPath}]]`;
+        if (QUEST_LINK_LISTS.some(key => arc[key].some(link => resolveWikilinkPath(link.id) === questPath))) return false;
         const listKey = this.getQuestListKey(quest.category);
-        const list = phase[listKey] as string[];
-        if (list.includes(wikilink)) return false;
-        list.push(wikilink);
+        const list = arc[listKey];
+        list.push({ id: wikilink });
 
         await this.writeEntityFile(arc);
         await this.saveSystemJson();
         return true;
     }
 
-    async updateLinkedComment(parentPath: string, phaseName: string, index: number, comment: string): Promise<boolean> {
-        const parent = this.getEntity(parentPath);
-        if (!parent || index < 0) return false;
+    async unlinkQuestFromArcVariant(arcVariantPath: string, questPath: string): Promise<boolean> {
+        const arc = this.arcVariants.get(arcVariantPath);
+        if (!arc) return false;
 
-        let link: DNLinkedChild | undefined;
-        if (parent.type === 'scenario') {
-            const phase = (parent as Scenario).phases.find(p => p.name === phaseName);
-            link = phase?.linkedObjectives[index];
-        } else if (parent.type === 'objective-variant') {
-            const phase = (parent as ObjectiveVariant).phases.find(p => p.name === phaseName);
-            link = phase?.linkedArcs[index];
+        let changed = false;
+        for (const listKey of QUEST_LINK_LISTS) {
+            const list = arc[listKey];
+            const filtered = list.filter(link => resolveWikilinkPath(link.id) !== questPath);
+            if (filtered.length !== list.length) {
+                arc[listKey] = filtered;
+                changed = true;
+            }
+        }
+        if (!changed) return false;
+
+        await this.writeEntityFile(arc);
+        await this.saveSystemJson();
+        return true;
+    }
+
+    async updateLinkedComment(parentPath: string, target: DNLinkedCommentTarget, comment: string): Promise<boolean> {
+        const parent = this.getEntity(parentPath);
+        if (!parent || target.index < 0) return false;
+
+        let link: DNLinkedEntity | undefined;
+        if (target.kind === 'phase' && parent.type === 'scenario') {
+            const phase = (parent as Scenario).phases.find(p => p.name === target.phaseName);
+            link = phase?.linkedObjectives[target.index];
+        } else if (target.kind === 'phase' && parent.type === 'objective-variant') {
+            const phase = (parent as ObjectiveVariant).phases.find(p => p.name === target.phaseName);
+            link = phase?.linkedArcs[target.index];
+        } else if (target.kind === 'arc-variant' && parent.type === 'arc-variant') {
+            link = (parent as ArcVariant)[target.listKey][target.index];
         }
         if (!link) return false;
 
@@ -1221,38 +1284,26 @@ ${entity.description}
         return objective.phases.flatMap(p => p.linkedArcs);
     }
 
-    getLinkedQuests(arcVariantPath: string, phaseName?: string): string[] {
+    getLinkedQuests(arcVariantPath: string): string[] {
         const arc = this.arcVariants.get(arcVariantPath);
         if (!arc) return [];
-        const phases = phaseName
-            ? arc.phases.filter(p => p.name === phaseName)
-            : arc.phases;
-        return phases.flatMap(p => [
-            ...p.linkedGoals,
-            ...p.linkedLimits,
-            ...p.linkedEvents,
-            ...p.linkedModifiers,
-        ]);
+        return [
+            ...arc.linkedGoals,
+            ...arc.linkedLimits,
+            ...arc.linkedEvents,
+            ...arc.linkedModifiers,
+        ].map(link => link.id);
     }
 
     getConnectionsForQuest(questPath: string): { scenarios: number; objectives: number; arcs: number } {
-        const wikilink = `[[${questPath}]]`;
         let arcs = 0;
         let objectives = 0;
         const connectedObjectivePaths = new Set<string>();
         const connectedScenarioPaths = new Set<string>();
 
         for (const arc of this.arcVariants.values()) {
-            for (const phase of arc.phases) {
-                if (
-                    phase.linkedGoals.includes(wikilink) ||
-                    phase.linkedLimits.includes(wikilink) ||
-                    phase.linkedEvents.includes(wikilink) ||
-                    phase.linkedModifiers.includes(wikilink)
-                ) {
-                    arcs++;
-                    break;
-                }
+            if (QUEST_LINK_LISTS.some(listKey => arc[listKey].some(link => resolveWikilinkPath(link.id) === questPath))) {
+                arcs++;
             }
         }
 
@@ -1262,18 +1313,10 @@ ${entity.description}
                     const arcPath = resolveWikilinkPath(arcRef.id);
                     const arc = this.arcVariants.get(arcPath);
                     if (!arc) continue;
-                    for (const arcPhase of arc.phases) {
-                        if (
-                            arcPhase.linkedGoals.includes(wikilink) ||
-                            arcPhase.linkedLimits.includes(wikilink) ||
-                            arcPhase.linkedEvents.includes(wikilink) ||
-                            arcPhase.linkedModifiers.includes(wikilink)
-                        ) {
-                            if (!connectedObjectivePaths.has(obj.filePath)) {
-                                connectedObjectivePaths.add(obj.filePath);
-                                objectives++;
-                            }
-                            break;
+                    if (QUEST_LINK_LISTS.some(listKey => arc[listKey].some(link => resolveWikilinkPath(link.id) === questPath))) {
+                        if (!connectedObjectivePaths.has(obj.filePath)) {
+                            connectedObjectivePaths.add(obj.filePath);
+                            objectives++;
                         }
                     }
                 }
@@ -1342,11 +1385,8 @@ ${entity.description}
     }
 
     /**
-     * Add a custom phase to an Objective/Arc type and propagate it to every
-     * existing variant of that type. The phase-before snapshot is taken here,
-     * before mutating the type, so propagation actually detects the change
-     * (the UI used to mutate in place before calling update*Type, which made
-     * the diff inside propagateTypePhaseChanges empty).
+     * Add a custom phase to an Objective/Arc type. Objective Variant phase
+     * changes are propagated; Arc Variants read their phases from the type.
      */
     async addTypePhase(type: ObjectiveType | ArcType, phase: DNPhase): Promise<void> {
         const phasesBefore = this.getPhases(type).map(p => p.name);
@@ -1357,8 +1397,8 @@ ${entity.description}
     }
 
     /**
-     * Remove a custom phase from an Objective/Arc type and propagate the
-     * removal to every existing variant of that type.
+     * Remove a custom phase from an Objective/Arc type. Objective Variant
+     * phase changes are propagated; Arc Variants read their phases from the type.
      */
     async removeTypePhase(type: ObjectiveType | ArcType, phaseName: string): Promise<void> {
         if (isDefaultPhase(phaseName)) return;
@@ -1371,8 +1411,7 @@ ${entity.description}
 
     /**
      * Rename a custom phase on an Objective/Arc type and propagate the new
-     * name to every existing variant, preserving each variant's override
-     * data for that phase (sync-by-name would drop and recreate it empty).
+     * name to every existing Objective Variant.
      */
     async renameTypePhase(type: ObjectiveType | ArcType, oldName: string, newName: string): Promise<void> {
         if (isDefaultPhase(oldName)) return;
@@ -1381,13 +1420,6 @@ ${entity.description}
         await this.writeEntityFile(type);
         if (type.type === 'objective-type') {
             for (const variant of this.getObjectiveVariantsOfType(type.filePath)) {
-                const phase = variant.phases.find(p => p.name === oldName);
-                if (phase) phase.name = newName;
-                variant.modified = new Date().toISOString();
-                await this.writeEntityFile(variant);
-            }
-        } else if (type.type === 'arc-type') {
-            for (const variant of this.getArcVariantsOfType(type.filePath)) {
                 const phase = variant.phases.find(p => p.name === oldName);
                 if (phase) phase.name = newName;
                 variant.modified = new Date().toISOString();
@@ -1432,26 +1464,27 @@ ${entity.description}
     }
 
     getOrderedPhasesForEntity(entity: DNEntity): DNPhase[] {
+        if (entity.type === 'arc-variant') {
+            const type = this.arcTypes.get(entity.arcTypeId);
+            return type ? getOrderedPhases(type.phases, true) : [];
+        }
         const phases = this.getPhases(entity);
         const hasDefaults = entity.type !== 'scenario';
         return getOrderedPhases(phases, hasDefaults);
     }
 
-    getTypePhaseValue(entity: ObjectiveVariant | ArcVariant, phaseName: string, fieldName: string): string {
-        let type: ObjectiveType | ArcType | undefined;
-        if (entity.type === 'objective-variant') {
-            type = this.objectiveTypes.get(entity.objectiveTypeId);
-        } else {
-            type = this.arcTypes.get(entity.arcTypeId);
-        }
+    getTypePhaseValue(entity: ObjectiveVariant, phaseName: string, fieldName: string): string {
+        const type = this.objectiveTypes.get(entity.objectiveTypeId);
         if (!type) return '';
         const tp = type.phases.find(p => p.name === phaseName);
         if (!tp) return '';
-        return String((tp as unknown as Record<string, unknown>)[fieldName] ?? '');
+        const value = (tp as unknown as Record<string, unknown>)[fieldName];
+        return typeof value === 'string' ? value : '';
     }
 
     private getPhases(entity: DNEntity): DNPhase[] {
-        return (entity as Scenario | ObjectiveType | ObjectiveVariant | ArcType | ArcVariant | Quest).phases;
+        if (entity.type === 'arc-variant') return [];
+        return (entity as Scenario | ObjectiveType | ObjectiveVariant | ArcType | Quest).phases;
     }
 
     private setPhases(entity: DNEntity, phases: DNPhase[]): void {
@@ -1461,9 +1494,6 @@ ${entity.description}
                 break;
             case 'objective-variant':
                 (entity as ObjectiveVariant).phases = phases as ObjectiveVariantPhase[];
-                break;
-            case 'arc-variant':
-                (entity as ArcVariant).phases = phases as ArcVariantPhase[];
                 break;
             case 'objective-type':
             case 'arc-type':
@@ -1512,22 +1542,6 @@ ${entity.description}
                 if (idx < 0 || idx >= fromP.linkedArcs.length) return;
                 const [child] = fromP.linkedArcs.splice(idx, 1);
                 toP.linkedArcs.push(child);
-                break;
-            }
-            case 'arc-variant': {
-                const arc = parent as ArcVariant;
-                const fromP = arc.phases.find(p => p.name === fromPhase);
-                const toP = arc.phases.find(p => p.name === toPhase);
-                if (!fromP || !toP) return;
-                for (const listKey of QUEST_LINK_LISTS) {
-                    const list = fromP[listKey] as string[];
-                    const idx = list.indexOf(wikilink);
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                        (toP[listKey] as string[]).push(wikilink);
-                        break;
-                    }
-                }
                 break;
             }
         }
@@ -1624,14 +1638,12 @@ ${entity.description}
                 arc.arcTypeId = newPath;
                 changed = true;
             }
-            for (const phase of arc.phases) {
-                for (const listKey of QUEST_LINK_LISTS) {
-                    const list = phase[listKey] as string[];
-                    const idx = list.indexOf(oldWikilink);
-                    if (idx >= 0) {
-                        list[idx] = newWikilink;
-                        changed = true;
-                    }
+            for (const listKey of QUEST_LINK_LISTS) {
+                const list = arc[listKey];
+                const idx = list.findIndex(link => link.id === oldWikilink);
+                if (idx >= 0) {
+                    list[idx].id = newWikilink;
+                    changed = true;
                 }
             }
             if (changed) await this.writeEntityFile(arc);
@@ -1655,9 +1667,7 @@ ${entity.description}
                     : DEFAULT_OBJECTIVE_CATEGORIES;
             case 'arc-type':
             case 'arc-variant':
-                return this.plugin.settings.dnArcCategories?.length
-                    ? this.plugin.settings.dnArcCategories
-                    : DEFAULT_ARC_CATEGORIES;
+                return [];
             case 'quest':
                 return this.plugin.settings.dnQuestCategories?.length
                     ? this.plugin.settings.dnQuestCategories
@@ -1666,6 +1676,7 @@ ${entity.description}
     }
 
     addCategory(entityType: DNEntityType, name: string): void {
+        if (entityType === 'arc-type' || entityType === 'arc-variant') return;
         const cats = this.getCategories(entityType);
         if (cats.includes(name)) return;
         cats.push(name);
@@ -1673,6 +1684,7 @@ ${entity.description}
     }
 
     removeCategory(entityType: DNEntityType, name: string): void {
+        if (entityType === 'arc-type' || entityType === 'arc-variant') return;
         const defaults = this.getDefaultCategories(entityType);
         if (defaults.includes(name)) return;
         const cats = this.getCategories(entityType).filter(c => c !== name);
@@ -1685,7 +1697,7 @@ ${entity.description}
             case 'objective-type':
             case 'objective-variant': return DEFAULT_OBJECTIVE_CATEGORIES;
             case 'arc-type':
-            case 'arc-variant': return DEFAULT_ARC_CATEGORIES;
+            case 'arc-variant': return [];
             case 'quest': return DEFAULT_QUEST_CATEGORIES;
         }
     }
@@ -1701,7 +1713,6 @@ ${entity.description}
                 break;
             case 'arc-type':
             case 'arc-variant':
-                this.plugin.settings.dnArcCategories = categories;
                 break;
             case 'quest':
                 this.plugin.settings.dnQuestCategories = categories;

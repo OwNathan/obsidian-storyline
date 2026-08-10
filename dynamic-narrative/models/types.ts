@@ -18,6 +18,17 @@ export interface DNBase {
     dirty: boolean;
 }
 
+export type DNArcVariantQuestList = 'linkedGoals' | 'linkedLimits' | 'linkedEvents' | 'linkedModifiers';
+
+export interface DNLinkedEntity {
+    id: string;
+    comment?: string;
+}
+
+export type DNLinkedCommentTarget =
+    | { kind: 'phase'; phaseName: string; index: number }
+    | { kind: 'arc-variant'; listKey: DNArcVariantQuestList; index: number };
+
 export interface DNPhase {
     name: string;
     description: string;
@@ -29,11 +40,9 @@ export interface DNPhase {
     overrides: string[];
 }
 
-export interface DNLinkedChild {
-    id: string;
+export interface DNLinkedChild extends DNLinkedEntity {
     isPrimary: boolean;
     mandatory: boolean;
-    comment?: string;
 }
 
 export const DEFAULT_DN_PHASES: string[] = [
@@ -55,11 +64,6 @@ export const DEFAULT_OBJECTIVE_CATEGORIES: string[] = [
     'Structured',
     'Dynamic',
     'Procedural',
-];
-
-export const DEFAULT_ARC_CATEGORIES: string[] = [
-    'Primary',
-    'Secondary',
 ];
 
 export const DEFAULT_QUEST_CATEGORIES: string[] = [

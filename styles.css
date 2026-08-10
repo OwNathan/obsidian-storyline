@@ -10047,7 +10047,9 @@ body.theme-dark .location-field-input.dropdown {
     color: var(--text-normal);
     font-size: 11px;
     line-height: 1.3;
-    white-space: nowrap;
+    max-width: min(480px, calc(100vw - 24px));
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
     border-radius: 4px;
     pointer-events: none;
     z-index: 10000;
@@ -13153,6 +13155,123 @@ body.dn-resizing .dn-resize-handle::after {
     box-sizing: border-box;
 }
 
+.dn-arc-variant-overrides {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 12px 12px 0;
+    padding: 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background: var(--background-secondary);
+}
+
+.dn-arc-variant-section-title {
+    color: var(--h1-color);
+    font-size: var(--font-ui-medium);
+    font-weight: var(--font-semibold);
+}
+
+.dn-arc-variant-override-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dn-arc-variant-field-label {
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+    font-weight: var(--font-medium);
+}
+
+.dn-arc-variant-field-input {
+    width: 100%;
+    min-height: 74px;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-text);
+    font-size: var(--font-ui-small);
+    resize: vertical;
+}
+
+.dn-arc-variant-field-input:focus {
+    border-color: var(--interactive-accent);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.dn-arc-variant-quest-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px;
+}
+
+.dn-arc-variant-quest-group {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background: var(--background-secondary);
+    overflow: hidden;
+}
+
+.dn-arc-variant-quest-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary-alt);
+}
+
+.dn-arc-variant-quest-group-title {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    color: var(--h1-color);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-semibold);
+}
+
+.dn-arc-variant-quest-group-count {
+    color: var(--text-faint);
+    font-weight: var(--font-normal);
+}
+
+.dn-arc-variant-quest-group-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.dn-arc-variant-quest-group-body {
+    display: flex;
+    min-height: 76px;
+    flex: 1;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+}
+
+.dn-arc-variant-empty {
+    padding: 8px 4px;
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    font-style: italic;
+}
+
+.dn-arc-variant-quest-card {
+    flex-shrink: 0;
+}
+
 .dn-phase-panel {
     width: 100%;
     box-sizing: border-box;
@@ -13405,6 +13524,10 @@ body.dn-resizing .dn-resize-handle::after {
 }
 
 @media (max-width: 700px) {
+    .dn-arc-variant-quest-row {
+        grid-template-columns: 1fr;
+    }
+
     .dn-phase-panel-body {
         grid-template-columns: 1fr;
     }
@@ -14564,16 +14687,18 @@ body.dn-resizing .dn-resize-handle::after {
     min-width: 0;
 }
 
-.dn-card-comment,
-.dn-inspector-linked-card-comment {
+.dn-linked-comment {
     margin: 0 0 5px;
-    color: var(--text-muted);
+    color: var(--italic-color, var(--text-muted));
     font-size: var(--font-ui-smaller);
     font-style: italic;
-    white-space: pre-wrap;
+    overflow: hidden;
     overflow-wrap: anywhere;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
+.dn-linked-comment-btn,
 .dn-card-comment-btn,
 .dn-inspector-linked-action-btn,
 .dn-inspector-linked-add-btn {
@@ -14589,15 +14714,18 @@ body.dn-resizing .dn-resize-handle::after {
     cursor: pointer;
 }
 
+.dn-linked-comment-btn:hover,
 .dn-card-comment-btn:hover,
 .dn-inspector-linked-action-btn:hover,
 .dn-inspector-linked-add-btn:hover,
+.dn-linked-comment-btn.has-comment,
 .dn-card-comment-btn.has-comment,
 .dn-inspector-linked-action-btn.has-comment {
     color: var(--text-accent);
     background: var(--background-modifier-hover);
 }
 
+.dn-linked-comment-btn svg,
 .dn-card-comment-btn svg,
 .dn-inspector-linked-action-btn svg,
 .dn-inspector-linked-add-btn svg {

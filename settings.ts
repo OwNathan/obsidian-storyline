@@ -894,7 +894,6 @@ export interface SceneCardsSettings {
     dnScenarioCategories: string[];
     dnObjectiveCategories: string[];
     dnObjectiveVariants: string[];
-    dnArcCategories: string[];
     dnQuestCategories: string[];
     dnKanbanShowFullHeader: boolean;
 }
@@ -1027,7 +1026,6 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
     dnScenarioCategories: ['Main Plot', 'Core', 'Minor', 'Dynamic'],
     dnObjectiveCategories: ['Structured', 'Dynamic', 'Procedural'],
     dnObjectiveVariants: [],
-    dnArcCategories: ['Primary', 'Secondary'],
     dnQuestCategories: ['Goal', 'Limit', 'Event', 'Modifier'],
     dnKanbanShowFullHeader: true,
 };
@@ -2667,17 +2665,6 @@ export class SceneCardsSettingTab extends PluginSettingTab {
                 .setValue((this.plugin.settings.dnObjectiveVariants || []).join(', '))
                 .onChange(async (value) => {
                     this.plugin.settings.dnObjectiveVariants = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl)
-            .setName('Arc categories')
-            .setDesc('Comma-separated list of categories for Arcs')
-            .addText(text => text
-                .setPlaceholder('Primary, Secondary')
-                .setValue((this.plugin.settings.dnArcCategories || []).join(', '))
-                .onChange(async (value) => {
-                    this.plugin.settings.dnArcCategories = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
                     await this.plugin.saveSettings();
                 }));
 

@@ -130,6 +130,10 @@ export class DNTypeGrid {
         return this.manager.getCategories(this.entityType);
     }
 
+    private getEntityCategory(entity: ObjectiveType | ArcType): string {
+        return this.entityType === 'objective-type' ? (entity as ObjectiveType).category : '';
+    }
+
     private getVariantCount(entity: ObjectiveType | ArcType): number {
         return this.entityType === 'objective-type'
             ? this.manager.getObjectiveVariantsOfType(entity.filePath).length
@@ -154,26 +158,29 @@ export class DNTypeGrid {
             debouncedRender();
         });
 
-        const catSelect = toolbar.createEl('select', { cls: 'dn-filter-select' });
-        const allCatOption = catSelect.createEl('option', { text: 'All categories' });
-        allCatOption.value = '';
-        for (const cat of this.getCategories()) {
-            const opt = catSelect.createEl('option', { text: cat });
-            opt.value = cat;
+        if (this.entityType === 'objective-type') {
+            const catSelect = toolbar.createEl('select', { cls: 'dn-filter-select' });
+            const allCatOption = catSelect.createEl('option', { text: 'All categories' });
+            allCatOption.value = '';
+            for (const cat of this.getCategories()) {
+                const opt = catSelect.createEl('option', { text: cat });
+                opt.value = cat;
+            }
+            catSelect.value = this.filterCategory;
+            catSelect.addEventListener('change', () => {
+                this.filterCategory = catSelect.value;
+                this.render();
+            });
         }
-        catSelect.value = this.filterCategory;
-        catSelect.addEventListener('change', () => {
-            this.filterCategory = catSelect.value;
-            this.render();
-        });
 
         const sortSelect = toolbar.createEl('select', { cls: 'dn-sort-select' });
-        for (const opt of [
+        const sortOptions = [
             { value: 'name', label: 'Name' },
             { value: 'created', label: 'Created' },
             { value: 'modified', label: 'Modified' },
-            { value: 'category', label: 'Category' },
-        ]) {
+            ...(this.entityType === 'objective-type' ? [{ value: 'category', label: 'Category' }] : []),
+        ];
+        for (const opt of sortOptions) {
             const option = sortSelect.createEl('option', { text: opt.label });
             option.value = opt.value;
             if (opt.value === this.sortKey) option.selected = true;
@@ -194,7 +201,7 @@ export class DNTypeGrid {
                         const created = await this.manager.createObjectiveType({ title, category, description });
                         this.selectedPath = created.filePath;
                     } else {
-                        const created = await this.manager.createArcType({ title, category, description });
+                        const created = await this.manager.createArcType({ title, description });
                         this.selectedPath = created.filePath;
                     }
                     this.render();
@@ -218,10 +225,11 @@ export class DNTypeGrid {
             item.createDiv('dn-type-list-name').setText(entity.title);
 
             const metaRow = item.createDiv('dn-type-list-meta');
-            if (entity.category) {
+            const category = this.getEntityCategory(entity);
+            if (category) {
                 const badge = metaRow.createSpan('dn-type-cat-badge');
-                badge.setText(entity.category);
-                badge.addClass(getCategoryColorClass(entity.category, this.getCategories()));
+                badge.setText(category);
+                badge.addClass(getCategoryColorClass(category, this.getCategories()));
             }
             const phaseCount = entity.phases.length;
             metaRow.createSpan('dn-type-phase-count').setText(`${phaseCount} phase${phaseCount !== 1 ? 's' : ''}`);
@@ -277,14 +285,12 @@ export class DNTypeGrid {
             this.render();
         });
 
-        this.renderField(form, 'Category', 'select', entity.category, this.getCategories(), async (val) => {
-            if (this.entityType === 'objective-type') {
+        if (this.entityType === 'objective-type') {
+            this.renderField(form, 'Category', 'select', this.getEntityCategory(entity), this.getCategories(), async (val) => {
                 await this.manager.updateObjectiveType(entity.filePath, { category: val });
-            } else {
-                await this.manager.updateArcType(entity.filePath, { category: val });
-            }
-            this.render();
-        });
+                this.render();
+            });
+        }
 
         this.renderField(form, 'Description', 'textarea', entity.description, [], async (val) => {
             if (this.entityType === 'objective-type') {
@@ -303,7 +309,7 @@ export class DNTypeGrid {
         addPhaseBtn.addEventListener('click', () => {
             const modal = new DNPhaseModal(this.plugin.app, null, async (phase) => {
                 const variantCount = this.getVariantCount(entity);
-                if (variantCount > 0) {
+                if (this.entityType === 'objective-type' && variantCount > 0) {
                     openConfirmModal(this.plugin.app, {
                         title: `Add phase to ${variantCount} variant${variantCount !== 1 ? 's' : ''}`,
                         message: `This type has ${variantCount} variant${variantCount !== 1 ? 's' : ''}. The phase "${phase.name}" will be added to all of them. Continue?`,
@@ -343,7 +349,7 @@ export class DNTypeGrid {
                 deleteBtn.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     const variantCount = this.getVariantCount(entity);
-                    if (variantCount > 0) {
+                    if (this.entityType === 'objective-type' && variantCount > 0) {
                         openConfirmModal(this.plugin.app, {
                             title: `Remove phase from ${variantCount} variant${variantCount !== 1 ? 's' : ''}`,
                             message: `This type has ${variantCount} variant${variantCount !== 1 ? 's' : ''}. The phase "${phase.name}" and its content in each variant will be removed. Continue?`,
@@ -446,8 +452,11 @@ export class DNTypeGrid {
         for (const variant of variants) {
             const item = list.createDiv('dn-usage-item');
             item.createSpan('dn-usage-item-name').setText(variant.title);
-            if (variant.category) {
-                item.createSpan('dn-usage-item-cat').setText(variant.category);
+            const category = this.entityType === 'objective-type' && 'category' in variant
+                ? variant.category
+                : '';
+            if (category) {
+                item.createSpan('dn-usage-item-cat').setText(category);
             }
         }
 
@@ -667,7 +676,7 @@ export class DNTypeGrid {
         }
 
         if (this.filterCategory) {
-            entities = entities.filter(e => e.category === this.filterCategory);
+            entities = entities.filter(e => this.getEntityCategory(e) === this.filterCategory);
         }
 
         entities.sort((a, b) => {
@@ -683,7 +692,7 @@ export class DNTypeGrid {
                     cmp = (a.modified || '').localeCompare(b.modified || '');
                     break;
                 case 'category':
-                    cmp = (a.category || '').localeCompare(b.category || '');
+                    cmp = this.getEntityCategory(a).localeCompare(this.getEntityCategory(b));
                     break;
             }
             return this.sortDir === 'asc' ? cmp : -cmp;

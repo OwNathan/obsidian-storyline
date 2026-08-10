@@ -13,6 +13,7 @@ export class DNEntitySelectModal extends Modal {
     private manager: DynamicNarrativeManager;
     private entityType: 'objective-variant' | 'arc-variant' | 'quest';
     private onSelect: (path: string, copies: number) => Promise<number> | number;
+    private categoryFilter: string;
     private items: SelectableEntity[] = [];
     private listEl: HTMLElement | null = null;
     private searchText = '';
@@ -24,11 +25,13 @@ export class DNEntitySelectModal extends Modal {
         manager: DynamicNarrativeManager,
         entityType: 'objective-variant' | 'arc-variant' | 'quest',
         onSelect: (path: string, copies: number) => Promise<number> | number,
+        categoryFilter = '',
     ) {
         super(app);
         this.manager = manager;
         this.entityType = entityType;
         this.onSelect = onSelect;
+        this.categoryFilter = categoryFilter;
     }
 
     private getLabel(): string {
@@ -48,7 +51,7 @@ export class DNEntitySelectModal extends Modal {
                     results.push({
                         path: v.filePath,
                         title: v.title,
-                        category: v.category,
+                        category: '',
                         typeLabel: type ? `Type: ${type.title}` : '',
                     });
                 }
@@ -60,7 +63,7 @@ export class DNEntitySelectModal extends Modal {
                     results.push({
                         path: v.filePath,
                         title: v.title,
-                        category: v.category,
+                        category: '',
                         typeLabel: type ? `Type: ${type.title}` : '',
                     });
                 }
@@ -68,6 +71,7 @@ export class DNEntitySelectModal extends Modal {
             }
             case 'quest': {
                 for (const q of this.manager.getAllQuests()) {
+                    if (this.categoryFilter && q.category !== this.categoryFilter) continue;
                     results.push({
                         path: q.filePath,
                         title: q.title,

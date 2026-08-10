@@ -17,6 +17,7 @@ export class DNCreateModal extends Modal {
     private categoryValue = '';
     private descriptionValue = '';
     private typeIdValue = '';
+    private defaultCategory: string;
 
     constructor(
         plugin: SceneCardsPlugin,
@@ -24,11 +25,13 @@ export class DNCreateModal extends Modal {
         categories: string[],
         onSubmit: (title: string, category: string, description: string, typeId: string) => Promise<void>,
         typeChoices: TypeChoice[] = [],
+        defaultCategory = '',
     ) {
         super(plugin.app);
         this.childType = childType;
         this.categories = categories;
         this.typeChoices = typeChoices;
+        this.defaultCategory = defaultCategory;
         this.onSubmit = onSubmit;
     }
 
@@ -64,18 +67,24 @@ export class DNCreateModal extends Modal {
             });
         }
 
-        const catField = form.createDiv('dn-create-field');
-        catField.createEl('label', { text: 'Category', cls: 'dn-create-label' });
-        const catSelect = catField.createEl('select', { cls: 'dn-create-select' });
-        const emptyOpt = catSelect.createEl('option', { text: '— Select —' });
-        emptyOpt.value = '';
-        for (const cat of this.categories) {
-            const opt = catSelect.createEl('option', { text: cat });
-            opt.value = cat;
+        if (this.categories.length > 0) {
+            const catField = form.createDiv('dn-create-field');
+            catField.createEl('label', { text: 'Category', cls: 'dn-create-label' });
+            const catSelect = catField.createEl('select', { cls: 'dn-create-select' });
+            const emptyOpt = catSelect.createEl('option', { text: '— Select —' });
+            emptyOpt.value = '';
+            for (const cat of this.categories) {
+                const opt = catSelect.createEl('option', { text: cat });
+                opt.value = cat;
+                if (cat === this.defaultCategory) {
+                    opt.selected = true;
+                    this.categoryValue = cat;
+                }
+            }
+            catSelect.addEventListener('change', () => {
+                this.categoryValue = catSelect.value;
+            });
         }
-        catSelect.addEventListener('change', () => {
-            this.categoryValue = catSelect.value;
-        });
 
         const descField = form.createDiv('dn-create-field');
         descField.createEl('label', { text: 'Description (optional)', cls: 'dn-create-label' });

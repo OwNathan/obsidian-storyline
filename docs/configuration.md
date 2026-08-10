@@ -77,11 +77,10 @@ Settings are stored in Obsidian's `data.json` via `Plugin.loadData()` / `Plugin.
 |---|---|---|---|
 | `dnScenarioCategories` | `string[]` | `['Main Plot', 'Core', 'Minor', 'Dynamic']` | Available categories for Scenarios |
 | `dnObjectiveCategories` | `string[]` | `['Structured', 'Dynamic', 'Procedural']` | Available categories for Objectives |
-| `dnArcCategories` | `string[]` | `['Primary', 'Secondary']` | Available categories for Arcs |
 | `dnQuestCategories` | `string[]` | `['Goal', 'Limit', 'Event', 'Modifier']` | Available categories for Quests |
 | `dnKanbanShowFullHeader` | `boolean` | `true` | Show name + description + category in the Dynamic Narrative phase-board header (name only when disabled) |
 
-Categories can be managed via the settings tab or per-project through the `DNCategoryModal` in the Dynamic Narrative view.
+Categories can be managed via the settings tab or per-project through the `DNCategoryModal` in the Dynamic Narrative view. Arc Types and Arc Variants do not have categories; their type is shown when an Arc Variant is linked from an Objective Variant.
 
 ## Per-Project System Data
 
