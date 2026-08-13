@@ -441,7 +441,6 @@ export class ManuscriptView extends ItemView {
             { root: this.scrollArea, rootMargin: '400px 0px' }
         );
 
-        let totalWords = 0;
         let lastAct: string | number | undefined;
         let lastChapter: string | number | undefined;
         // Issue #105 — track the previous scene block so we can mark it
@@ -515,15 +514,10 @@ export class ManuscriptView extends ItemView {
             editorWrap.createDiv({ cls: 'sl-manuscript-loading', text: 'Loading…' });
             this.lazyObserver.observe(editorWrap);
             editorContainers.push({ el: editorWrap, path: scene.filePath });
-
-            if (!(this.plugin.settings.excludeArcAnchorFromWordcount && scene.arcAnchor)) {
-                totalWords += scene.wordcount ?? 0;
-            }
         }
 
         // Footer
-        const wordLabel = totalWords === 1 ? 'word' : 'words';
-        this.footerEl.setText(`${scenes.length} scenes · ${totalWords.toLocaleString()} ${wordLabel}`);
+        this.footerEl.setText(`${scenes.length} scenes`);
 
         // Eagerly mount the first few editors immediately (don't wait for IntersectionObserver)
         this._isMounting = true;
@@ -747,7 +741,7 @@ export class ManuscriptView extends ItemView {
         filePath: string,
     ): Promise<void> {
         const scene = this.sceneManager.getScene(filePath);
-        const text = (scene?.body ?? '').trim();
+        const text = '';
         if (text) {
             const previewEl = container.createDiv('sl-manuscript-preview');
             await MarkdownRenderer.render(this.app, text, previewEl, filePath, this);
@@ -1014,7 +1008,7 @@ export class ManuscriptView extends ItemView {
             if (cm) return cm.state.doc.toString();
         }
         const scene = this.sceneManager.getScene(path);
-        return scene?.body ?? null;
+        return null;
     }
 
     /**
@@ -1178,12 +1172,8 @@ export class ManuscriptView extends ItemView {
                 selection: EditorSelection.single(match.from, match.from + replacement.length),
             });
         } else {
-            // Scene not mounted — rewrite the body via SceneManager.
-            const scene = this.sceneManager.getScene(match.path);
-            if (!scene) return;
-            const body = scene.body ?? '';
-            const newBody = body.slice(0, match.from) + replacement + body.slice(match.to);
-            await this.sceneManager.updateScene(match.path, { body: newBody });
+            // Scene not mounted — body text was removed; nothing to replace.
+            return;
         }
 
         // Wait for the file modify event to propagate, then re-run search.
@@ -1222,16 +1212,8 @@ export class ManuscriptView extends ItemView {
                 cm.dispatch({ changes });
                 totalReplaced += matches.length;
             } else {
-                // Unmounted scene — rewrite body via SceneManager.
-                const scene = this.sceneManager.getScene(path);
-                if (!scene) continue;
-                let body = scene.body ?? '';
-                const sorted = [...matches].sort((a, b) => b.from - a.from);
-                for (const m of sorted) {
-                    body = body.slice(0, m.from) + replacement + body.slice(m.to);
-                }
-                await this.sceneManager.updateScene(path, { body });
-                totalReplaced += matches.length;
+                // Unmounted scene — body text was removed; skip.
+                continue;
             }
         }
 
@@ -1253,9 +1235,7 @@ export class ManuscriptView extends ItemView {
                 .filter(s => !s.corkboardNote);
         let totalWords = 0;
         for (const s of scenes) {
-            if (!(this.plugin.settings.excludeArcAnchorFromWordcount && s.arcAnchor)) {
-                totalWords += s.wordcount ?? 0;
-            }
+            void s;
         }
         const wordLabel = totalWords === 1 ? 'word' : 'words';
         this.footerEl.setText(`${scenes.length} scenes · ${totalWords.toLocaleString()} ${wordLabel}`);

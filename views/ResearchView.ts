@@ -437,9 +437,8 @@ export class ResearchView extends ItemView {
 
         // Characters
         if (scene.characters) keywords.push(...scene.characters);
-        if (scene.pov) keywords.push(scene.pov);
-        // Location
-        if (scene.location) keywords.push(scene.location);
+        // Locations
+        if (scene.locations) keywords.push(...scene.locations);
         // Tags
         if (scene.tags) keywords.push(...scene.tags);
         // Title words — locale-aware tokenisation. For scriptio-continua

@@ -47,10 +47,9 @@ export class CascadeRenameService {
         let sceneCount = 0;
         let relationCount = 0;
 
-        // Scenes: check pov and characters[]
+        // Scenes: check characters[]
         for (const scene of this.sceneManager.getAllScenes()) {
             let hit = false;
-            if (scene.pov && scene.pov.toLowerCase() === lowerOld) hit = true;
             if (scene.characters?.some(c => c.toLowerCase() === lowerOld)) hit = true;
             if (hit) sceneCount++;
         }
@@ -79,11 +78,6 @@ export class CascadeRenameService {
         for (const scene of this.sceneManager.getAllScenes()) {
             const updates: Partial<Scene> = {};
             let dirty = false;
-
-            if (scene.pov && scene.pov.toLowerCase() === lowerOld) {
-                updates.pov = newName;
-                dirty = true;
-            }
 
             if (scene.characters) {
                 const newChars = scene.characters.map(c =>
@@ -174,9 +168,9 @@ export class CascadeRenameService {
         let locationCount = 0;
         let characterLocationCount = 0;
 
-        // Scenes: check location field
+        // Scenes: check locations[] array
         for (const scene of this.sceneManager.getAllScenes()) {
-            if (scene.location && scene.location.toLowerCase() === lowerOld) {
+            if (scene.locations?.some(l => l.toLowerCase() === lowerOld)) {
                 sceneCount++;
             }
         }
@@ -208,8 +202,11 @@ export class CascadeRenameService {
 
         // ── Update scenes ──
         for (const scene of this.sceneManager.getAllScenes()) {
-            if (scene.location && scene.location.toLowerCase() === lowerOld) {
-                await this.sceneManager.updateScene(scene.filePath, { location: newName });
+            if (scene.locations?.some(l => l.toLowerCase() === lowerOld)) {
+                const newLocs = scene.locations.map(l =>
+                    l.toLowerCase() === lowerOld ? newName : l
+                );
+                await this.sceneManager.updateScene(scene.filePath, { locations: newLocs });
                 totalUpdated++;
             }
         }
@@ -242,33 +239,11 @@ export class CascadeRenameService {
     // ────────────────────────────────────
 
     /**
-     * Update setup_scenes / payoff_scenes references in all scenes
-     * when a scene title changes.
+     * Update references to this scene in other scenes when the title changes.
+     * (Scene-to-scene reference fields were removed; kept as a no-op for API stability.)
      */
     async cascadeSceneTitleRename(oldTitle: string, newTitle: string): Promise<number> {
-        let totalUpdated = 0;
-
-        for (const scene of this.sceneManager.getAllScenes()) {
-            const updates: Partial<Scene> = {};
-            let dirty = false;
-
-            if (scene.setup_scenes?.includes(oldTitle)) {
-                updates.setup_scenes = scene.setup_scenes.map(s => s === oldTitle ? newTitle : s);
-                dirty = true;
-            }
-
-            if (scene.payoff_scenes?.includes(oldTitle)) {
-                updates.payoff_scenes = scene.payoff_scenes.map(s => s === oldTitle ? newTitle : s);
-                dirty = true;
-            }
-
-            if (dirty) {
-                await this.sceneManager.updateScene(scene.filePath, updates as Partial<Scene>);
-                totalUpdated++;
-            }
-        }
-
-        return totalUpdated;
+        return 0;
     }
 
     // ────────────────────────────────────

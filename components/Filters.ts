@@ -73,7 +73,6 @@ export class FiltersComponent {
             { value: 'status', label: 'Status' },
             { value: 'act', label: 'Act' },
             { value: 'chapter', label: 'Chapter' },
-            { value: 'wordcount', label: 'Word Count' },
             { value: 'modified', label: 'Modified' },
         ];
         sortOptions.forEach(opt => {
@@ -323,7 +322,8 @@ export class FiltersComponent {
 
             for (const tpl of sceneTpls) {
                 // Collect all values actually used for this field across scenes,
-                // unioned with template-defined options.
+                // unioned with template-defined options and (for folder-sourced
+                // fields) the markdown files in the source folder.
                 const used = new Set<string>();
                 for (const scene of this.sceneManager.getAllScenes()) {
                     const raw = scene.universalFields?.[tpl.id];
@@ -331,6 +331,16 @@ export class FiltersComponent {
                     else if (typeof raw === 'string' && raw.trim()) used.add(raw);
                 }
                 for (const opt of tpl.options) used.add(opt);
+                if (tpl.folderSource) {
+                    const folder = this.plugin.app.vault.getAbstractFileByPath(tpl.folderSource);
+                    if (folder && 'children' in folder) {
+                        for (const child of (folder as unknown as obsidian.TFolder).children) {
+                            if (child instanceof obsidian.TFile && child.extension === 'md') {
+                                used.add(child.basename);
+                            }
+                        }
+                    }
+                }
 
                 if (used.size === 0) continue;
 

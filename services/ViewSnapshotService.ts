@@ -26,7 +26,6 @@ interface SceneLayoutState {
     act?: number | string;
     chapter?: number | string;
     status?: string;
-    pov?: string;
 }
 
 /** Tracks which snapshot is currently active. Stored in System/Snapshots/active.json */
@@ -122,7 +121,6 @@ export class ViewSnapshotService {
                 act: scene.act,
                 chapter: scene.chapter,
                 status: scene.status,
-                pov: scene.pov,
             };
         }
         return layout;
@@ -255,7 +253,6 @@ export class ViewSnapshotService {
                     if (state.act !== undefined && scene.act !== state.act) updates.act = state.act;
                     if (state.chapter !== undefined && scene.chapter !== state.chapter) updates.chapter = state.chapter;
                     if (state.status !== undefined && scene.status !== state.status) updates.status = state.status;
-                    if (state.pov !== undefined && scene.pov !== state.pov) updates.pov = state.pov;
                     if (Object.keys(updates).length > 0) {
                         await this.plugin.sceneManager.updateScene(filePath, updates);
                     }

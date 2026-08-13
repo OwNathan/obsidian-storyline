@@ -1,7 +1,6 @@
  
 import { Modal, Setting, Notice } from 'obsidian';
 import type SceneCardsPlugin from '../main';
-import { tokenizeWords, DEFAULT_STORYLINE_LOCALE } from '../utils/locale';
 import { BUILTIN_STATUS_CONFIG, Scene, SceneStatus, getStatusOrder } from '../models/Scene';
 
 // ────────────────────────────────────────────────────────
@@ -9,19 +8,16 @@ import { BUILTIN_STATUS_CONFIG, Scene, SceneStatus, getStatusOrder } from '../mo
 // ────────────────────────────────────────────────────────
 
 /**
- * Modal that lets the user place a split point in a scene's body text
- * and provide titles for the two resulting scenes.
+ * Modal that lets the user provide titles for the two resulting scenes
+ * when splitting a scene (metadata is copied, no body text is involved).
  */
 export class SplitSceneModal extends Modal {
     private plugin: SceneCardsPlugin;
     private scene: Scene;
     private onDone: () => void;
 
-    private splitOffset = 0;
     private titleA: string;
     private titleB: string;
-    private textAreaEl: HTMLTextAreaElement | null = null;
-    private previewEl: HTMLElement | null = null;
 
     constructor(plugin: SceneCardsPlugin, scene: Scene, onDone: () => void) {
         super(plugin.app);
@@ -37,18 +33,9 @@ export class SplitSceneModal extends Modal {
         this.titleEl.setText('Split scene');
         contentEl.addClass('storyline-split-modal');
 
-        const body = this.scene.body || '';
-        if (!body.trim()) {
-            contentEl.createEl('p', { text: 'This scene has no body text to split.' });
-            new Setting(contentEl).addButton(btn =>
-                btn.setButtonText('Close').onClick(() => this.close())
-            );
-            return;
-        }
-
         // Info
         contentEl.createEl('p', {
-            text: 'Click in the text below to place the split point. Everything above the marker becomes scene a, everything below becomes scene b.',
+            text: 'The new scene inherits all metadata from the original and gets the next sequence number.',
             cls: 'setting-item-description',
         });
 
@@ -66,54 +53,13 @@ export class SplitSceneModal extends Modal {
                 text.onChange(v => (this.titleB = v));
             });
 
-        // Text area for split placement
-        const label = contentEl.createDiv({
-            cls: 'setting-item-name',
-            text: 'Click to place split point:',
-        });
-        label.setCssStyles({ marginBottom: '6px' });
-
-        this.textAreaEl = contentEl.createEl('textarea', {
-            cls: 'storyline-split-textarea',
-        });
-        this.textAreaEl.value = body;
-        this.textAreaEl.readOnly = true;
-        this.textAreaEl.setCssStyles({
-            width: '100%',
-            height: '250px',
-            fontFamily: 'var(--font-monospace)',
-            fontSize: '13px',
-            resize: 'vertical',
-        });
-
-        // Default split at midpoint (nearest paragraph break)
-        const mid = Math.floor(body.length / 2);
-        const parBreak = body.indexOf('\n\n', mid);
-        this.splitOffset = parBreak >= 0 ? parBreak : mid;
-
-        this.textAreaEl.addEventListener('click', () => {
-            if (this.textAreaEl) {
-                this.splitOffset = this.textAreaEl.selectionStart;
-                this.updatePreview(body);
-            }
-        });
-
-        // Preview
-        this.previewEl = contentEl.createDiv('storyline-split-preview');
-        this.updatePreview(body);
-
         // Buttons
         new Setting(contentEl)
             .addButton(btn => {
                 btn.setButtonText('Split').setCta().onClick(async () => {
-                    if (this.splitOffset <= 0 || this.splitOffset >= body.length) {
-                        new Notice('Split point must be within the text');
-                        return;
-                    }
                     try {
                         await this.plugin.sceneManager.splitScene(
                             this.scene.filePath,
-                            this.splitOffset,
                             this.titleA.trim() || undefined,
                             this.titleB.trim() || undefined,
                         );
@@ -127,28 +73,6 @@ export class SplitSceneModal extends Modal {
             .addButton(btn => {
                 btn.setButtonText('Cancel').onClick(() => this.close());
             });
-    }
-
-    private updatePreview(body: string): void {
-        if (!this.previewEl) return;
-        this.previewEl.empty();
-
-        const partA = body.substring(0, this.splitOffset).trim();
-        const partB = body.substring(this.splitOffset).trim();
-        const splitLocale = this.plugin.sceneManager?.getEffectiveLocale(body) ?? DEFAULT_STORYLINE_LOCALE;
-        const wordCountA = partA ? tokenizeWords(partA, splitLocale).length : 0;
-        const wordCountB = partB ? tokenizeWords(partB, splitLocale).length : 0;
-
-        this.previewEl.createDiv({
-            text: `Scene A: ~${wordCountA} words  |  Scene B: ~${wordCountB} words`,
-            cls: 'setting-item-description',
-        });
-
-        // Highlight the cursor position in the textarea
-        if (this.textAreaEl) {
-            this.textAreaEl.setSelectionRange(this.splitOffset, this.splitOffset);
-            this.textAreaEl.focus();
-        }
     }
 
     onClose(): void {
@@ -201,7 +125,7 @@ export class MergeSceneModal extends Modal {
         for (const s of this.scenes) {
             const li = list.createEl('li');
             li.createEl('strong', { text: s.title || 'Untitled' });
-            li.createSpan({ text: ` — ${s.wordcount ?? 0} words, status: ${BUILTIN_STATUS_CONFIG[s.status as SceneStatus]?.label || s.status}` });
+            li.createSpan({ text: ` — status: ${BUILTIN_STATUS_CONFIG[s.status as SceneStatus]?.label || s.status}` });
         }
 
         // Title
@@ -222,13 +146,6 @@ export class MergeSceneModal extends Modal {
                 ul.createEl('li', { text: c });
             }
         }
-
-        // Combined word count
-        const totalWords = this.scenes.reduce((sum, s) => sum + (s.wordcount ?? 0), 0);
-        contentEl.createEl('p', {
-            text: `Combined word count: ~${totalWords.toLocaleString()}`,
-            cls: 'setting-item-description',
-        });
 
         // Buttons
         new Setting(contentEl)
@@ -258,16 +175,16 @@ export class MergeSceneModal extends Modal {
         const scenes = this.scenes;
         const primary = scenes[0];
 
-        // POV
-        const povs = [...new Set(scenes.map(s => s.pov).filter(Boolean))];
-        if (povs.length > 1) {
-            conflicts.push(`POV differs (${povs.join(', ')}) → keeping "${primary.pov}"`);
+        // Locations
+        const locs = [...new Set(scenes.flatMap(s => s.locations || []))];
+        if (locs.length > 1) {
+            conflicts.push(`Locations differ (${locs.join(', ')}) → combining all of them`);
         }
 
-        // Location
-        const locs = [...new Set(scenes.map(s => s.location).filter(Boolean))];
-        if (locs.length > 1) {
-            conflicts.push(`Locations differ (${locs.join(', ')}) → combining as "${locs.join(', ')}"`);
+        // Characters
+        const chars = [...new Set(scenes.flatMap(s => s.characters || []))];
+        if (chars.length > 1) {
+            conflicts.push(`Characters differ (${chars.join(', ')}) → combining all of them`);
         }
 
         // Status
@@ -285,7 +202,7 @@ export class MergeSceneModal extends Modal {
         // Act
         const acts = [...new Set(scenes.map(s => s.act).filter(a => a !== undefined))];
         if (acts.length > 1) {
-            conflicts.push(`Acts differ (${acts.join(', ')}) → keeping Act ${primary.act}`);
+            conflicts.push(`Acts differ (${acts.join(', ')}) → keeping ${primary.act}`);
         }
 
         // Chapter
@@ -301,4 +218,3 @@ export class MergeSceneModal extends Modal {
         this.contentEl.empty();
     }
 }
- 

@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, Modal, Setting, MarkdownRenderer } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Menu, Notice, TFile, Modal, Setting, MarkdownRenderer, stringifyYaml } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { Scene, SceneFilter, SortConfig, BoardGroupBy, SceneStatus, SceneTemplate, BUILTIN_BEAT_SHEETS, getStatusOrder, getStatusConfig, resolveStatusCfg } from '../models/Scene';
 import { openConfirmModal } from '../components/ConfirmModal';
 import { SceneManager } from '../services/SceneManager';
+import { MetadataParser } from '../services/MetadataParser';
 import { SceneCardComponent } from '../components/SceneCard';
 import { FiltersComponent } from '../components/Filters';
 import { InspectorComponent } from '../components/Inspector';
@@ -793,14 +794,13 @@ export class BoardView extends ItemView {
                 rows: '6',
             },
         });
-        textarea.value = scene.body || '';
 
         // Track the last known committed body so we can detect a suspicious
         // empty write caused by the textarea being cleared/detached mid-edit
         // (the root cause of disappearing corkboard notes — issue: notes lost
         // text while images survived). We never overwrite a non-empty body
         // with an empty value from a detached/stale textarea.
-        let lastCommittedBody = scene.body || '';
+        let lastCommittedBody = '';
         let editorAttached = true;
 
         const preview = editorWrap.createDiv('story-line-corkboard-note-preview markdown-rendered');
@@ -931,8 +931,7 @@ export class BoardView extends ItemView {
                 return;
             }
             if (lastCommittedBody === next) return;
-            await this.sceneManager.updateScene(scene.filePath, { body: next });
-            scene.body = next;
+            await this.writeNoteText(scene.filePath, next);
             lastCommittedBody = next;
         };
 
@@ -979,6 +978,8 @@ export class BoardView extends ItemView {
         });
 
         void (async () => {
+            lastCommittedBody = await this.readNoteText(scene.filePath);
+            textarea.value = lastCommittedBody;
             await renderPreview();
             setEditing(false);
         })();
@@ -1072,12 +1073,15 @@ export class BoardView extends ItemView {
      * Duplicate a corkboard sticky note, preserving its body and color.
      */
     private async duplicateCorkboardNote(scene: Scene): Promise<void> {
+        const noteText = await this.readNoteText(scene.filePath);
         const file = await this.sceneManager.createScene({
             status: 'idea',
             corkboardNote: true,
-            body: scene.body || '',
             corkboardNoteColor: scene.corkboardNoteColor,
         });
+        if (noteText) {
+            await this.writeNoteText(file.path, noteText);
+        }
 
         // Position the duplicate offset from the original
         const origPos = this.corkboardPositions.get(scene.filePath);
@@ -1089,6 +1093,29 @@ export class BoardView extends ItemView {
 
         this.refreshBoard();
         new Notice('Note duplicated');
+    }
+
+    /**
+     * Read the raw body text (below frontmatter) of a corkboard note file.
+     */
+    private async readNoteText(filePath: string): Promise<string> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (!(file instanceof TFile)) return '';
+        const content = await this.app.vault.read(file);
+        return MetadataParser.extractBody(content);
+    }
+
+    /**
+     * Write the raw body text (below frontmatter) of a corkboard note file,
+     * preserving its frontmatter.
+     */
+    private async writeNoteText(filePath: string, body: string): Promise<void> {
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (!(file instanceof TFile)) return;
+        const content = await this.app.vault.read(file);
+        const frontmatter = MetadataParser.extractFrontmatter(content) || {};
+        const newContent = `---\n${stringifyYaml(frontmatter)}---\n\n${body}`;
+        await this.app.vault.modify(file, newContent);
     }
 
     private isCorkboardNoteScene(scene: Scene): boolean {
@@ -2079,7 +2106,7 @@ export class BoardView extends ItemView {
                 break;
             }
             case 'pov':
-                updates.pov = columnTitle !== 'No POV' ? columnTitle : undefined;
+                // POV field removed — nothing to update.
                 break;
         }
 
@@ -2162,7 +2189,7 @@ export class BoardView extends ItemView {
                 break;
             }
             case 'pov': {
-                updates.pov = columnTitle !== 'No POV' ? columnTitle : undefined;
+                // POV field removed — nothing to update.
                 break;
             }
         }
@@ -2598,7 +2625,7 @@ export class BoardView extends ItemView {
                     const rawActLabel = this.sceneManager.getActLabel(act);
                     const cleanActLabel = rawActLabel?.replace(/^(Act|Prologue|Epilogue)\s*\d*\s*[—:]\s*/i, '');
                     const actDisplay = getActDisplayLabel(act);
-                    const display = cleanActLabel ? `${actDisplay} — ${cleanActLabel}` : actDisplay;
+                    const display = cleanActLabel || actDisplay;
                     item.setTitle(display)
                         .setChecked(scene.act === act)
                         .onClick(async () => {
@@ -2639,27 +2666,12 @@ export class BoardView extends ItemView {
                         description: `Saved from scene "${scene.title || 'Untitled'}"`,
                         defaultFields: {
                             status: scene.status,
-                            emotion: scene.emotion,
                             tags: scene.tags?.length ? [...scene.tags] : undefined,
-                            conflict: scene.conflict,
-                            target_wordcount: scene.target_wordcount,
                         },
-                        bodyTemplate: scene.body || '',
                     };
                     this.plugin.settings.sceneTemplates.push(tpl);
                     this.plugin.saveSettings();
                     new Notice(`Scene template "${tpl.name}" saved`);
-                });
-        });
-
-        menu.addSeparator();
-
-        menu.addItem(item => {
-            item.setTitle(scene.inactive ? 'Mark Active' : 'Mark Inactive')
-                .setIcon(scene.inactive ? 'eye' : 'eye-off')
-                .onClick(async () => {
-                    await this.sceneManager.updateScene(scene.filePath, { inactive: !scene.inactive });
-                    this.refreshBoard();
                 });
         });
 
@@ -2744,7 +2756,7 @@ export class BoardView extends ItemView {
             const actNum = parseInt(actMatch[1], 10);
             const label = this.sceneManager.getActLabel(actNum);
             const actDisplay = getActDisplayLabel(actNum);
-            return label ? `${actDisplay}: ${label}` : actDisplay;
+            return label ? label : actDisplay;
         }
         const chMatch = groupKey.match(/^Chapter\s+(\d+)$/);
         if (chMatch) {
@@ -2813,7 +2825,7 @@ export class BoardView extends ItemView {
                         const actDisplay = getActDisplayLabel(actNum);
                         if (scenes.length > 0) {
                             openConfirmModal(this.app, {
-                                title: 'Delete Act',
+                                title: 'Delete act',
                                 message: `${actDisplay} contains ${scenes.length} scene(s). Deleting the act removes the column but keeps the scenes (they'll become unassigned). Continue?`,
                                 onConfirm: async () => {
                                     // Unassign scenes from this act
@@ -2830,7 +2842,7 @@ export class BoardView extends ItemView {
                             this.sceneManager.removeAct(actNum).then(() => {
                                 this.sceneManager.setActLabel(actNum, '').then(() => {
                                     this.refreshBoard();
-                                    new Notice(`Deleted Act ${actNum}`);
+                                    new Notice(`Deleted ${actDisplay}`);
                                 });
                             });
                         }
@@ -3035,7 +3047,7 @@ export class BoardView extends ItemView {
         const actDisplay = getActDisplayLabel(value);
         const label = field === 'chapter'
             ? `Chapter ${value}` + (cleanChLbl ? ` — ${cleanChLbl}` : '')
-            : actDisplay + (cleanActLbl ? ` — ${cleanActLbl}` : '');
+            : (cleanActLbl || actDisplay);
         modal.titleEl.setText(`Add scenes to ${label}`);
 
         const { contentEl } = modal;
@@ -3253,7 +3265,7 @@ export class BoardView extends ItemView {
                 const row = actsList.createDiv('structure-row');
                 const cleanLabel = label?.replace(/^(Act|Prologue|Epilogue)\s*\d*\s*[—:]\s*/i, '');
                 const actDisplay = getActDisplayLabel(act);
-                const labelText = cleanLabel ? `${actDisplay} — ${cleanLabel}` : actDisplay;
+                const labelText = cleanLabel ? cleanLabel : actDisplay;
                 row.createSpan({ cls: 'structure-label', text: labelText });
                 row.createSpan({ cls: 'structure-count', text: `${count} scene${count !== 1 ? 's' : ''}` });
                 const removeBtn = row.createEl('button', {
@@ -3545,7 +3557,7 @@ export class BoardView extends ItemView {
                 const statusVal = statusMap[presetColumn] || presetColumn.toLowerCase();
                 defaults.status = statusVal as SceneStatus;
             } else if (this.groupBy === 'pov') {
-                if (presetColumn !== 'No POV') defaults.pov = presetColumn;
+                // POV field removed — no default to apply.
             }
         }
 

@@ -365,6 +365,8 @@ export interface TagPillInputOptions {
     highlightValue?: string;
     /** Optional: label for highlighted chip */
     highlightLabel?: string;
+    /** Optional: mapping from value to display label (e.g., "Hallway" → "Bank > Hallway") */
+    getDisplayLabel?: (value: string) => string;
 }
 
 export function renderTagPillInput(opts: TagPillInputOptions): { refresh: (values: string[], highlightValue?: string) => void } {
@@ -387,8 +389,9 @@ export function renderTagPillInput(opts: TagPillInputOptions): { refresh: (value
 
         for (let i = 0; i < currentValues.length; i++) {
             const val = currentValues[i];
+            const display = opts.getDisplayLabel ? opts.getDisplayLabel(val) : val;
             const pill = container.createSpan({ cls: 'sl-tag-pill' });
-            pill.createSpan({ cls: 'sl-tag-pill-text', text: val });
+            pill.createSpan({ cls: 'sl-tag-pill-text', text: display });
 
             if (currentHighlight && val === currentHighlight && opts.highlightLabel) {
                 pill.createSpan({ cls: 'sl-tag-pill-badge', text: ` ${opts.highlightLabel}` });

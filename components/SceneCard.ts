@@ -5,7 +5,7 @@ import type SceneCardsPlugin from '../main';
 import { resolveTagColor, getPlotlineHSL, resolveStickyNoteColors, resolveStickyNoteFontColor } from '../settings';
 import type { SceneManager } from '../services/SceneManager';
 import { formatActChapterPrefix } from '../utils/actChapter';
-import { ColorCodingMode, Scene, SceneStatus, TIMELINE_MODE_ICONS, TIMELINE_MODE_LABELS, formatSceneLength, getStatusOrder, resolveStatusCfg, resolveSceneCategoryCfg } from '../models/Scene';
+import { ColorCodingMode, Scene, SceneStatus, getStatusOrder, resolveStatusCfg, resolveSceneCategoryCfg } from '../models/Scene';
 
 /**
  * Renders a single scene card element
@@ -37,10 +37,6 @@ export class SceneCardComponent {
                 draggable: options?.draggable !== false ? 'true' : 'false',
             }
         });
-        if (scene.inactive) {
-            card.addClass('scene-card-inactive');
-            card.setAttribute('aria-label', `${scene.title || 'Untitled'} inactive scene`);
-        }
 
         // Corkboard notes get sticky-note styling instead of the scene look
         if (scene.corkboardNote) {
@@ -83,9 +79,6 @@ export class SceneCardComponent {
             cls: 'scene-card-title',
             text: displayTitle
         });
-        if (scene.inactive) {
-            titleEl.createSpan({ cls: 'scene-card-inactive-badge', text: 'Inactive' });
-        }
 
         // Subtitle (optional, shown below title)
         if (scene.subtitle) {
@@ -95,33 +88,21 @@ export class SceneCardComponent {
             });
         }
 
-        // Optional preview text (synopsis or first lines of draft) — issue #112
+        // Optional preview text — issue #112
         if (!options?.compact && !scene.corkboardNote) {
             const previewMode = this.plugin.settings.cardPreviewSource || 'none';
             let previewText = '';
             if (previewMode === 'synopsis') {
-                previewText = (scene.synopsis || '').trim();
+                previewText = '';
             } else if (previewMode === 'body') {
-                previewText = this.extractBodyPreview(scene.body || '');
+                previewText = '';
             } else if (previewMode === 'conflict') {
-                previewText = (scene.conflict || '').trim();
+                previewText = '';
             }
             if (previewText) {
                 const max = 220;
                 const clipped = previewText.length > max ? previewText.slice(0, max).trimEnd() + '…' : previewText;
                 card.createDiv({ cls: 'scene-card-preview', text: clipped });
-            }
-        }
-
-        // Timeline mode badge (for non-linear scenes)
-        const cardTlMode = scene.timeline_mode || 'linear';
-        if (!options?.compact && cardTlMode !== 'linear') {
-            const modeBadge = card.createDiv({ cls: `scene-card-timeline-mode timeline-mode-${cardTlMode}` });
-            const modeIcon = modeBadge.createSpan();
-            obsidian.setIcon(modeIcon, TIMELINE_MODE_ICONS[cardTlMode] || 'clock');
-            modeBadge.createSpan({ text: ` ${TIMELINE_MODE_LABELS[cardTlMode]}` });
-            if (scene.timeline_strand) {
-                modeBadge.createSpan({ cls: 'scene-card-strand', text: ` · ${scene.timeline_strand}` });
             }
         }
 
@@ -135,39 +116,16 @@ export class SceneCardComponent {
 
         if (!options?.compact) {
             const footer = card.createDiv('scene-card-footer');
-            if (this.plugin.settings.showWordCounts) {
-                const unit = this.plugin.settings.countUnit === 'chars' ? 'chars' : 'words';
-                footer.createSpan({
-                    cls: 'scene-card-wordcount',
-                    text: formatSceneLength(scene, unit),
-                });
-            }
             const progress = footer.createSpan('scene-card-progress');
             this.renderProgressDots(progress, scene.status || 'idea');
 
-            // Character pill row. POV character is rendered first as a plain
-            // pill but with the text "POV: <name>" so the reader can identify
-            // whose head we're in without needing a separate metadata line.
-            const povName = scene.pov ? scene.pov.trim() : '';
+            // Character pill row
             const allChars = scene.characters || [];
-            const otherChars = allChars.filter(
-                c => c && c.toLowerCase() !== povName.toLowerCase()
-            );
-            const havePovInList = !!povName && allChars.some(
-                c => c && c.toLowerCase() === povName.toLowerCase()
-            );
-            if (havePovInList || otherChars.length || (povName && !havePovInList)) {
+            if (allChars.length > 0) {
                 const charList = card.createDiv('scene-card-characters');
                 let renderedCount = 0;
                 const maxPills = 3;
-                if (povName) {
-                    charList.createSpan({
-                        cls: 'scene-card-char-tag',
-                        text: `POV: ${povName}`,
-                    });
-                    renderedCount += 1;
-                }
-                for (const c of otherChars) {
+                for (const c of allChars) {
                     if (renderedCount >= maxPills) break;
                     charList.createSpan({
                         cls: 'scene-card-char-tag',
@@ -175,11 +133,10 @@ export class SceneCardComponent {
                     });
                     renderedCount += 1;
                 }
-                const totalChars = (povName ? 1 : 0) + otherChars.length;
-                if (totalChars > renderedCount) {
+                if (allChars.length > renderedCount) {
                     charList.createSpan({
                         cls: 'scene-card-char-more',
-                        text: `+${totalChars - renderedCount}`,
+                        text: `+${allChars.length - renderedCount}`,
                     });
                 }
             }
@@ -189,11 +146,11 @@ export class SceneCardComponent {
             if (scanResult && scanResult.links.length > 0) {
                 // Count only links NOT already in frontmatter
                 const fmChars = new Set((scene.characters || []).map(c => c.toLowerCase()));
-                const fmLoc = scene.location?.toLowerCase();
+                const fmLocs = new Set((scene.locations || []).map(l => l.toLowerCase()));
                 const novelCount = scanResult.links.filter(l => {
                     const key = l.name.toLowerCase();
                     if (l.type === 'character' && fmChars.has(key)) return false;
-                    if (l.type === 'location' && key === fmLoc) return false;
+                    if (l.type === 'location' && fmLocs.has(key)) return false;
                     return true;
                 }).length;
                 if (novelCount > 0) {
@@ -334,32 +291,10 @@ export class SceneCardComponent {
 
     private getDisplayTitle(scene: Scene): string {
         if (scene.corkboardNote) {
-            const firstLine = (scene.body || '')
-                .split(/\r?\n/)
-                .map(line => line.trim())
-                .find(line => line.length > 0);
-
-            if (firstLine) {
-                const cleaned = firstLine
-                    .replace(/^#{1,6}\s+/, '')
-                    .replace(/^[-*+]\s+/, '')
-                    .replace(/^>\s*/, '')
-                    .replace(/\*\*(.*?)\*\*/g, '$1')
-                    .replace(/\*(.*?)\*/g, '$1')
-                    .replace(/`([^`]+)`/g, '$1')
-                    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-                    .trim();
-
-                if (cleaned.length > 0) {
-                    return cleaned.length > 60 ? `${cleaned.slice(0, 60)}…` : cleaned;
-                }
-            }
-
-            return 'Note';
+            return scene.title || 'Untitled';
         }
-
-        const title = (scene.title || '').trim();
-        return title || 'Untitled';
+        // Regular scene: show title as-is
+        return scene.title || 'Untitled';
     }
 
     /**
@@ -371,10 +306,6 @@ export class SceneCardComponent {
                 return resolveStatusCfg(scene.status || 'idea').color;
             case 'category':
                 return resolveSceneCategoryCfg(scene.category || this.plugin.settings.defaultSceneCategory || 'generic').color;
-            case 'pov':
-                return this.stringToColor(scene.pov || 'none');
-            case 'emotion':
-                return this.emotionToColor(scene.emotion);
             case 'act':
                 return this.actToColor(scene.act);
             case 'tag':

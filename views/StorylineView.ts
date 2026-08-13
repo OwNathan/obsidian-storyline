@@ -680,8 +680,8 @@ export class StorylineView extends ItemView {
                 titleEl.textContent = this.buildSubwayTooltip(scene, isArcPoint, actStr, seqStr);
                 nodeEl.appendChild(titleEl);
 
-                // Story time above node (small)
-                const timeStr = scene.storyTime || scene.storyDate || '';
+                // Story time above node (small) — removed with story-date fields
+                const timeStr = '';
                 if (timeStr) {
                     const timeLabel = activeDocument.createElementNS(svgNS, 'text');
                     timeLabel.setAttribute('x', String(x));
@@ -751,11 +751,8 @@ export class StorylineView extends ItemView {
     private buildSubwayTooltip(scene: Scene, isArcPoint: boolean, actStr: string, seqStr: string): string {
         const lines: string[] = [`[${actStr}-${seqStr}] ${scene.title || 'Untitled'}`];
         if (scene.subtitle?.trim()) lines.push(scene.subtitle.trim());
-        if (scene.synopsis?.trim()) lines.push(`Synopsis: ${this.compactTooltipText(scene.synopsis, 220)}`);
         if (isArcPoint) lines.push('Arc Point');
         lines.push(`Plotlines: ${(scene.tags && scene.tags.length > 0) ? scene.tags.join(', ') : 'none'}`);
-        if (scene.storyDate) lines.push(`Date: ${scene.storyDate}`);
-        if (scene.storyTime) lines.push(`Time: ${scene.storyTime}`);
         lines.push('Click to open');
         return lines.join('\n');
     }

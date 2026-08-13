@@ -237,7 +237,7 @@ export class NavigatorView extends ItemView {
 
             // Scene count for this plotline
             const count = this.sceneManager.getAllScenes()
-                .filter(s => !s.corkboardNote && !s.inactive && s.tags?.includes(tag)).length;
+                .filter(s => !s.corkboardNote && s.tags?.includes(tag)).length;
             row.createSpan({ text: String(count), cls: 'sl-nav-plotline-count' });
 
             row.addEventListener('click', () => {
@@ -256,7 +256,7 @@ export class NavigatorView extends ItemView {
         if (!this.listEl) return;
         this.listEl.empty();
 
-        let scenes = this.sceneManager.getAllScenes().filter(s => !s.corkboardNote && !s.inactive);
+        let scenes = this.sceneManager.getAllScenes().filter(s => !s.corkboardNote);
 
         // Plotline filter
         if (this.plotlineFilter) {
@@ -267,7 +267,6 @@ export class NavigatorView extends ItemView {
         if (this.filterText) {
             scenes = scenes.filter(s =>
                 s.title.toLowerCase().includes(this.filterText) ||
-                (s.pov?.toLowerCase().includes(this.filterText)) ||
                 (s.tags?.some(t => t.toLowerCase().includes(this.filterText)))
             );
         }
@@ -415,14 +414,6 @@ export class NavigatorView extends ItemView {
         const title = row.createSpan('sl-nav-title');
         title.textContent = scene.title;
 
-        // Word count
-        if (scene.wordcount && scene.wordcount > 0) {
-            const wc = row.createSpan('sl-nav-wc');
-            wc.textContent = scene.wordcount >= 1000
-                ? `${(scene.wordcount / 1000).toFixed(1)}k`
-                : `${scene.wordcount}`;
-        }
-
         // Click to open the scene file (or scroll in Manuscript view)
         row.addEventListener('click', async () => {
             // Check if the active main view is the Manuscript view
@@ -535,16 +526,6 @@ export class NavigatorView extends ItemView {
                     return (a.sequence ?? 9999) - (b.sequence ?? 9999);
                 }
                 case 'chronological': {
-                    // Prefer chronologicalOrder, then storyDate+storyTime, then sequence
-                    if (a.chronologicalOrder != null || b.chronologicalOrder != null) {
-                        return (a.chronologicalOrder ?? 9999) - (b.chronologicalOrder ?? 9999);
-                    }
-                    if (a.storyDate || b.storyDate) {
-                        const aKey = (a.storyDate || '') + ' ' + (a.storyTime || '');
-                        const bKey = (b.storyDate || '') + ' ' + (b.storyTime || '');
-                        const cmp = aKey.localeCompare(bKey);
-                        if (cmp !== 0) return cmp;
-                    }
                     return (a.sequence ?? 9999) - (b.sequence ?? 9999);
                 }
                 case 'status': {
@@ -564,7 +545,7 @@ export class NavigatorView extends ItemView {
                     return bTime - aTime; // newest first
                 }
                 case 'words':
-                    return (b.wordcount || 0) - (a.wordcount || 0);
+                    return 0;
                 case 'title':
                     return a.title.localeCompare(b.title);
                 default:
@@ -584,21 +565,10 @@ export class NavigatorView extends ItemView {
     private renderProgress(): void {
         if (!this.progressBar || !this.progressLabel) return;
 
-        const stats = this.sceneManager.queryService.getStatistics();
-        const totalWords = stats.totalWords;
-        const targetWords = stats.totalTargetWords;
-
-        if (targetWords > 0) {
-            const pct = Math.min(100, Math.round((totalWords / targetWords) * 100));
-            const fill = this.progressBar.querySelector('.sl-nav-progress-fill') as HTMLElement;
-            if (fill) fill.setCssStyles({ width: `${pct}%` });
-            this.progressLabel.textContent = `${this.formatWords(totalWords)} / ${this.formatWords(targetWords)} (${pct}%)`;
-        } else {
-            const fill = this.progressBar.querySelector('.sl-nav-progress-fill') as HTMLElement;
-            if (fill) fill.setCssStyles({ width: '0%' });
-            const totalScenes = this.sceneManager.getAllScenes().filter(s => !s.corkboardNote && !s.inactive).length;
-            this.progressLabel.textContent = `${this.formatWords(totalWords)} words · ${totalScenes} scenes`;
-        }
+        const fill = this.progressBar.querySelector('.sl-nav-progress-fill') as HTMLElement;
+        if (fill) fill.setCssStyles({ width: '0%' });
+        const totalScenes = this.sceneManager.getAllScenes().filter(s => !s.corkboardNote).length;
+        this.progressLabel.textContent = `${totalScenes} scenes`;
     }
 
     private formatWords(n: number): string {

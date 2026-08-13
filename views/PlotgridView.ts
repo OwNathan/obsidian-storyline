@@ -1349,12 +1349,8 @@ export class PlotgridView extends ItemView {
                                 noteLabel.createSpan({ text: 'Note' });
                             }
 
-                            // Render note content directly in the cell
-                            const noteBody = cellEl.createDiv('pg-cell-note-body markdown-rendered');
-                            if (scene.body && scene.body.trim()) {
-                                const noteComp = new Component(); noteComp.load();
-                                void MarkdownRenderer.render(this.app, scene.body.trim(), noteBody, scene.filePath, noteComp);
-                            }
+                            // Render note content no longer uses scene.body (field removed)
+                            // Note body rendering removed (body field no longer exists on Scene)
 
                             // Make the note draggable so it can be moved between cells
                             cellEl.draggable = true;
@@ -1382,18 +1378,7 @@ export class PlotgridView extends ItemView {
                         statusIcon.title = statusCfg.label;
                         titleRow.createSpan({ cls: 'pg-mini-title', text: scene.title || 'Untitled' });
 
-                        // Meta row: description snippet
-                        const metaRow = miniCard.createDiv('pg-mini-meta markdown-rendered');
-                        if (scene.body && scene.body.trim()) {
-                            const snippet = scene.body.trim().length > 120
-                                ? scene.body.trim().substring(0, 120) + '…'
-                                : scene.body.trim();
-                            const metaComp = new Component(); metaComp.load();
-                            void MarkdownRenderer.render(this.app, snippet, metaRow, scene.filePath, metaComp);
-                        } else if (scene.conflict) {
-                            const metaComp = new Component(); metaComp.load();
-                            void MarkdownRenderer.render(this.app, scene.conflict, metaRow, scene.filePath, metaComp);
-                        }
+                        // Meta row: description snippet removed (scene.body / scene.conflict no longer exist)
 
                         // Keep cell content visible above the scene preview if there's text
                         if (cell.content) {
@@ -1473,7 +1458,7 @@ export class PlotgridView extends ItemView {
                         addMentions(this.plugin.linkScanner.scanText(cell.content));
                     }
 
-                    const povName = (linkedScene?.pov || '').trim();
+                    const povName = '';
 
                     // Sort: characters first, then locations, then everything
                     // else, preserving discovery order within each group.
@@ -1490,29 +1475,8 @@ export class PlotgridView extends ItemView {
                         })
                         .map(x => x.m);
 
-                    // Pull the POV character (if present) out of the list so we
-                    // can render it as the very first pill, with an amber
-                    // accent. If the POV isn't in the mention list at all we
-                    // still inject it explicitly.
-                    let povHandled = false;
-                    if (povName) {
-                        const povIdx = sortedMentions.findIndex(
-                            m => m.type === 'character' && m.name.toLowerCase() === povName.toLowerCase()
-                        );
-                        if (povIdx >= 0) {
-                            sortedMentions.splice(povIdx, 1);
-                        }
-                        povHandled = true;
-                    }
-
-                    if (povHandled || sortedMentions.length > 0) {
+                    if (sortedMentions.length > 0) {
                         const tagsEl = cellEl.createDiv('pg-codex-tags');
-                        if (povHandled) {
-                            const povPill = tagsEl.createSpan({
-                                cls: 'pg-codex-tag pg-codex-tag-character pg-codex-tag-pov',
-                            });
-                            povPill.textContent = `POV: ${povName}`;
-                        }
                         for (const m of sortedMentions) {
                             const pill = tagsEl.createSpan({ cls: `pg-codex-tag pg-codex-tag-${m.type}` });
                             pill.textContent = m.name;
@@ -2652,7 +2616,6 @@ export class PlotgridView extends ItemView {
             status: 'idea',
             corkboardNote: true,
             title: 'Note',
-            body,
             plotgridOrigin: originLabel,
         });
 
@@ -2868,11 +2831,10 @@ export class PlotgridView extends ItemView {
         for (const scene of scenes) {
             if (colSource === 'characters') {
                 for (const c of scene.characters || []) colSet.add(resolve(c));
-                if (scene.pov) colSet.add(resolve(scene.pov));
             } else if (colSource === 'tags') {
                 for (const t of scene.tags || []) colSet.add(t);
             } else if (colSource === 'locations') {
-                if (scene.location) colSet.add(scene.location);
+                for (const l of scene.locations || []) colSet.add(l);
             } else if (colSource.startsWith('codex:')) {
                 const catId = colSource.slice(6);
                 for (const n of scene.codexLinks?.[catId] || []) colSet.add(n);
@@ -2961,14 +2923,10 @@ export class PlotgridView extends ItemView {
             let sceneColValues: string[] = [];
             if (colSource === 'characters') {
                 sceneColValues = (scene.characters || []).map(c => resolve(c));
-                if (scene.pov) {
-                    const resolvedPov = resolve(scene.pov);
-                    if (!sceneColValues.includes(resolvedPov)) sceneColValues.push(resolvedPov);
-                }
             } else if (colSource === 'tags') {
                 sceneColValues = [...(scene.tags || [])];
             } else if (colSource === 'locations') {
-                sceneColValues = scene.location ? [scene.location] : [];
+                sceneColValues = [...(scene.locations || [])];
             } else if (colSource.startsWith('codex:')) {
                 const catId = colSource.slice(6);
                 sceneColValues = [...(scene.codexLinks?.[catId] || [])];
@@ -3021,10 +2979,6 @@ export class PlotgridView extends ItemView {
      *  carries the visual weight). The POV character gets a small textual
      *  marker so authors can tell at a glance whose head we're in. */
     private buildCellContent(scene: Scene, colSource: string, colValue: string, resolve?: (n: string) => string): string {
-        if (colSource === 'characters') {
-            const resolvedPov = scene.pov ? (resolve ? resolve(scene.pov) : scene.pov) : '';
-            if (resolvedPov && resolvedPov === colValue) return `POV: ${colValue}`;
-        }
         return '';
     }
 

@@ -1,18 +1,17 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel } from './FieldTemplateService';
 import { App, TFile, parseYaml, stringifyYaml } from 'obsidian';
-import { Scene, SceneStatus, TIMELINE_MODES, TimelineMode } from '../models/Scene';
+import { Scene, SceneStatus } from '../models/Scene';
 import { coerceString } from '../utils/narrow';
-import { tokenizeWords, DEFAULT_STORYLINE_LOCALE, resolveLocale, type StoryLineLocale } from '../utils/locale';
+import { DEFAULT_STORYLINE_LOCALE, type StoryLineLocale } from '../utils/locale';
 
 /**
- * Issue #73 — frontmatter scene fields that point at other entities (scenes,
- * characters, locations) and should ideally be written as `[[wikilinks]]` so
+ * Issue #73 — frontmatter scene fields that point at other entities (characters,
+ * locations, scenarios) and should ideally be written as `[[wikilinks]]` so
  * Obsidian keeps them in sync on rename. Readers strip wikilink syntax in
  * either case, so flipping this on/off is non-destructive.
  */
-const SCENE_LINK_FIELDS_SCALAR = ['pov', 'location'] as const;
-const SCENE_LINK_FIELDS_ARRAY = ['characters', 'setup_scenes', 'payoff_scenes'] as const;
+const SCENE_LINK_FIELDS_ARRAY = ['characters', 'locations', 'scenarios'] as const;
 
 /** Wrap a plain entity name in `[[Name]]`, idempotent. */
 export function toWikilink(name: string | undefined | null): string | undefined {
@@ -116,8 +115,6 @@ export class MetadataParser {
         }
         const frontmatter = fmRaw as Partial<Scene> & Record<string, unknown>;
 
-        const body = this.extractBody(content);
-
         return {
             filePath,
             type: 'scene',
@@ -125,39 +122,22 @@ export class MetadataParser {
             act: frontmatter.act,
             chapter: frontmatter.chapter,
             sequence: frontmatter.sequence,
-            chronologicalOrder: frontmatter.chronologicalOrder ?? (frontmatter.chronological_order as number | undefined),
-            pov: this.cleanWikilink(frontmatter.pov),
             characters: this.parseCharacters(frontmatter.characters),
-            location: this.cleanWikilink(frontmatter.location),
-            timeline: frontmatter.timeline,
-            storyDate: this.normalizeFrontmatterString(frontmatter.storyDate ?? frontmatter.story_date),
-            storyTime: this.normalizeFrontmatterString(frontmatter.storyTime ?? frontmatter.story_time),
+            locations: this.parseLocations(frontmatter),
+            scenarios: this.parseStringArray(frontmatter.scenarios),
             status: this.parseStatus(frontmatter.status),
             category: this.normalizeFrontmatterString(frontmatter.category),
-            conflict: frontmatter.conflict,
-            emotion: frontmatter.emotion,
-            intensity: frontmatter.intensity,
-            wordcount: this.countWords(body),
-            charcount: this.countChars(body),
-            target_wordcount: frontmatter.target_wordcount,
             tags: frontmatter.tags || [],
-            setup_scenes: this.parseStringArray(frontmatter.setup_scenes),
-            payoff_scenes: this.parseStringArray(frontmatter.payoff_scenes),
             ignored_detections: this.parseStringArray(frontmatter.ignored_detections),
-            inactive: this.parseBooleanFlag(frontmatter.inactive),
             created: frontmatter.created,
             modified: frontmatter.modified,
-            body,
             notes: frontmatter.notes,
             notesFile: this.normalizeFrontmatterString(frontmatter.notesFile ?? frontmatter.notes_file),
-            synopsis: this.normalizeFrontmatterString(frontmatter.synopsis),
             corkboardNote: this.parseBooleanFlag(frontmatter.corkboardNote ?? (frontmatter.corkboard_note as boolean | undefined)),
             corkboardNoteColor: this.normalizeFrontmatterString(frontmatter.corkboardNoteColor ?? frontmatter.corkboard_note_color),
             corkboardNoteImage: this.normalizeFrontmatterString(frontmatter.corkboardNoteImage),
             corkboardNoteCaption: this.normalizeFrontmatterString(frontmatter.corkboardNoteCaption),
             plotgridOrigin: this.normalizeFrontmatterString(frontmatter.plotgridOrigin ?? frontmatter.plotgrid_origin),
-            timeline_mode: this.parseTimelineMode(frontmatter.timeline_mode),
-            timeline_strand: frontmatter.timeline_strand,
             subtitle: frontmatter.subtitle,
             color: frontmatter.color,
             codexLinks: this.parseCodexLinks(frontmatter.codexLinks),
@@ -229,10 +209,9 @@ export class MetadataParser {
 
         // Apply updates to frontmatter
         for (const [key, value] of Object.entries(updates)) {
-            if (key === 'filePath' || key === 'body') continue;
+            if (key === 'filePath') continue;
             // Remove empty notes rather than storing blank string
             if (key === 'notes' && !value) { delete frontmatter[key]; continue; }
-            if (key === 'synopsis' && !value) { delete frontmatter[key]; continue; }
             if (key === 'corkboardNote' && !value) { delete frontmatter[key]; continue; }
             if (key === 'corkboardNoteColor' && !value) { delete frontmatter[key]; continue; }
             if (key === 'corkboardNoteImage' && !value) { delete frontmatter[key]; continue; }
@@ -243,10 +222,18 @@ export class MetadataParser {
             if (key === 'category' && !value) { delete frontmatter[key]; continue; }
             if (key === 'beatsheet' && !value) { delete frontmatter[key]; continue; }
             if (key === 'arcAnchor' && !value) { delete frontmatter[key]; continue; }
-            if (key === 'inactive' && !value) { delete frontmatter[key]; continue; }
             if (key === 'ignored_detections') {
                 if (Array.isArray(value) && value.length > 0) frontmatter[key] = value;
                 else delete frontmatter[key];
+                continue;
+            }
+            if (key === 'locations' || key === 'scenarios') {
+                if (Array.isArray(value) && value.length > 0) {
+                    frontmatter[key] = wrapArray(value);
+                    if (key === 'locations') delete frontmatter.location;
+                } else {
+                    delete frontmatter[key];
+                }
                 continue;
             }
             if (key === 'codexLinks') {
@@ -281,9 +268,7 @@ export class MetadataParser {
                 continue;
             }
             if (value !== undefined) {
-                if ((SCENE_LINK_FIELDS_SCALAR as readonly string[]).includes(key)) {
-                    frontmatter[key] = wrapScalar(value);
-                } else if ((SCENE_LINK_FIELDS_ARRAY as readonly string[]).includes(key)) {
+                if ((SCENE_LINK_FIELDS_ARRAY as readonly string[]).includes(key)) {
                     frontmatter[key] = wrapArray(value);
                 } else {
                     frontmatter[key] = value;
@@ -296,15 +281,10 @@ export class MetadataParser {
         // Update modified date
         frontmatter.modified = new Date().toISOString().split('T')[0];
 
-        // Always recount words from the final body text
-        const finalBody = updates.body ?? body;
-        frontmatter.wordcount = this.countWords(finalBody);
-        frontmatter.charcount = this.countChars(finalBody);
-
         // Issue #71 — mirror universal fields to top-level YAML keys
         mirrorUniversalFieldsToTopLevel(frontmatter, frontmatter.universalFields as Record<string, unknown> | undefined);
 
-        const newContent = `---\n${stringifyYaml(frontmatter)}---\n\n${finalBody}`;
+        const newContent = `---\n${stringifyYaml(frontmatter)}---\n\n${body}`;
         await app.vault.modify(file, newContent);
     }
 
@@ -329,35 +309,23 @@ export class MetadataParser {
         if (scene.act !== undefined) fm.act = scene.act;
         if (scene.chapter !== undefined) fm.chapter = scene.chapter;
         if (scene.sequence !== undefined) fm.sequence = scene.sequence;
-        if (scene.chronologicalOrder !== undefined) fm.chronologicalOrder = scene.chronologicalOrder;
-        if (scene.pov) fm.pov = wrapScalar(scene.pov);
         if (scene.characters?.length) fm.characters = wrapArray(scene.characters);
-        if (scene.location) fm.location = wrapScalar(scene.location);
-        if (scene.timeline) fm.timeline = scene.timeline;
-        if (scene.storyDate) fm.storyDate = scene.storyDate;
-        if (scene.storyTime) fm.storyTime = scene.storyTime;
+        if (scene.locations?.length) fm.locations = wrapArray(scene.locations);
+        if (scene.scenarios?.length) fm.scenarios = wrapArray(scene.scenarios);
         fm.status = scene.status || 'idea';
         if (scene.category) fm.category = scene.category;
-        if (scene.conflict) fm.conflict = scene.conflict;
-        if (scene.emotion) fm.emotion = scene.emotion;
         if (scene.tags?.length) fm.tags = scene.tags;
-        if (scene.setup_scenes?.length) fm.setup_scenes = wrapArray(scene.setup_scenes);
-        if (scene.payoff_scenes?.length) fm.payoff_scenes = wrapArray(scene.payoff_scenes);
         if (scene.notes) fm.notes = scene.notes;
         if (scene.notesFile) fm.notesFile = scene.notesFile;
-        if (scene.synopsis) fm.synopsis = scene.synopsis;
         if (scene.corkboardNote) fm.corkboardNote = true;
         if (scene.corkboardNoteColor) fm.corkboardNoteColor = scene.corkboardNoteColor;
         if (scene.corkboardNoteImage) fm.corkboardNoteImage = scene.corkboardNoteImage;
         if (scene.corkboardNoteCaption) fm.corkboardNoteCaption = scene.corkboardNoteCaption;
         if (scene.plotgridOrigin) fm.plotgridOrigin = scene.plotgridOrigin;
-        if (scene.timeline_mode && scene.timeline_mode !== 'linear') fm.timeline_mode = scene.timeline_mode;
-        if (scene.timeline_strand) fm.timeline_strand = scene.timeline_strand;
         if (scene.subtitle) fm.subtitle = scene.subtitle;
         if (scene.color) fm.color = scene.color;
         if (scene.beatsheet) fm.beatsheet = scene.beatsheet;
         if (scene.arcAnchor) fm.arcAnchor = true;
-        if (scene.inactive) fm.inactive = true;
         if (scene.codexLinks && Object.keys(scene.codexLinks).some(k => scene.codexLinks![k]?.length)) {
             fm.codexLinks = scene.codexLinks;
         }
@@ -366,8 +334,6 @@ export class MetadataParser {
         }
         // Issue #71 — mirror universal fields to top-level YAML keys
         mirrorUniversalFieldsToTopLevel(fm, scene.universalFields);
-        fm.wordcount = scene.body ? this.countWords(scene.body) : 0;
-        fm.charcount = scene.body ? this.countChars(scene.body) : 0;
         fm.created = new Date().toISOString().split('T')[0];
         fm.modified = new Date().toISOString().split('T')[0];
 
@@ -382,17 +348,25 @@ export class MetadataParser {
             }
         }
 
-        const body = scene.body || '';
-
-        return `---\n${stringifyYaml(fm)}---\n\n${body}`;
+        return `---\n${stringifyYaml(fm)}---\n`;
     }
 
     /**
-     * Validate and parse timeline_mode
+     * Parse locations array, cleaning wikilinks. Falls back to the legacy
+     * scalar `location` frontmatter key (single location) by wrapping it
+     * into an array.
      */
-    private static parseTimelineMode(mode: string | undefined): TimelineMode | undefined {
-        if (mode && TIMELINE_MODES.includes(mode as TimelineMode)) {
-            return mode as TimelineMode;
+    private static parseLocations(frontmatter: Record<string, unknown>): string[] | undefined {
+        if (Array.isArray(frontmatter.locations)) {
+            const arr = frontmatter.locations
+                .map((l: unknown) => this.cleanWikilink(String(l)) ?? '')
+                .filter(s => s.length > 0);
+            if (arr.length > 0) return arr;
+        }
+        const legacy = frontmatter.location;
+        if (typeof legacy === 'string' && legacy.trim()) {
+            const clean = this.cleanWikilink(legacy);
+            return clean ? [clean] : undefined;
         }
         return undefined;
     }
@@ -528,56 +502,6 @@ export class MetadataParser {
             }
         }
         return hasAny ? result : undefined;
-    }
-
-    /**
-     * Count words in body text. Issue #78 — strips Obsidian `%%comments%%`
-     * (and optionally markdown task lines) before tokenising so production
-     * wordcounts match what will actually be exported.
-     */
-    private static countWords(text: string): number {
-        if (!text) return 0;
-        let working = text;
-        // Issue #78 — strip Obsidian comment blocks first (multiline, non-greedy)
-        if (_excludeCommentsFromWordcount) {
-            working = working.replace(/%%[\s\S]*?%%/g, '');
-        }
-        // Issue #78 — optionally drop checkbox/task lines (`- [ ]`, `- [x]`, `* [X]`)
-        if (_excludeChecklistFromWordcount) {
-            working = working.replace(/^[ \t]*[-*+]\s*\[[ xX]\]\s.*$/gm, '');
-        }
-        // Remove markdown headers, links, etc
-        const cleaned = working
-            .replace(/^#+\s+.*/gm, '')
-            .replace(/\[\[.*?\]\]/g, '')
-            .replace(/[*_~`]/g, '')
-            .trim();
-        if (!cleaned) return 0;
-        return tokenizeWords(cleaned, resolveLocale(_wordcountLocale, cleaned, DEFAULT_STORYLINE_LOCALE)).length;
-    }
-
-    /**
-     * Count characters in the scene body, applying the same exclusions as
-     * `countWords` (comments, checklists, markdown markup) so the two counts
-     * stay aligned. Whitespace is collapsed but not stripped, so the count
-     * reflects the readable prose length.
-     */
-    private static countChars(text: string): number {
-        if (!text) return 0;
-        let working = text;
-        if (_excludeCommentsFromWordcount) {
-            working = working.replace(/%%[\s\S]*?%%/g, '');
-        }
-        if (_excludeChecklistFromWordcount) {
-            working = working.replace(/^[ \t]*[-*+]\s*\[[ xX]\]\s.*$/gm, '');
-        }
-        const cleaned = working
-            .replace(/^#+\s+.*/gm, '')
-            .replace(/\[\[.*?\]\]/g, '')
-            .replace(/[*_~`]/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        return cleaned.length;
     }
 
     /**

@@ -981,20 +981,6 @@ export class SceneManager implements ISceneStore {
             this.undoManager.recordUpdate(filePath, oldSnap as unknown as Record<string, unknown>, updates, label);
         }
 
-        // Issue #212 — populate the title→fileStem map so setup/payoff wikilinks
-        // are written as `[[stem|title]]`, letting Obsidian’s graph resolve the
-        // link to the real file while StoryLine still matches by title.
-        if (updates.setup_scenes !== undefined || updates.payoff_scenes !== undefined) {
-            const stemMap = new Map<string, string>();
-            for (const [p, s] of this.scenes) {
-                if (s.title) {
-                    const stem = p.split('/').pop()?.replace(/\.md$/, '') ?? s.title;
-                    stemMap.set(s.title, stem);
-                }
-            }
-            setSceneTitleToStemMap(stemMap);
-        }
-
         await MetadataParser.updateFrontmatter(this.app, file, updates);
 
         // Refresh index
@@ -1400,8 +1386,7 @@ export class SceneManager implements ISceneStore {
         const scene = this.scenes.get(filePath);
         if (!scene) return null;
 
-         
-        const { filePath: _fp, body: _body, ...rest } = scene;
+        const { filePath: _fp, ...rest } = scene;
         const newScene: Partial<Scene> = {
             ...rest,
             title: `${scene.title} (copy)`,
@@ -1532,26 +1517,15 @@ export class SceneManager implements ISceneStore {
 
     private async updateSceneTitleReferences(oldTitle: string, newTitle: string): Promise<void> {
         if (!oldTitle || oldTitle === newTitle) return;
-        const scenes = Array.from(this.scenes.values());
-        for (const scene of scenes) {
-            const updates: Partial<Scene> = {};
-            if (scene.setup_scenes?.includes(oldTitle)) {
-                updates.setup_scenes = scene.setup_scenes.map(title => title === oldTitle ? newTitle : title);
-            }
-            if (scene.payoff_scenes?.includes(oldTitle)) {
-                updates.payoff_scenes = scene.payoff_scenes.map(title => title === oldTitle ? newTitle : title);
-            }
-            if (Object.keys(updates).length > 0) {
-                await this.updateScene(scene.filePath, updates);
-            }
-        }
+        // Scene-to-scene title references were removed; nothing to update.
+        return;
     }
 
     /**
      * Get unique values for a field (for filter dropdowns)
      * @deprecated Use queryService.getUniqueValues() directly
      */
-    getUniqueValues(field: 'act' | 'chapter' | 'pov' | 'status' | 'emotion' | 'location'): string[] {
+    getUniqueValues(field: 'act' | 'chapter' | 'pov' | 'status' | 'emotion' | 'location' | 'locations'): string[] {
         return this.queryService.getUniqueValues(field);
     }
 
@@ -2012,7 +1986,6 @@ export class SceneManager implements ISceneStore {
                 chapter,
                 sequence: nextSeq++,
                 beatsheet: template.name,
-                synopsis: beat.description,
                 status: 'idea' as SceneStatus,
             });
             created++;
@@ -2537,30 +2510,24 @@ export class SceneManager implements ISceneStore {
     // ────────────────────────────────────
 
     /**
-     * Split a scene into two at a given character offset in the body text.
-     * Scene A keeps the original's metadata. Scene B inherits all metadata
-     * (including status) but gets a new sequence number.
+     * Split a scene into two. Scene A keeps the original's metadata. Scene B
+     * inherits all metadata (including status) but gets a new sequence number.
      *
      * Returns [sceneA file, sceneB file].
      */
     async splitScene(
         filePath: string,
-        splitOffset: number,
         titleA?: string,
         titleB?: string,
     ): Promise<[TFile, TFile]> {
         const scene = this.scenes.get(filePath);
         if (!scene) throw new Error('Scene not found');
 
-        const body = scene.body || '';
-        const bodyA = body.substring(0, splitOffset).trim();
-        const bodyB = body.substring(splitOffset).trim();
-
-        // Scene A: update existing file with first half
+        // Scene A: update existing file with new title
         const file = this.app.vault.getAbstractFileByPath(filePath);
         if (!file || !(file instanceof TFile)) throw new Error('Scene file not found');
 
-        const updatesA: Partial<Scene> = { body: bodyA };
+        const updatesA: Partial<Scene> = {};
         if (titleA) updatesA.title = titleA;
         await MetadataParser.updateFrontmatter(this.app, file, updatesA);
         const parsedA = await MetadataParser.parseFile(this.app, file);
@@ -2577,13 +2544,11 @@ export class SceneManager implements ISceneStore {
         }
 
         // Scene B: create new file inheriting metadata
-         
-        const { filePath: _fp, body: _body, wordcount: _wc, created: _cr, modified: _mod, ...inherited } = scene;
+        const { filePath: _fp, created: _cr, modified: _mod, ...inherited } = scene;
         const sceneB: Partial<Scene> = {
             ...inherited,
             title: titleB || `${scene.title} (part 2)`,
             sequence: origSeq + 1,
-            body: bodyB,
         };
 
         const fileB = await this.createScene(sceneB);
@@ -2609,17 +2574,16 @@ export class SceneManager implements ISceneStore {
         const primary = scenes[0];
         const rest = scenes.slice(1);
 
-        // Combine body text with separators
-        const combinedBody = scenes
-            .map(s => (s.body || '').trim())
-            .filter(b => b.length > 0)
-            .join('\n\n---\n\n');
-
         // Union characters (deduplicated)
         const charSet = new Set<string>();
         for (const s of scenes) {
-            if (s.pov) charSet.add(s.pov);
             if (s.characters) s.characters.forEach(c => charSet.add(c));
+        }
+
+        // Union locations (deduplicated)
+        const locSet = new Set<string>();
+        for (const s of scenes) {
+            if (s.locations) s.locations.forEach(l => locSet.add(l));
         }
 
         // Union tags (deduplicated)
@@ -2639,28 +2603,13 @@ export class SceneManager implements ISceneStore {
             return safeCurrent < safeLowest ? s.status : lowest;
         }, primary.status || 'idea');
 
-        // Combine locations if different
-        const locations = [...new Set(scenes.map(s => s.location).filter(Boolean))];
-        const mergedLocation = locations.length === 1 ? locations[0] : locations.join(', ');
-
-        // Union setup/payoff links
-        const setupSet = new Set<string>();
-        const payoffSet = new Set<string>();
-        for (const s of scenes) {
-            if (s.setup_scenes) s.setup_scenes.forEach(x => setupSet.add(x));
-            if (s.payoff_scenes) s.payoff_scenes.forEach(x => payoffSet.add(x));
-        }
-
         // Build merged updates for primary scene
         const updates: Partial<Scene> = {
-            body: combinedBody,
             title: mergedTitle || primary.title,
             characters: [...charSet],
             tags: [...tagSet],
             status: lowestStatus,
-            location: mergedLocation,
-            setup_scenes: setupSet.size > 0 ? [...setupSet] : undefined,
-            payoff_scenes: payoffSet.size > 0 ? [...payoffSet] : undefined,
+            locations: locSet.size > 0 ? [...locSet] : undefined,
         };
 
         // Update the primary scene

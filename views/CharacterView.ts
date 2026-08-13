@@ -303,7 +303,7 @@ export class CharacterView extends ItemView {
 
         let fileCharacters = this.characterManager.getAllCharacters();
         const sceneCharNames = this.sceneManager.queryService.getAllCharacters();
-        const scenes = this.sceneManager.getAllScenes().filter(scene => !scene.inactive);
+        const scenes = this.sceneManager.getAllScenes();
 
         // Build alias map: lowered alias → canonical name
         const aliasMap = this.characterManager.buildAliasMap(this.plugin.settings.characterAliases);
@@ -510,19 +510,15 @@ export class CharacterView extends ItemView {
         }
 
         // Scene stats — match against all aliases (frontmatter + LinkScanner)
-        let povCount = 0;
         let presentCount = 0;
         for (const s of scenes) {
-            const { isPov, isPresent } = this.isCharInScene(s, charAliases);
-            if (isPov) povCount++;
-            else if (isPresent) presentCount++;
+            const { isPresent } = this.isCharInScene(s, charAliases);
+            if (isPresent) presentCount++;
         }
-        const total = povCount + presentCount;
+        const total = presentCount;
 
         const stats = card.createDiv('character-card-stats');
         if (total > 0) {
-            stats.createSpan({ text: `${povCount} POV` });
-            stats.createSpan({ cls: 'character-stat-sep', text: '\u00b7' });
             stats.createSpan({ text: `${total} scenes` });
         } else {
             stats.createSpan({ cls: 'character-stat-none', text: 'No scenes yet' });
@@ -602,16 +598,14 @@ export class CharacterView extends ItemView {
         }
 
         // Scene stats — count across all aliases (frontmatter + LinkScanner)
-        let povCount = 0;
         let presentCount = 0;
         for (const s of scenes) {
-            const { isPov, isPresent } = this.isCharInScene(s, nameAliases);
-            if (isPov) povCount++;
-            else if (isPresent) presentCount++;
+            const { isPresent } = this.isCharInScene(s, nameAliases);
+            if (isPresent) presentCount++;
         }
 
         const stats = card.createDiv('character-card-stats');
-        stats.createSpan({ text: `${povCount} POV \u00b7 ${povCount + presentCount} scenes` });
+        stats.createSpan({ text: `${presentCount} scenes` });
 
         const btnRow = card.createDiv('character-unlinked-actions');
 
@@ -745,7 +739,7 @@ export class CharacterView extends ItemView {
      * LinkScanner body-text detection.
      */
     private isCharInScene(scene: Scene, charAliases: Set<string>): { isPov: boolean; isPresent: boolean } {
-        const isPov = !!(scene.pov && charAliases.has(scene.pov.toLowerCase()));
+        const isPov = false; // scene.pov removed
         const fmPresent = scene.characters?.some(c => charAliases.has(c.toLowerCase())) ?? false;
 
         // Check LinkScanner results for body-text mentions
@@ -766,7 +760,7 @@ export class CharacterView extends ItemView {
         container.empty();
         container.createEl('h3', { text: 'Story graph' });
 
-        const scenes = this.sceneManager.getAllScenes().filter(scene => !scene.inactive);
+        const scenes = this.sceneManager.getAllScenes();
         const characters = this.characterManager.getAllCharacters();
         const scanner = this.plugin.linkScanner;
         // Ensure scan results are up to date
@@ -2297,24 +2291,17 @@ export class CharacterView extends ItemView {
             }
         }
 
-        const povScenes = scenes.filter(s => {
-            const { isPov } = this.isCharInScene(s, charAliases);
-            return isPov;
+        const allCharScenes = scenes.filter(s => {
+            const { isPresent } = this.isCharInScene(s, charAliases);
+            return isPresent;
         });
-        const presentScenes = scenes.filter(s => {
-            const { isPov, isPresent } = this.isCharInScene(s, charAliases);
-            return !isPov && isPresent;
-        });
-        const allCharScenes = [...povScenes, ...presentScenes];
 
         // Stats summary
         const statsBox = container.createDiv('character-side-stats');
         statsBox.createEl('h4', { text: 'Scene presence' });
 
         const statGrid = statsBox.createDiv('character-stat-grid');
-        this.renderStat(statGrid, String(povScenes.length), 'POV');
-        this.renderStat(statGrid, String(presentScenes.length), 'Supporting');
-        this.renderStat(statGrid, String(allCharScenes.length), 'Total');
+        this.renderStat(statGrid, String(allCharScenes.length), 'Scenes');
 
         // Plotgrid stat (patched async)
         const pgStatEl = statGrid.createDiv('character-stat-item');
@@ -2340,27 +2327,12 @@ export class CharacterView extends ItemView {
             });
         }
 
-        // POV distribution
-        if (scenes.length > 0) {
-            const totalPovScenes = scenes.filter(s => s.pov).length;
-            const charPovPercent = totalPovScenes > 0
-                ? Math.round((povScenes.length / totalPovScenes) * 100)
-                : 0;
-            if (totalPovScenes > 0) {
-                const distBox = container.createDiv('character-side-pov-dist');
-                distBox.createEl('p', {
-                    text: `${charPovPercent}% of all POV scenes`
-                });
-            }
-        }
-
         // Scene list
         if (allCharScenes.length > 0) {
             const listSection = container.createDiv('character-side-scenes');
             listSection.createEl('h4', { text: 'Scenes' });
             for (const scene of allCharScenes) {
                 const item = listSection.createDiv('character-side-scene-item');
-                const isPov = scene.pov && charAliases.has(scene.pov.toLowerCase());
 
                 // Use shared formatter so string acts (e.g. "1.1", "Prologue")
                 // are shown verbatim and pure-numeric acts are zero-padded.
@@ -2369,10 +2341,6 @@ export class CharacterView extends ItemView {
 
                 item.createSpan({ cls: 'scene-id', text: `[${act}-${seq}]` });
                 item.createSpan({ cls: 'scene-title', text: ` ${scene.title}` });
-
-                if (isPov) {
-                    item.createSpan({ cls: 'character-pov-badge', text: 'POV' });
-                }
 
                 const statusCfg = resolveStatusCfg(scene.status || 'idea');
                 const statusBadge = item.createSpan({
@@ -2415,15 +2383,6 @@ export class CharacterView extends ItemView {
                     }
                 }
             }).catch(() => { /* non-fatal */ });
-        }
-
-        // Character arc intensity curve
-        const scenesWithIntensity = allCharScenes
-            .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
-            .filter(s => s.intensity !== undefined && s.intensity !== null);
-
-        if (scenesWithIntensity.length >= 2) {
-            this.renderIntensityCurve(container, characterName, scenesWithIntensity);
         }
 
         // Gap detection
@@ -2950,8 +2909,7 @@ export class CharacterView extends ItemView {
         const charLower = character.toLowerCase();
         sortedAll.forEach(scene => {
             const cell = heatmap.createDiv('character-presence-cell');
-            const isPresent = scene.pov?.toLowerCase() === charLower ||
-                scene.characters?.some(c => c.toLowerCase() === charLower);
+            const isPresent = scene.characters?.some(c => c.toLowerCase() === charLower);
             cell.addClass(isPresent ? 'presence-active' : 'presence-absent');
             cell.setAttribute('title', `${scene.title} (seq ${scene.sequence ?? '?'}) \u2014 ${isPresent ? 'Present' : 'Absent'}`);
         });
@@ -2977,106 +2935,6 @@ export class CharacterView extends ItemView {
             obsidian.setIcon(gapIcon, 'alert-triangle');
             gapDiv.createSpan({ text: ` Absent for last ${scenesAfter} scenes (last appears at scene ${lastCharSeq})` });
         }
-    }
-
-    private renderIntensityCurve(container: HTMLElement, _character: string, scenes: Scene[]): void {
-        const section = container.createDiv('character-arc-section');
-        section.createEl('h4', { text: 'Character arc (intensity)' });
-
-        const width = 400;
-        const height = 120;
-        const padX = 36;
-        const padY = 16;
-        const plotW = width - padX * 2;
-        const plotH = height - padY * 2;
-        const minIntensity = -10;
-        const maxIntensity = 10;
-        const intensityRange = maxIntensity - minIntensity;
-
-        // createSvg (method or standalone) is only available from Obsidian
-        // 1.13.0+. Since manifest.minAppVersion is still 1.12.7, we build
-        // SVG elements with the raw DOM API. The prefer-create-el lint
-        // fires here but is disabled per-block to avoid crashing 1.12.x.
-         
-        const svgNS = 'http://www.w3.org/2000/svg';
-        const svg = activeDocument.createElementNS(svgNS, 'svg');
-        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        svg.setAttribute('width', '100%');
-        svg.setAttribute('height', String(height));
-        svg.classList.add('character-arc-svg');
-
-        for (let v = minIntensity; v <= maxIntensity; v += 5) {
-            const y = padY + plotH - ((v - minIntensity) / intensityRange) * plotH;
-            const line = activeDocument.createElementNS(svgNS, 'line');
-            line.setAttribute('x1', String(padX));
-            line.setAttribute('x2', String(padX + plotW));
-            line.setAttribute('y1', String(y));
-            line.setAttribute('y2', String(y));
-            line.setAttribute('class', 'arc-grid-line');
-            svg.appendChild(line);
-        }
-
-        const yLabelLow = activeDocument.createElementNS(svgNS, 'text');
-        yLabelLow.setAttribute('x', String(padX - 6));
-        yLabelLow.setAttribute('y', String(padY + plotH));
-        yLabelLow.setAttribute('text-anchor', 'end');
-        yLabelLow.setAttribute('class', 'arc-axis-label');
-        yLabelLow.textContent = String(minIntensity);
-        svg.appendChild(yLabelLow);
-
-        const yLabelHigh = activeDocument.createElementNS(svgNS, 'text');
-        yLabelHigh.setAttribute('x', String(padX - 6));
-        yLabelHigh.setAttribute('y', String(padY + 4));
-        yLabelHigh.setAttribute('text-anchor', 'end');
-        yLabelHigh.setAttribute('class', 'arc-axis-label');
-        yLabelHigh.textContent = String(maxIntensity);
-        svg.appendChild(yLabelHigh);
-
-        const points: { x: number; y: number; scene: Scene }[] = [];
-        scenes.forEach((scene, idx) => {
-            const x = padX + (idx / (scenes.length - 1)) * plotW;
-            const intensity = typeof scene.intensity === 'number' ? Math.max(minIntensity, Math.min(maxIntensity, scene.intensity)) : 0;
-            const y = padY + plotH - ((intensity - minIntensity) / intensityRange) * plotH;
-            points.push({ x, y, scene });
-        });
-
-        if (points.length >= 2) {
-            const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-            const path = activeDocument.createElementNS(svgNS, 'path');
-            path.setAttribute('d', pathD);
-            path.setAttribute('class', 'arc-line');
-            svg.appendChild(path);
-
-            const areaD = pathD + ` L ${points[points.length - 1].x} ${padY + plotH} L ${points[0].x} ${padY + plotH} Z`;
-            const area = activeDocument.createElementNS(svgNS, 'path');
-            area.setAttribute('d', areaD);
-            area.setAttribute('class', 'arc-area');
-            svg.appendChild(area);
-        }
-
-        points.forEach(p => {
-            const circle = activeDocument.createElementNS(svgNS, 'circle');
-            circle.setAttribute('cx', String(p.x));
-            circle.setAttribute('cy', String(p.y));
-            circle.setAttribute('r', '4');
-            circle.setAttribute('class', 'arc-dot');
-
-            const title = activeDocument.createElementNS(svgNS, 'title');
-            title.textContent = `${p.scene.title} \u2014 intensity: ${p.scene.intensity}`;
-            circle.appendChild(title);
-            svg.appendChild(circle);
-
-            const label = activeDocument.createElementNS(svgNS, 'text');
-            label.setAttribute('x', String(p.x));
-            label.setAttribute('y', String(padY + plotH + 14));
-            label.setAttribute('text-anchor', 'middle');
-            label.setAttribute('class', 'arc-scene-label');
-            label.textContent = String(p.scene.sequence ?? '?');
-            svg.appendChild(label);
-        });
-
-        section.appendChild(svg);
-         
     }
 
     // ── Utility ────────────────────────────────────────

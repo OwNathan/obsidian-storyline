@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { Modal, App, Notice } from 'obsidian';
+import { Notice } from 'obsidian';
 import * as obsidian from 'obsidian';
 import { openConfirmModal } from './ConfirmModal';
 import { SplitSceneModal } from './SplitMergeModals';
@@ -7,13 +7,13 @@ import { isMobile } from './MobileAdapter';
 import { WikilinkSuggest } from './WikilinkSuggest';
 import { SceneManager } from '../services/SceneManager';
 import type SceneCardsPlugin from '../main';
-import { renderTagPillInput, renderAutocompleteInput } from './InlineSuggest';
+import { renderTagPillInput } from './InlineSuggest';
 import { AddFieldModal } from './AddFieldModal';
 import { AddCommentModal } from './AddCommentModal';
 import { renderCommentCapsule } from './CommentCapsule';
 import { UniversalFieldTemplate } from '../services/FieldTemplateService';
 import { parseActChapterInput, actChapterHasIllegalPathChars, isPrologueAct, isEpilogueAct, PROLOGUE_ACT, EPILOGUE_ACT } from '../utils/actChapter';
-import { Scene, SceneStatus, TIMELINE_MODES, TIMELINE_MODE_LABELS, TimelineMode, getStatusOrder, resolveStatusCfg, SceneCategory, getSceneCategoryOrder, resolveSceneCategoryCfg } from '../models/Scene';
+import { Scene, SceneStatus, getStatusOrder, resolveStatusCfg, SceneCategory, getSceneCategoryOrder, resolveSceneCategoryCfg } from '../models/Scene';
 
 /**
  * Scene inspector sidebar component
@@ -30,15 +30,6 @@ export class InspectorComponent {
     private onCategoryChange: (scene: Scene, newCategory: SceneCategory) => void;
     private onShow: (() => void) | undefined;
     private onHide: (() => void) | undefined;
-
-    /**
-     * Format intensity value for display (-10 to +10)
-     */
-    private formatIntensity(val: number): string {
-        if (val > 0) return `+${val}`;
-        if (val < 0) return `${val}`;
-        return '0';
-    }
 
     constructor(
         container: HTMLElement,
@@ -147,19 +138,6 @@ export class InspectorComponent {
                 boxSizing: 'border-box',
             });
         };
-        const styleSelect = (el: HTMLSelectElement) => {
-            el.setCssStyles({
-                width: '100%',
-                marginTop: '4px',
-                padding: '4px 8px',
-                border: '1px solid var(--background-modifier-border)',
-                borderRadius: '4px',
-                background: 'var(--background-primary)',
-                color: 'var(--text-normal)',
-                fontSize: '13px',
-                boxSizing: 'border-box',
-            });
-        };
 
         // ── Title (editable) ──
         const titleSection = this.container.createDiv('inspector-title-section');
@@ -188,10 +166,10 @@ export class InspectorComponent {
                 scene.title = val;
                 scene.filePath = newPath;
 
-                // Cascade rename: update setup_scenes / payoff_scenes in other scenes
+                // Cascade rename: update cross-references in other scenes
                 const updated = await this.plugin.cascadeRename.cascadeSceneTitleRename(oldTitle, val);
                 if (updated > 0) {
-                    new Notice(`Updated ${updated} setup/payoff link${updated !== 1 ? 's' : ''}`);
+                    new Notice(`Updated ${updated} scene reference${updated !== 1 ? 's' : ''}`);
                 }
             }
         });
@@ -295,18 +273,6 @@ export class InspectorComponent {
             const val = seqInput.value.trim() ? Number(seqInput.value) : undefined;
             await this.sceneManager.updateScene(scene.filePath, { sequence: val });
             scene.sequence = val;
-        });
-
-        // ── Chronological Order ──
-        const chronoSection = this.container.createDiv('inspector-section');
-        chronoSection.createSpan({ cls: 'inspector-label', text: 'Chronological Order: ' });
-        const chronoInput = chronoSection.createEl('input', { attr: { type: 'number', placeholder: 'Same as sequence if blank' } });
-        styleInput(chronoInput);
-        chronoInput.value = scene.chronologicalOrder !== undefined ? String(scene.chronologicalOrder) : '';
-        chronoInput.addEventListener('change', async () => {
-            const val = chronoInput.value.trim() ? Number(chronoInput.value) : undefined;
-            await this.sceneManager.updateScene(scene.filePath, { chronologicalOrder: val });
-            scene.chronologicalOrder = val;
         });
 
         // ── Status + Category dropdowns (side-by-side when categories enabled) ──
@@ -421,50 +387,6 @@ export class InspectorComponent {
             });
         }
 
-        // ── Active / inactive ──
-        const inactiveSection = this.container.createDiv('inspector-section inspector-inactive-section');
-        const inactiveLabel = inactiveSection.createEl('label', { cls: 'inspector-checkbox-row' });
-        const inactiveCheckbox = inactiveLabel.createEl('input', { type: 'checkbox' });
-        inactiveCheckbox.checked = !!scene.inactive;
-        inactiveLabel.createSpan({ text: 'Inactive scene' });
-        inactiveSection.createDiv({
-            cls: 'inspector-help-text',
-            text: 'Inactive scenes stay in the project but are hidden from Manuscript and exports by default.',
-        });
-        inactiveCheckbox.addEventListener('change', async () => {
-            const inactive = inactiveCheckbox.checked;
-            await this.sceneManager.updateScene(scene.filePath, { inactive });
-            scene.inactive = inactive;
-            this.onRefresh();
-        });
-
-        // ── POV (autocomplete input) ──
-        const povSection = this.container.createDiv('inspector-section');
-        povSection.createSpan({ cls: 'inspector-label', text: 'POV: ' });
-        const povContainer = povSection.createDiv('inspector-pov-autocomplete');
-        renderAutocompleteInput({
-            container: povContainer,
-            value: scene.pov || '',
-            getSuggestions: () => {
-                const allCharNames = this.sceneManager.queryService.getAllCharacters();
-                // Also include characters from CharacterManager
-                const cm = this.plugin.characterManager;
-                const names = new Map<string, string>();
-                for (const c of allCharNames) names.set(c.toLowerCase(), c);
-                if (cm) {
-                    for (const ch of cm.getAllCharacters()) {
-                        if (!names.has(ch.name.toLowerCase())) names.set(ch.name.toLowerCase(), ch.name);
-                    }
-                }
-                return Array.from(names.values()).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-            },
-            onChange: async (val) => {
-                await this.sceneManager.updateScene(scene.filePath, { pov: val });
-                scene.pov = val;
-            },
-            placeholder: 'Search characters…',
-        });
-
         // ── Characters (autocomplete tag-pill input) ──
         const charSection = this.container.createDiv('inspector-section');
         charSection.createSpan({ cls: 'inspector-label', text: 'Characters:' });
@@ -490,61 +412,57 @@ export class InspectorComponent {
                 scene.characters = values;
             },
             placeholder: 'Add character…',
-            highlightValue: scene.pov,
-            highlightLabel: '(POV)',
         });
 
-        // ── Location (autocomplete input) ──
+        // ── Locations (autocomplete tag-pill input) ──
         const locSection = this.container.createDiv('inspector-section');
-        locSection.createSpan({ cls: 'inspector-label', text: 'Location: ' });
-        const locContainer = locSection.createDiv('inspector-location-autocomplete');
-        renderAutocompleteInput({
-            container: locContainer,
-            value: scene.location || '',
+        locSection.createSpan({ cls: 'inspector-label', text: 'Locations:' });
+        const locPillContainer = locSection.createDiv('inspector-chip-list');
+
+        renderTagPillInput({
+            container: locPillContainer,
+            values: scene.locations || [],
             getSuggestions: () => this.getLocationNames(),
-            onChange: async (val) => {
-                await this.sceneManager.updateScene(scene.filePath, { location: val });
-                scene.location = val;
+            onChange: async (values) => {
+                await this.sceneManager.updateScene(scene.filePath, { locations: values });
+                scene.locations = values;
             },
-            placeholder: 'Search locations…',
+            placeholder: 'Add location…',
             getDisplayLabel: this.getLocationDisplayLabel(),
+        });
+
+        // ── Scenarios (one-way link to Dynamic Narrative scenarios) ──
+        const dnMgr = this.plugin.dynamicNarrativeManager;
+        const scenarioSection = this.container.createDiv('inspector-section');
+        scenarioSection.createSpan({ cls: 'inspector-label', text: 'Scenarios:' });
+        const scenarioPillContainer = scenarioSection.createDiv('inspector-chip-list');
+
+        renderTagPillInput({
+            container: scenarioPillContainer,
+            values: scene.scenarios || [],
+            getSuggestions: () => {
+                const names = new Map<string, string>();
+                if (dnMgr) {
+                    for (const s of dnMgr.getAllScenarios()) {
+                        if (s.title) names.set(s.title.toLowerCase(), s.title);
+                    }
+                }
+                // Keep existing values selectable even if the scenario was
+                // deleted from the Dynamic Narrative.
+                for (const v of scene.scenarios || []) {
+                    if (!names.has(v.toLowerCase())) names.set(v.toLowerCase(), v);
+                }
+                return Array.from(names.values()).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+            },
+            onChange: async (values) => {
+                await this.sceneManager.updateScene(scene.filePath, { scenarios: values });
+                scene.scenarios = values;
+            },
+            placeholder: 'Add scenario…',
         });
 
         // ── Dynamic Codex sections (categories with showInSidebar) ──
         this.renderCodexSections(scene);
-
-        // ── Timeline Mode / Strand ──
-        const tmRow = this.container.createDiv('inspector-section');
-        tmRow.setCssStyles({
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '8px',
-        });
-
-        const tmGroup = tmRow.createDiv();
-        tmGroup.createSpan({ cls: 'inspector-label', text: 'Timeline Mode' });
-        const tmSelect = tmGroup.createEl('select');
-        styleSelect(tmSelect);
-        for (const m of TIMELINE_MODES) {
-            const opt = tmSelect.createEl('option', { text: TIMELINE_MODE_LABELS[m], value: m });
-            if ((scene.timeline_mode || 'linear') === m) opt.selected = true;
-        }
-        tmSelect.addEventListener('change', async () => {
-            const val = tmSelect.value as TimelineMode;
-            await this.sceneManager.updateScene(scene.filePath, { timeline_mode: val });
-            scene.timeline_mode = val;
-        });
-
-        const strandGroup = tmRow.createDiv();
-        strandGroup.createSpan({ cls: 'inspector-label', text: 'Strand' });
-        const strandInput = strandGroup.createEl('input', { attr: { type: 'text', placeholder: 'E.g. "1943", "outer"' } });
-        styleInput(strandInput);
-        strandInput.value = scene.timeline_strand || '';
-        strandInput.addEventListener('change', async () => {
-            const val = strandInput.value.trim() || undefined;
-            await this.sceneManager.updateScene(scene.filePath, { timeline_strand: val });
-            scene.timeline_strand = val;
-        });
 
         // ── Arc Point toggle ──
         const arcRow = this.container.createDiv('inspector-section');
@@ -563,65 +481,6 @@ export class InspectorComponent {
             const val = arcCheckbox.checked;
             await this.sceneManager.updateScene(scene.filePath, { arcAnchor: val });
             scene.arcAnchor = val || undefined;
-        });
-
-        // ── Story Date / Time ──
-        const dtRow = this.container.createDiv('inspector-section');
-        dtRow.setCssStyles({
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '8px',
-        });
-
-        const dateGroup = dtRow.createDiv();
-        dateGroup.createSpan({ cls: 'inspector-label', text: 'Story Date' });
-        const dateInput = dateGroup.createEl('input', { attr: { type: 'text', placeholder: 'E.g. 2026-02-17, day 3' } });
-        styleInput(dateInput);
-        dateInput.value = scene.storyDate || scene.timeline || '';
-        dateInput.addEventListener('change', async () => {
-            const val = dateInput.value.trim() || undefined;
-            await this.sceneManager.updateScene(scene.filePath, { storyDate: val });
-            scene.storyDate = val;
-        });
-
-        const timeGroup = dtRow.createDiv();
-        timeGroup.createSpan({ cls: 'inspector-label', text: 'Story Time' });
-        const timeInput = timeGroup.createEl('input', { attr: { type: 'text', placeholder: 'E.g. Morning, 14:00' } });
-        styleInput(timeInput);
-        timeInput.value = scene.storyTime || '';
-        timeInput.addEventListener('change', async () => {
-            const val = timeInput.value.trim() || undefined;
-            await this.sceneManager.updateScene(scene.filePath, { storyTime: val });
-            scene.storyTime = val;
-        });
-
-        // ── Word count + Target ──
-        const wcRow = this.container.createDiv('inspector-section');
-        wcRow.setCssStyles({
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '8px',
-        });
-
-        const wcGroup = wcRow.createDiv();
-        const useChars = this.plugin.settings.countUnit === 'chars';
-        wcGroup.createSpan({ cls: 'inspector-label', text: useChars ? 'Characters' : 'Words' });
-        const wcDisplay = wcGroup.createDiv();
-        wcDisplay.setCssStyles({
-            marginTop: '4px',
-            fontSize: '13px',
-        });
-        wcDisplay.textContent = String(useChars ? (scene.charcount || 0) : (scene.wordcount || 0));
-
-        const targetGroup = wcRow.createDiv();
-        targetGroup.createSpan({ cls: 'inspector-label', text: 'Target' });
-        const targetInput = targetGroup.createEl('input', { attr: { type: 'number', placeholder: String(this.plugin.settings.defaultTargetWordCount || '') } });
-        styleInput(targetInput);
-        targetInput.value = scene.target_wordcount ? String(scene.target_wordcount) : '';
-        targetInput.addEventListener('change', async () => {
-            const val = targetInput.value.trim() ? Number(targetInput.value) : undefined;
-            await this.sceneManager.updateScene(scene.filePath, { target_wordcount: val });
-            scene.target_wordcount = val;
         });
 
         // ── Tags / Plotlines (autocomplete tag-pill input) ──
@@ -647,133 +506,14 @@ export class InspectorComponent {
             placeholder: 'Add plotline…',
         });
 
-        // ── Synopsis (editable) ──
-        // Same field that powers the standalone Synopsis tab/sidebar, but
-        // exposed inline so users who keep the Details tab open can edit the
-        // synopsis without flipping to the Synopsis tab. (User request,
-        // v1.10.17.)
-        {
-            const synSection = this.container.createDiv('inspector-section');
-            synSection.createSpan({ cls: 'inspector-label', text: 'Synopsis:' });
-            const synInput = synSection.createEl('textarea', {
-                cls: 'inspector-synopsis-input',
-                attr: { placeholder: 'One- or two-sentence summary of the scene…', rows: '6' },
-            });
-            synInput.value = scene.synopsis || '';
-            styleInput(synInput);
-            synInput.setCssStyles({
-                padding: '6px 8px',
-                resize: 'vertical',
-            });
-            synInput.addEventListener('change', async () => {
-                const val = synInput.value.trim() || undefined;
-                await this.sceneManager.updateScene(scene.filePath, { synopsis: val });
-                scene.synopsis = val;
-            });
-        }
-
-        // ── Scene Draft (body text — editable) ──
-        {
-            const descSection = this.container.createDiv('inspector-section');
-            descSection.createSpan({ cls: 'inspector-label', text: 'Scene Draft:' });
-            const descInput = descSection.createEl('textarea', {
-                cls: 'inspector-description-input',
-                attr: { placeholder: 'Write your scene draft here…', rows: '12' },
-            });
-            descInput.value = scene.body || '';
-            styleInput(descInput);
-            descInput.setCssStyles({
-                padding: '6px 8px',
-                resize: 'vertical',
-            });
-            descInput.addEventListener('change', async () => {
-                const val = descInput.value;
-                await this.sceneManager.updateScene(scene.filePath, { body: val });
-                scene.body = val;
-            });
-        }
-
         // ── Detected in text (LinkScanner results) ──
         this.renderDetectedLinks(scene);
-
-        // ── Conflict (editable) ──
-        const conflictSection = this.container.createDiv('inspector-section');
-        conflictSection.createSpan({ cls: 'inspector-label', text: 'Conflict:' });
-        const conflictInput = conflictSection.createEl('textarea', {
-            cls: 'inspector-conflict-input',
-            attr: { placeholder: 'What is the main conflict?', rows: '12' },
-        });
-        conflictInput.value = scene.conflict || '';
-        styleInput(conflictInput);
-        conflictInput.setCssStyles({
-            padding: '6px 8px',
-            resize: 'vertical',
-        });
-        conflictInput.addEventListener('change', async () => {
-            const val = conflictInput.value.trim() || undefined;
-            await this.sceneManager.updateScene(scene.filePath, { conflict: val });
-            scene.conflict = val;
-        });
-
-        // ── Emotion (editable) ──
-        const emotionSection = this.container.createDiv('inspector-section');
-        emotionSection.createSpan({ cls: 'inspector-label', text: 'Emotion: ' });
-        const emotionInput = emotionSection.createEl('input', {
-            cls: 'inspector-emotion-input',
-            attr: { type: 'text', placeholder: 'E.g. Tense, hopeful, melancholic' },
-        });
-        emotionInput.value = scene.emotion || '';
-        styleInput(emotionInput);
-        emotionInput.addEventListener('change', async () => {
-            const val = emotionInput.value.trim() || undefined;
-            await this.sceneManager.updateScene(scene.filePath, { emotion: val });
-            scene.emotion = val;
-        });
-
-        // Intensity slider (always shown, editable)
-        const intensitySection = this.container.createDiv('inspector-section inspector-intensity');
-        intensitySection.createSpan({ cls: 'inspector-label', text: 'Intensity: ' });
-        const intensityRow = intensitySection.createDiv('inspector-intensity-row');
-        const slider = intensityRow.createEl('input', {
-            attr: {
-                type: 'range',
-                min: '-10',
-                max: '10',
-                step: '1',
-                value: String(scene.intensity ?? 0),
-            },
-            cls: 'inspector-intensity-slider',
-        });
-        const valueLabel = intensityRow.createSpan({
-            cls: 'inspector-intensity-value',
-            text: this.formatIntensity(scene.intensity ?? 0),
-        });
-        slider.addEventListener('input', () => {
-            const val = Number(slider.value);
-            valueLabel.textContent = this.formatIntensity(val);
-            valueLabel.className = 'inspector-intensity-value ' +
-                (val > 0 ? 'intensity-positive' : val < 0 ? 'intensity-negative' : 'intensity-neutral');
-        });
-        slider.addEventListener('change', async () => {
-            const val = Number(slider.value);
-            await this.sceneManager.updateScene(scene.filePath, { intensity: val });
-        });
-        // Set initial color class
-        const initVal = scene.intensity ?? 0;
-        valueLabel.className = 'inspector-intensity-value ' +
-            (initVal > 0 ? 'intensity-positive' : initVal < 0 ? 'intensity-negative' : 'intensity-neutral');
 
         // ── Custom (universal) fields for scenes ──
         this.renderUniversalFields(scene);
 
-        // Setup / Payoff tracking
-        this.renderSetupPayoff(scene);
-
         // Editorial Notes / Revision Comments
         this.renderNotes(scene);
-
-        // Snapshots / Version History
-        this.renderSnapshots(scene);
 
         // Comments
         this.renderCommentsContainer(scene);
@@ -915,9 +655,16 @@ export class InspectorComponent {
         } else if (tpl.type === 'dropdown') {
             const sel = row.createEl('select', { cls: 'inspector-universal-select' });
             sel.createEl('option', { text: tpl.placeholder || '— Select —', value: '' });
-            for (const opt of tpl.options) {
+            const options = this.buildFieldOptions(tpl);
+            for (const opt of options) {
                 const o = sel.createEl('option', { text: opt, value: opt });
                 if (value === opt) o.selected = true;
+            }
+            // Keep the current value selectable even if it comes from a
+            // template option or folder entry that was since removed.
+            if (value && !options.includes(value)) {
+                const o = sel.createEl('option', { text: value, value });
+                o.selected = true;
             }
             sel.addEventListener('change', async () => {
                 scene.universalFields![tpl.id] = sel.value;
@@ -951,8 +698,16 @@ export class InspectorComponent {
             const msInput = inputRow.createEl('input', {
                 cls: 'inspector-universal-input',
                 type: 'text',
-                attr: { placeholder: tpl.placeholder || 'Type to add…' },
+                attr: {
+                    placeholder: tpl.placeholder || 'Type to add…',
+                    list: `inspector-uf-options-${tpl.id}`,
+                },
             });
+            // Suggest template options + folder-sourced entries via datalist.
+            const dl = msContainer.createEl('datalist', { attr: { id: `inspector-uf-options-${tpl.id}` } });
+            for (const opt of this.buildFieldOptions(tpl)) {
+                dl.createEl('option', { value: opt });
+            }
             msInput.addEventListener('keydown', async (e: KeyboardEvent) => {
                 if (e.key === 'Enter' && msInput.value.trim()) {
                     e.preventDefault();
@@ -994,115 +749,23 @@ export class InspectorComponent {
     }
 
     /**
-     * Render the Setup / Payoff tracking section
+     * Build the selectable options for a dropdown / multi-select template:
+     * template-defined options plus (when `folderSource` is set) the base
+     * names of every markdown file in that folder, sorted alphabetically.
      */
-    private renderSetupPayoff(scene: Scene): void {
-        const section = this.container.createDiv('inspector-section inspector-setup-payoff');
-        section.createSpan({ cls: 'inspector-label', text: 'Setup / Payoff:' });
-
-        const allSceneTitles = this.sceneManager.getAllScenes()
-            .filter(s => s.filePath !== scene.filePath)
-            .map(s => s.title)
-            .filter(Boolean);
-
-        // --- "Sets up" (scenes this scene sets up) ---
-        const payoffLabel = section.createDiv('inspector-sp-row');
-        const payoffIcon = payoffLabel.createSpan();
-        obsidian.setIcon(payoffIcon, 'arrow-right');
-        payoffLabel.createSpan({ text: ' Sets up:', cls: 'inspector-sp-label' });
-
-        const payoffContainer = section.createDiv('inspector-sp-list');
-        renderTagPillInput({
-            container: payoffContainer,
-            values: scene.payoff_scenes || [],
-            getSuggestions: () => allSceneTitles,
-            onChange: async (values) => {
-                const oldValues = scene.payoff_scenes || [];
-                await this.sceneManager.updateScene(scene.filePath, { payoff_scenes: values });
-
-                // Add reverse links for new entries
-                for (const title of values) {
-                    if (!oldValues.includes(title)) {
-                        const targetScene = this.sceneManager.getAllScenes().find(s => s.title === title);
-                        if (targetScene) {
-                            const rev = targetScene.setup_scenes ? [...targetScene.setup_scenes] : [];
-                            if (!rev.includes(scene.title)) {
-                                rev.push(scene.title);
-                                await this.sceneManager.updateScene(targetScene.filePath, { setup_scenes: rev });
-                            }
-                        }
+    private buildFieldOptions(tpl: UniversalFieldTemplate): string[] {
+        const opts = [...(tpl.options || [])];
+        if (tpl.folderSource) {
+            const folder = this.plugin.app.vault.getAbstractFileByPath(tpl.folderSource);
+            if (folder && 'children' in folder) {
+                for (const child of (folder as obsidian.TFolder).children) {
+                    if (child instanceof obsidian.TFile && child.extension === 'md') {
+                        if (!opts.includes(child.basename)) opts.push(child.basename);
                     }
                 }
-                // Remove reverse links for removed entries
-                for (const title of oldValues) {
-                    if (!values.includes(title)) {
-                        const targetScene = this.sceneManager.getAllScenes().find(s => s.title === title);
-                        if (targetScene && targetScene.setup_scenes?.includes(scene.title)) {
-                            const rev = targetScene.setup_scenes.filter(s => s !== scene.title);
-                            await this.sceneManager.updateScene(targetScene.filePath, { setup_scenes: rev });
-                        }
-                    }
-                }
-            },
-            placeholder: 'Search scenes…',
-        });
-
-        // --- "Set up by" (scenes that set this one up) ---
-        const setupLabel = section.createDiv('inspector-sp-row');
-        const setupIcon = setupLabel.createSpan();
-        obsidian.setIcon(setupIcon, 'arrow-left');
-        setupLabel.createSpan({ text: ' Set up by:', cls: 'inspector-sp-label' });
-
-        const setupContainer = section.createDiv('inspector-sp-list');
-        renderTagPillInput({
-            container: setupContainer,
-            values: scene.setup_scenes || [],
-            getSuggestions: () => allSceneTitles,
-            onChange: async (values) => {
-                const oldValues = scene.setup_scenes || [];
-                await this.sceneManager.updateScene(scene.filePath, { setup_scenes: values });
-
-                // Add reverse links for new entries
-                for (const title of values) {
-                    if (!oldValues.includes(title)) {
-                        const sourceScene = this.sceneManager.getAllScenes().find(s => s.title === title);
-                        if (sourceScene) {
-                            const rev = sourceScene.payoff_scenes ? [...sourceScene.payoff_scenes] : [];
-                            if (!rev.includes(scene.title)) {
-                                rev.push(scene.title);
-                                await this.sceneManager.updateScene(sourceScene.filePath, { payoff_scenes: rev });
-                            }
-                        }
-                    }
-                }
-                // Remove reverse links for removed entries
-                for (const title of oldValues) {
-                    if (!values.includes(title)) {
-                        const sourceScene = this.sceneManager.getAllScenes().find(s => s.title === title);
-                        if (sourceScene && sourceScene.payoff_scenes?.includes(scene.title)) {
-                            const rev = sourceScene.payoff_scenes.filter(s => s !== scene.title);
-                            await this.sceneManager.updateScene(sourceScene.filePath, { payoff_scenes: rev });
-                        }
-                    }
-                }
-            },
-            placeholder: 'Search scenes…',
-        });
-
-        // Warning: dangling setup (this scene sets up something but the target doesn't exist)
-        if (scene.payoff_scenes?.length) {
-            const allScenes = this.sceneManager.getAllScenes();
-            const dangling = scene.payoff_scenes.filter(target => {
-                const targetScene = allScenes.find(s => s.title === target);
-                return !targetScene;
-            });
-            if (dangling.length > 0) {
-                const warn = section.createDiv('inspector-sp-warning');
-                const warnIcon = warn.createSpan();
-                obsidian.setIcon(warnIcon, 'alert-triangle');
-                warn.createSpan({ text: ` Missing payoff target: ${dangling.join(', ')}` });
             }
         }
+        return opts.sort((a, b) => a.localeCompare(b));
     }
 
     /**
@@ -1159,9 +822,9 @@ export class InspectorComponent {
 
         const overrides = this.plugin.settings.tagTypeOverrides;
 
-        // Exclude links that are already listed in frontmatter characters / location / codexLinks
+        // Exclude links that are already listed in frontmatter characters / locations / codexLinks
         const fmChars = new Set((scene.characters || []).map(c => c.toLowerCase()));
-        const fmLoc = scene.location?.toLowerCase();
+        const fmLocs = new Set((scene.locations || []).map(l => l.toLowerCase()));
         const fmCodex = new Set<string>();
         if (scene.codexLinks) {
             for (const names of Object.values(scene.codexLinks)) {
@@ -1174,7 +837,7 @@ export class InspectorComponent {
             const key = l.name.toLowerCase();
             if (ignored.has(key)) return false;
             if (l.type === 'character' && fmChars.has(key)) return false;
-            if (l.type === 'location' && key === fmLoc) return false;
+            if (l.type === 'location' && fmLocs.has(key)) return false;
             if (fmCodex.has(key)) return false;
             return true;
         });
@@ -1474,104 +1137,6 @@ export class InspectorComponent {
     }
 
     /**
-     * Render the Snapshots / Version History section.
-     */
-    private renderSnapshots(scene: Scene): void {
-        const section = this.container.createDiv('inspector-section inspector-snapshots');
-        const headerRow = section.createDiv('inspector-snapshots-header');
-        const hdrIcon = headerRow.createSpan();
-        obsidian.setIcon(hdrIcon, 'history');
-        headerRow.createSpan({ cls: 'inspector-label', text: ' Snapshots' });
-
-        const saveBtn = headerRow.createEl('button', {
-            cls: 'inspector-snapshot-save-btn clickable-icon',
-            attr: { title: 'Save snapshot' },
-        });
-        obsidian.setIcon(saveBtn, 'save');
-
-        const listEl = section.createDiv('inspector-snapshot-list');
-
-        // Load existing snapshots
-        const mgr = this.plugin.snapshotManager;
-        const loadList = async () => {
-            listEl.empty();
-            const snapshots = await mgr.listSnapshots(scene.filePath);
-            if (snapshots.length === 0) {
-                listEl.createSpan({ cls: 'inspector-sp-empty', text: 'No snapshots yet' });
-                return;
-            }
-            for (const snap of snapshots) {
-                const row = listEl.createDiv('inspector-snapshot-row');
-                const info = row.createDiv('inspector-snapshot-info');
-                info.createSpan({ cls: 'inspector-snapshot-label', text: snap.label });
-                const dateStr = snap.timestamp.split('T')[0];
-                const wcStr = snap.wordcount ? ` · ${snap.wordcount}w` : '';
-                info.createSpan({ cls: 'inspector-snapshot-meta', text: `${dateStr}${wcStr}` });
-
-                const btns = row.createDiv('inspector-snapshot-btns');
-
-                // View — open the snapshot file in a new tab so the user
-                // can compare it side-by-side with the current scene before
-                // deciding whether to restore.
-                const viewBtn = btns.createEl('button', {
-                    cls: 'clickable-icon',
-                    attr: { title: 'Open snapshot in a new tab (compare)' },
-                });
-                obsidian.setIcon(viewBtn, 'file-text');
-                viewBtn.addEventListener('click', async () => {
-                    const file = this.plugin.app.vault.getAbstractFileByPath(snap.filePath);
-                    if (file instanceof obsidian.TFile) {
-                        const leaf = this.plugin.app.workspace.getLeaf('tab');
-                        await leaf.openFile(file);
-                    } else {
-                        new obsidian.Notice('Snapshot file not found.');
-                    }
-                });
-
-                const restoreBtn = btns.createEl('button', {
-                    cls: 'clickable-icon',
-                    attr: { title: 'Restore this snapshot' },
-                });
-                obsidian.setIcon(restoreBtn, 'undo-2');
-                restoreBtn.addEventListener('click', () => {
-                    openConfirmModal(this.plugin.app, {
-                        title: 'Restore Snapshot',
-                        message: `Replace scene with snapshot "${snap.label}"? Save a snapshot first to avoid losing current content.`,
-                        confirmLabel: 'Restore',
-                        onConfirm: async () => {
-                            await mgr.restoreSnapshot(snap.filePath, scene.filePath);
-                            // Refresh scene from disk
-                            const fresh = this.sceneManager.getAllScenes().find(s => s.filePath === scene.filePath);
-                            if (fresh) this.show(fresh);
-                        },
-                    });
-                });
-
-                const delBtn = btns.createEl('button', {
-                    cls: 'clickable-icon',
-                    attr: { title: 'Delete snapshot' },
-                });
-                obsidian.setIcon(delBtn, 'trash-2');
-                delBtn.addEventListener('click', async () => {
-                    await mgr.deleteSnapshot(snap.filePath);
-                    await loadList();
-                });
-            }
-        };
-
-        saveBtn.addEventListener('click', () => {
-            // Prompt for label
-            const modal = new SnapshotLabelModal(this.plugin.app, async (label) => {
-                await mgr.saveSnapshot(scene.filePath, label);
-                await loadList();
-            });
-            modal.open();
-        });
-
-        loadList();
-    }
-
-    /**
      * Collect all known location names from LocationManager + scene metadata.
      */
     private getLocationNames(): string[] {
@@ -1662,55 +1227,6 @@ export class InspectorComponent {
                 },
             );
         }
-    }
-}
-
-/**
- * Simple modal to enter a snapshot label
- */
-class SnapshotLabelModal extends Modal {
-    private onSubmit: (label: string) => void;
-
-    constructor(app: App, onSubmit: (label: string) => void) {
-        super(app);
-        this.onSubmit = onSubmit;
-    }
-
-    onOpen(): void {
-        const { contentEl } = this;
-        contentEl.createEl('h3', { text: 'Save snapshot' });
-        contentEl.createEl('p', { text: 'Enter a name for this snapshot (e.g. "before major rewrite")' });
-
-        const input = contentEl.createEl('input', {
-            attr: { type: 'text', placeholder: 'Snapshot label…' },
-            cls: 'snapshot-label-input',
-        });
-        input.setCssStyles({
-            width: '100%',
-            marginBottom: '12px',
-        });
-        window.setTimeout(() => input.focus(), 50);
-
-        const btnRow = contentEl.createDiv({ cls: 'snapshot-label-btns' });
-        btnRow.setCssStyles({
-            display: 'flex',
-            gap: '8px',
-            justifyContent: 'flex-end',
-        });
-
-        const cancelBtn = btnRow.createEl('button', { text: 'Cancel' });
-        cancelBtn.addEventListener('click', () => this.close());
-
-        const saveBtn = btnRow.createEl('button', { text: 'Save', cls: 'mod-cta' });
-        const doSave = () => {
-            const label = input.value.trim() || `Snapshot ${new Date().toLocaleDateString()}`;
-            this.onSubmit(label);
-            this.close();
-        };
-        saveBtn.addEventListener('click', doSave);
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') doSave();
-        });
     }
 }
 /* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unused-vars -- end of file-wide suppression block opened at line 1 */

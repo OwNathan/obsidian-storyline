@@ -213,14 +213,8 @@ export class ExportService {
                 lines.push('');
             }
 
-            // Scene body (strip wikilinks for clean export)
-            if (scene.body && scene.body.trim()) {
-                lines.push(this.stripWikiLinks(scene.body.trim()));
-                lines.push('');
-            } else {
-                lines.push('*No content yet.*');
-                lines.push('');
-            }
+            lines.push('*No content yet.*');
+            lines.push('');
 
             // (no divider between scenes – the heading structure is sufficient)
             // Scene separator (plain text for Markdown exports — keeps the .md
@@ -235,43 +229,23 @@ export class ExportService {
 
     private buildOutlineMd(lines: string[], scenes: Scene[]): void {
         // Summary stats
-        const totalWords = scenes.reduce((sum, s) => sum + (s.wordcount || 0), 0);
-        const statusCounts: Record<string, number> = {};
-        for (const s of scenes) {
-            const st = s.status || 'idea';
-            statusCounts[st] = (statusCounts[st] || 0) + 1;
-        }
-
         lines.push(`**Scenes:** ${scenes.length}  `);
-        lines.push(`**Total words:** ${totalWords.toLocaleString()}  `);
-        const statusLine = Object.entries(statusCounts)
-            .map(([s, c]) => `${resolveStatusCfg(s).label}: ${c}`)
-            .join(' | ');
-        lines.push(`**Status:** ${statusLine}`);
         lines.push('');
 
         // Scene table
-        lines.push('| # | Title | Act | Ch | Chrono | Status | POV | Location | Words | Emotion | Intensity | Conflict | Tags | Timeline Mode | Strand | Notes |');
-        lines.push('|---|-------|-----|----|--------|--------|-----|----------|-------|---------|-----------|----------|------|---------------|--------|-------|');
+        lines.push('| # | Title | Act | Ch | Status | Locations | Tags | Notes |');
+        lines.push('|---|-------|-----|----|--------|-----------|------|-------|');
 
         for (const scene of scenes) {
             const seq = scene.sequence ?? '';
             const title = scene.title || 'Untitled';
             const act = scene.act ?? '';
             const ch = scene.chapter ?? '';
-            const chrono = scene.chronologicalOrder ?? '';
             const status = resolveStatusCfg(scene.status || 'idea').label;
-            const pov = scene.pov || '';
-            const location = (scene.location || '').replace(/\|/g, '/');
-            const words = scene.wordcount ?? '';
-            const emotion = scene.emotion || '';
-            const intensity = scene.intensity ?? '';
-            const conflict = (scene.conflict || '').replace(/\|/g, '/');
+            const locations = (scene.locations || []).join(', ');
             const tags = (scene.tags || []).join(', ');
             const notes = (scene.notes || '').replace(/\|/g, '/').replace(/\n/g, ' ');
-            const tlMode = scene.timeline_mode || '';
-            const tlStrand = scene.timeline_strand || '';
-            lines.push(`| ${seq} | ${title} | ${act} | ${ch} | ${chrono} | ${status} | ${pov} | ${location} | ${words} | ${emotion} | ${intensity} | ${conflict} | ${tags} | ${tlMode} | ${tlStrand} | ${notes} |`);
+            lines.push(`| ${seq} | ${title} | ${act} | ${ch} | ${status} | ${locations} | ${tags} | ${notes} |`);
         }
 
         lines.push('');
@@ -279,7 +253,6 @@ export class ExportService {
         // Characters summary
         const allChars = new Set<string>();
         for (const s of scenes) {
-            if (s.pov) allChars.add(s.pov);
             if (s.characters) s.characters.forEach(c => allChars.add(c));
         }
         if (allChars.size > 0) {
@@ -385,8 +358,6 @@ export class ExportService {
                     act: s.act,
                     chapter: s.chapter,
                     sequence: s.sequence,
-                    chronologicalOrder: s.chronologicalOrder,
-                    body: s.body || '',
                 })),
             };
         } else {
@@ -394,31 +365,17 @@ export class ExportService {
                 project: project.title,
                 exported: new Date().toISOString(),
                 totalScenes: scenes.length,
-                totalWords: scenes.reduce((sum, s) => sum + (s.wordcount || 0), 0),
                 scenes: scenes.map(s => ({
                     title: s.title,
                     filePath: s.filePath,
                     act: s.act,
                     chapter: s.chapter,
                     sequence: s.sequence,
-                    chronologicalOrder: s.chronologicalOrder,
                     status: s.status,
-                    pov: s.pov,
                     characters: s.characters,
-                    location: s.location,
-                    storyDate: s.storyDate,
-                    storyTime: s.storyTime,
-                    conflict: s.conflict,
-                    emotion: s.emotion,
-                    intensity: s.intensity,
-                    wordcount: s.wordcount,
-                    target_wordcount: s.target_wordcount,
+                    locations: s.locations,
                     tags: s.tags,
-                    setup_scenes: s.setup_scenes,
-                    payoff_scenes: s.payoff_scenes,
                     notes: s.notes,
-                    timeline_mode: s.timeline_mode,
-                    timeline_strand: s.timeline_strand,
                 })),
                 characters: this.characterManager.getAllCharacters().map(c => {
                     const obj: Record<string, unknown> = { name: c.name };
@@ -598,13 +555,7 @@ ${body}
                 parts.push(`<h4>${this.escHtml(scene.title || 'Untitled Scene')}</h4>`);
             }
 
-            if (scene.body && scene.body.trim()) {
-                // Convert basic markdown blocks to HTML (strip wikilinks + tags, convert formatting)
-                const cleanBody = this.stripObsidianTags(this.stripWikiLinks(scene.body.trim()));
-                parts.push(...this.mdBlocksToHtml(cleanBody));
-            } else {
                 parts.push('<p class="no-content">No content yet.</p>');
-            }
 
             parts.push('</div>');
 
@@ -620,29 +571,23 @@ ${body}
 
     private buildOutlineHtml(scenes: Scene[]): string {
         const parts: string[] = [];
-        const totalWords = scenes.reduce((sum, s) => sum + (s.wordcount || 0), 0);
 
         parts.push(`<div class="stats">`);
-        parts.push(`<strong>Scenes:</strong> ${scenes.length} &nbsp;&bull;&nbsp; <strong>Words:</strong> ${totalWords.toLocaleString()}`);
+        parts.push(`<strong>Scenes:</strong> ${scenes.length}`);
         parts.push('</div>');
 
         parts.push('<table>');
-        parts.push('<tr><th>#</th><th>Chrono</th><th>Title</th><th>Act</th><th>Ch</th><th>Status</th><th>POV</th><th>Location</th><th>Words</th><th>Emotion</th><th>Mode</th><th>Conflict</th></tr>');
+        parts.push('<tr><th>#</th><th>Title</th><th>Act</th><th>Ch</th><th>Status</th><th>Locations</th><th>Tags</th></tr>');
 
         for (const scene of scenes) {
             parts.push('<tr>');
             parts.push(`<td>${scene.sequence ?? ''}</td>`);
-            parts.push(`<td>${scene.chronologicalOrder ?? ''}</td>`);
             parts.push(`<td>${this.escHtml(scene.title || 'Untitled')}</td>`);
             parts.push(`<td>${scene.act ?? ''}</td>`);
             parts.push(`<td>${scene.chapter ?? ''}</td>`);
             parts.push(`<td>${this.escHtml(resolveStatusCfg(scene.status || 'idea').label)}</td>`);
-            parts.push(`<td>${this.escHtml(scene.pov || '')}</td>`);
-            parts.push(`<td>${this.escHtml(scene.location || '')}</td>`);
-            parts.push(`<td>${scene.wordcount ?? ''}</td>`);
-            parts.push(`<td>${this.escHtml(scene.emotion || '')}</td>`);
-            parts.push(`<td>${this.escHtml(scene.timeline_mode || '')}</td>`);
-            parts.push(`<td>${this.escHtml(scene.conflict || '')}</td>`);
+            parts.push(`<td>${this.escHtml((scene.locations || []).join(', '))}</td>`);
+            parts.push(`<td>${this.escHtml((scene.tags || []).join(', '))}</td>`);
             parts.push('</tr>');
         }
 
@@ -662,37 +607,21 @@ ${body}
         if (scope === 'outline') {
             // Header row
             rows.push([
-                'Sequence', 'Chronological Order', 'Title', 'Act', 'Chapter', 'Status',
-                'POV', 'Location', 'Characters', 'Emotion', 'Intensity',
-                'Word Count', 'Target Words', 'Conflict',
-                'Tags', 'Story Date', 'Story Time',
-                'Setup Scenes', 'Payoff Scenes',
-                'Timeline Mode', 'Timeline Strand', 'Notes',
+                'Sequence', 'Title', 'Act', 'Chapter', 'Status',
+                'Locations', 'Characters',
+                'Tags', 'Notes',
             ]);
 
             for (const scene of scenes) {
                 rows.push([
                     String(scene.sequence ?? ''),
-                    String(scene.chronologicalOrder ?? ''),
                     scene.title || 'Untitled',
                     String(scene.act ?? ''),
                     String(scene.chapter ?? ''),
                     resolveStatusCfg(scene.status || 'idea').label,
-                    scene.pov || '',
-                    scene.location || '',
+                    (scene.locations || []).join('; '),
                     (scene.characters || []).join('; '),
-                    scene.emotion || '',
-                    String(scene.intensity ?? ''),
-                    String(scene.wordcount ?? ''),
-                    String(scene.target_wordcount ?? ''),
-                    scene.conflict || '',
                     (scene.tags || []).join('; '),
-                    scene.storyDate || '',
-                    scene.storyTime || '',
-                    (scene.setup_scenes || []).join('; '),
-                    (scene.payoff_scenes || []).join('; '),
-                    scene.timeline_mode || '',
-                    scene.timeline_strand || '',
                     scene.notes || '',
                 ]);
             }
@@ -732,16 +661,14 @@ ${body}
                 }
             }
         } else {
-            // Manuscript scope: title + full body text per row
-            rows.push(['Sequence', 'Chronological Order', 'Title', 'Act', 'Chapter', 'Body']);
+            // Manuscript scope: title per row
+            rows.push(['Sequence', 'Title', 'Act', 'Chapter']);
             for (const scene of scenes) {
                 rows.push([
                     String(scene.sequence ?? ''),
-                    String(scene.chronologicalOrder ?? ''),
                     scene.title || 'Untitled',
                     String(scene.act ?? ''),
                     String(scene.chapter ?? ''),
-                    this.stripWikiLinks(scene.body || ''),
                 ]);
             }
         }

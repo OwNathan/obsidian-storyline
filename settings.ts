@@ -2408,7 +2408,7 @@ export class SceneCardsSettingTab extends PluginSettingTab {
                 .setButtonText('Add template')
                 .setCta()
                 .onClick(() => {
-                    const blank: SceneTemplate = { name: '', description: '', defaultFields: {}, bodyTemplate: '' };
+                    const blank: SceneTemplate = { name: '', description: '', defaultFields: {} };
                     new TemplateEditorModal(this.app, blank, async (tpl) => {
                         this.plugin.settings.sceneTemplates.push(tpl);
                         await this.plugin.saveSettings();
@@ -3701,16 +3701,6 @@ class TemplateEditorModal extends Modal {
             });
 
         new Setting(contentEl)
-            .setName('Default emotion')
-            .addText(text => text
-                .setPlaceholder('E.g. Tense, hopeful')
-                .setValue(this.template.defaultFields.emotion || '')
-                .onChange(v => {
-                    if (v) this.template.defaultFields.emotion = v;
-                    else delete this.template.defaultFields.emotion;
-                }));
-
-        new Setting(contentEl)
             .setName('Default tags')
             .setDesc('Comma-separated')
             .addText(text => text
@@ -3721,29 +3711,6 @@ class TemplateEditorModal extends Modal {
                     if (tags.length) this.template.defaultFields.tags = tags;
                     else delete this.template.defaultFields.tags;
                 }));
-
-        new Setting(contentEl)
-            .setName('Target word count')
-            .addText(text => text
-                .setPlaceholder('E.g. 1200')
-                .setValue(this.template.defaultFields.target_wordcount ? String(this.template.defaultFields.target_wordcount) : '')
-                .onChange(v => {
-                    const n = Number(v);
-                    if (n > 0) this.template.defaultFields.target_wordcount = n;
-                    else delete this.template.defaultFields.target_wordcount;
-                }));
-
-        contentEl.createEl('h4', { text: 'Body template' });
-        contentEl.createEl('p', { text: 'This text is inserted into the scene file body when using this template.', cls: 'setting-item-description' });
-
-        const bodyArea = new TextAreaComponent(contentEl);
-        bodyArea.setValue(this.template.bodyTemplate);
-        bodyArea.onChange(v => this.template.bodyTemplate = v);
-        bodyArea.inputEl.rows = 10;
-        bodyArea.inputEl.setCssStyles({
-            width: '100%',
-            fontFamily: 'var(--font-monospace)',
-        });
 
         const btnRow = contentEl.createDiv({ cls: 'story-line-button-row' });
         const cancelBtn = btnRow.createEl('button', { text: 'Cancel' });

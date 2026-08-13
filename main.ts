@@ -52,7 +52,6 @@ import { CharacterManager } from './services/CharacterManager';
 import { CodexManager } from './services/CodexManager';
 import { makeCustomCodexCategory } from './models/Codex';
 import { QuickAddModal } from './components/QuickAddModal';
-import { ExportModal } from './components/ExportModal';
 import { WritingTracker } from './services/WritingTracker';
 import { SnapshotManager } from './services/SnapshotManager';
 import { ViewSnapshotService } from './services/ViewSnapshotService';
@@ -289,7 +288,7 @@ export default class SceneCardsPlugin extends Plugin {
 
             // Initialize writing tracker from per-project System/stats.json
             const stats = this.sceneManager.queryService.getStatistics();
-            this.writingTracker.startSession(stats.totalWords);
+            this.writingTracker.startSession(0);
 
             // Refresh all open views now that the project is set — this ensures
             // PlotGrid and other views that opened before bootstrapProjects reload
@@ -310,16 +309,6 @@ export default class SceneCardsPlugin extends Plugin {
         this.addCommand({
             id: 'open-board-view',
             name: 'Open board view',            callback: () => this.activateView(BOARD_VIEW_TYPE),
-        });
-
-        this.addCommand({
-            id: 'open-timeline-view',
-            name: 'Open timeline view',            callback: () => this.activateView(TIMELINE_VIEW_TYPE),
-        });
-
-        this.addCommand({
-            id: 'open-plotgrid-view',
-            name: 'Open plotgrid view',            callback: () => this.activateView(PLOTGRID_VIEW_TYPE),
         });
 
         this.addCommand({
@@ -450,13 +439,6 @@ export default class SceneCardsPlugin extends Plugin {
             } else {
                 void this.sceneManager.undoManager.redo();
             }
-        });
-
-        this.addCommand({
-            id: 'export-project',
-            name: 'Export project',            callback: () => {
-                new ExportModal(this).open();
-            },
         });
 
         this.addCommand({
@@ -1000,9 +982,9 @@ export default class SceneCardsPlugin extends Plugin {
             const stats = this.sceneManager.queryService.getStatistics();
             // Stop any active sprint so it gets recorded
             if (this.writingTracker.isSprintRunning()) {
-                this.writingTracker.stopSprint(stats.totalWords);
+                this.writingTracker.stopSprint(0);
             }
-            this.writingTracker.flushSession(stats.totalWords);
+            this.writingTracker.flushSession(0);
             this.saveProjectSystemData();
         } catch { /* best effort */ }
 
@@ -2281,7 +2263,7 @@ export default class SceneCardsPlugin extends Plugin {
         // Flush writing tracker so daily stats update in real-time
         try {
             const stats = this.sceneManager.queryService.getStatistics();
-            this.writingTracker.flushSession(stats.totalWords);
+            this.writingTracker.flushSession(0);
         } catch { /* project may not be set yet */ }
 
         const viewTypes = [

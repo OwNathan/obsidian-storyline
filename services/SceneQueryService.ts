@@ -104,7 +104,7 @@ export class SceneQueryService {
             let key: string;
             switch (fieldStr) {
                 case 'act':
-                    key = scene.act !== undefined ? getActDisplayLabel(scene.act) : 'No Act';
+                    key = scene.act !== undefined ? `Act ${scene.act}` : 'No Act';
                     break;
                 case 'chapter':
                     key = scene.chapter !== undefined ? `Chapter ${scene.chapter}` : 'No Chapter';
@@ -113,7 +113,8 @@ export class SceneQueryService {
                     key = scene.status || 'No Status';
                     break;
                 case 'pov':
-                    key = scene.pov || 'No POV';
+                    // POV field was removed — group everything under one bucket.
+                    key = 'No POV';
                     break;
                 case 'plotlines':
                     // Issue #182 — plotlines grouping was previously unhandled and
@@ -172,10 +173,16 @@ export class SceneQueryService {
     /**
      * Get unique values for a field (for filter dropdowns)
      */
-    getUniqueValues(field: 'act' | 'chapter' | 'pov' | 'status' | 'emotion' | 'location'): string[] {
+    getUniqueValues(field: 'act' | 'chapter' | 'pov' | 'status' | 'emotion' | 'location' | 'locations'): string[] {
         const values = new Set<string>();
         for (const scene of this.sceneStore.sceneValues()) {
-            const val = scene[field];
+            if (field === 'locations') {
+                for (const l of scene.locations || []) {
+                    if (l) values.add(l);
+                }
+                continue;
+            }
+            const val = (scene as unknown as Record<string, unknown>)[field];
             if (val !== undefined && val !== null) {
                 values.add(String(val));
             }
@@ -204,10 +211,6 @@ export class SceneQueryService {
                     if (!seen.has(key)) seen.set(key, c);
                 });
             }
-            if (scene.pov) {
-                const key = scene.pov.toLowerCase();
-                if (!seen.has(key)) seen.set(key, scene.pov);
-            }
         }
         return Array.from(seen.values()).sort((a, b) =>
             a.toLowerCase().localeCompare(b.toLowerCase())
@@ -232,46 +235,29 @@ export class SceneQueryService {
      */
     getStatistics(excludeArcAnchor = false) {
         const scenes = this.sceneStore.getAllScenes();
-        const activeScenes = scenes.filter(scene => !scene.inactive);
+        const activeScenes = scenes;
         const totalScenes = activeScenes.length;
         const statusCounts: Record<string, number> = {};
-        let totalWords = 0;
-        let totalTargetWords = 0;
         const actCounts: Record<string, number> = {};
-        const povCounts: Record<string, number> = {};
         const locationCounts: Record<string, number> = {};
         let orphanedScenes = 0;
 
         for (const scene of activeScenes) {
-            // Skip Arc Point scenes from word totals when setting is enabled
-            const skipWords = excludeArcAnchor && scene.arcAnchor;
-
             // Status
             const status = scene.status || 'unknown';
             statusCounts[status] = (statusCounts[status] || 0) + 1;
-
-            // Words
-            if (!skipWords) {
-                totalWords += scene.wordcount || 0;
-                totalTargetWords += scene.target_wordcount || 0;
-            }
 
             // Acts
             const act = scene.act !== undefined ? getActDisplayLabel(scene.act) : 'No Act';
             actCounts[act] = (actCounts[act] || 0) + 1;
 
-            // POV
-            if (scene.pov) {
-                povCounts[scene.pov] = (povCounts[scene.pov] || 0) + 1;
-            }
-
             // Locations
-            if (scene.location) {
-                locationCounts[scene.location] = (locationCounts[scene.location] || 0) + 1;
+            for (const l of scene.locations || []) {
+                locationCounts[l] = (locationCounts[l] || 0) + 1;
             }
 
             // Orphaned (no tags, no connections)
-            if (!scene.tags?.length && !scene.pov) {
+            if (!scene.tags?.length) {
                 orphanedScenes++;
             }
         }
@@ -279,10 +265,7 @@ export class SceneQueryService {
         return {
             totalScenes,
             statusCounts,
-            totalWords,
-            totalTargetWords,
             actCounts,
-            povCounts,
             locationCounts,
             orphanedScenes,
         };
@@ -291,13 +274,6 @@ export class SceneQueryService {
     // ── Private helpers ────────────────────────────────────
 
     private matchesFilter(scene: Scene, filter: SceneFilter): boolean {
-        const activeState = filter.activeState ?? 'active';
-        if (activeState === 'active' && scene.inactive) {
-            return false;
-        }
-        if (activeState === 'inactive' && !scene.inactive) {
-            return false;
-        }
         if (filter.status?.length && (!scene.status || !filter.status.includes(scene.status))) {
             return false;
         }
@@ -309,16 +285,15 @@ export class SceneQueryService {
             const sc = scene.chapter !== undefined ? String(scene.chapter) : '';
             if (!filter.chapter.map(String).includes(sc)) return false;
         }
-        if (filter.pov?.length && (!scene.pov || !filter.pov.includes(scene.pov))) {
-            return false;
-        }
         if (filter.characters?.length) {
             if (!scene.characters || !filter.characters.some(c => scene.characters!.includes(c))) {
                 return false;
             }
         }
-        if (filter.locations?.length && (!scene.location || !filter.locations.includes(scene.location))) {
-            return false;
+        if (filter.locations?.length) {
+            if (!scene.locations || !filter.locations.some(l => scene.locations!.includes(l))) {
+                return false;
+            }
         }
         if (filter.tags?.length) {
             if (!scene.tags || !filter.tags.some(t => scene.tags!.includes(t))) {
@@ -339,11 +314,8 @@ export class SceneQueryService {
             const searchLower = filter.searchText.toLowerCase();
             const searchIn = [
                 scene.title,
-                scene.conflict,
-                scene.emotion,
-                scene.pov,
-                scene.location,
                 ...(scene.characters || []),
+                ...(scene.locations || []),
                 ...(scene.tags || []),
             ].filter(Boolean).join(' ').toLowerCase();
             if (!searchIn.includes(searchLower)) return false;
@@ -370,30 +342,6 @@ export class SceneQueryService {
                     if (cmp === 0) cmp = compareActChapter(a.chapter, b.chapter);
                     if (cmp === 0) cmp = (a.sequence ?? 9999) - (b.sequence ?? 9999);
                     break;
-                case 'chronologicalOrder':
-                    cmp = this.compareChronological(a, b);
-                    break;
-                case 'storyDate': {
-                    // Sort by storyDate + storyTime; fall back to chronologicalOrder then sequence
-                    const aDate = a.storyDate?.trim();
-                    const bDate = b.storyDate?.trim();
-                    if (aDate && bDate) {
-                        cmp = aDate.localeCompare(bDate);
-                        if (cmp === 0) {
-                            const aTime = a.storyTime?.trim() || '';
-                            const bTime = b.storyTime?.trim() || '';
-                            cmp = aTime.localeCompare(bTime);
-                        }
-                    } else if (aDate) {
-                        cmp = -1; // scenes with dates come before those without
-                    } else if (bDate) {
-                        cmp = 1;
-                    } else {
-                        // Neither has a date — fall back to chronologicalOrder then sequence
-                        cmp = (a.chronologicalOrder ?? a.sequence ?? 9999) - (b.chronologicalOrder ?? b.sequence ?? 9999);
-                    }
-                    break;
-                }
                 case 'title':
                     cmp = (a.title || '').localeCompare(b.title || '');
                     break;
@@ -412,44 +360,12 @@ export class SceneQueryService {
                     if (cmp === 0) cmp = compareActChapter(a.chapter, b.chapter);
                     if (cmp === 0) cmp = (a.sequence ?? 9999) - (b.sequence ?? 9999);
                     break;
-                case 'wordcount':
-                    cmp = (a.wordcount ?? 0) - (b.wordcount ?? 0);
-                    break;
                 case 'modified':
                     cmp = (a.modified || '').localeCompare(b.modified || '');
                     break;
             }
             return cmp * dir;
         });
-    }
-
-    private compareChronological(a: Scene, b: Scene): number {
-        if (a.chronologicalOrder != null || b.chronologicalOrder != null) {
-            const cmp = (a.chronologicalOrder ?? Number.MAX_SAFE_INTEGER) - (b.chronologicalOrder ?? Number.MAX_SAFE_INTEGER);
-            if (cmp !== 0) return cmp;
-        }
-
-        const aDate = this.getStoryDateKey(a);
-        const bDate = this.getStoryDateKey(b);
-        if (aDate || bDate) {
-            if (!aDate) return 1;
-            if (!bDate) return -1;
-            const cmp = aDate.localeCompare(bDate);
-            if (cmp !== 0) return cmp;
-        }
-
-        const actCmp = compareActChapter(a.act, b.act);
-        if (actCmp !== 0) return actCmp;
-        const chapterCmp = compareActChapter(a.chapter, b.chapter);
-        if (chapterCmp !== 0) return chapterCmp;
-        return (a.sequence ?? 9999) - (b.sequence ?? 9999);
-    }
-
-    private getStoryDateKey(scene: Scene): string {
-        const date = (scene.storyDate || scene.timeline || '').trim();
-        const time = (scene.storyTime || '').trim();
-        if (!date && !time) return '';
-        return `${date} ${time}`.trim();
     }
 }
  

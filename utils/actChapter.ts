@@ -55,7 +55,7 @@ export function isEpilogueAct(act: ActChapterValue): boolean {
  *
  * - 0 / "Prologue" → "Prologue"
  * - 99 / "Epilogue" → "Epilogue"
- * - 1–98 → "Act N"
+ * - 1–98 → "N"
  * - Any other string → the string itself (e.g. "1.1")
  *
  * Use this everywhere an act label is shown to the user instead of
@@ -66,18 +66,18 @@ export function getActDisplayLabel(act: ActChapterValue): string {
     if (isEpilogueAct(act)) return 'Epilogue';
     if (act === undefined || act === null || act === '') return '';
     const n = toActChapterNumber(act);
-    if (!isNaN(n) && n >= 1 && n <= 98) return `Act ${n}`;
+    if (!isNaN(n) && n >= 1 && n <= 98) return `${n}`;
     return String(act);
 }
 
 /**
  * Returns the act display label with an optional subtitle (e.g. act label).
- * Example: "Prologue: Before the Storm" or "Act 1: Setup"
+ * Example: "Prologue: Before the Storm" or "Setup" (subtitle only)
  */
 export function getActLabelWithSubtitle(act: ActChapterValue, subtitle?: string): string {
     const label = getActDisplayLabel(act);
     if (!label) return '';
-    return subtitle ? `${label}: ${subtitle}` : label;
+    return subtitle ? subtitle : label;
 }
 
 /**

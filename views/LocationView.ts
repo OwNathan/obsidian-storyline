@@ -224,7 +224,7 @@ export class LocationView extends ItemView {
 
         const allWorlds = this.locationManager.getAllWorlds();
         const allOrphans = this.locationManager.getOrphanLocations();
-        const scenes = this.sceneManager.getAllScenes().filter(scene => !scene.inactive);
+        const scenes = this.sceneManager.getAllScenes();
 
         // Filter worlds: show a world if its name OR any child location name matches
         let worlds = q ? allWorlds.filter(w => {
@@ -431,7 +431,7 @@ export class LocationView extends ItemView {
 
         // Scene count for this location
         const locLower = loc.name.toLowerCase();
-        const sceneCount = scenes.filter(s => s.location?.toLowerCase() === locLower).length;
+        const sceneCount = scenes.filter(s => s.locations?.some(l => l.toLowerCase() === locLower)).length;
         if (sceneCount > 0) {
             header.createSpan({ cls: 'location-tree-count', text: `${sceneCount} sc` });
         }
@@ -469,7 +469,7 @@ export class LocationView extends ItemView {
         header.createSpan({ cls: 'location-tree-name', text: name });
 
         const locLower = name.toLowerCase();
-        const sceneCount = scenes.filter(s => s.location?.toLowerCase() === locLower).length;
+        const sceneCount = scenes.filter(s => s.locations?.some(l => l.toLowerCase() === locLower)).length;
         if (sceneCount > 0) {
             header.createSpan({ cls: 'location-tree-count', text: `${sceneCount} sc` });
         }
@@ -1543,7 +1543,7 @@ export class LocationView extends ItemView {
 
     private renderWorldSidePanel(container: HTMLElement, world: StoryWorld): void {
         const locations = this.locationManager.getLocationsForWorld(world.name);
-        const scenes = this.sceneManager.getAllScenes().filter(scene => !scene.inactive);
+        const scenes = this.sceneManager.getAllScenes();
 
         // Location count
         const statsBox = container.createDiv('location-side-stats');
@@ -1553,7 +1553,7 @@ export class LocationView extends ItemView {
 
         // Collect scenes across all locations in this world
         const locNames = new Set(locations.map(l => l.name.toLowerCase()));
-        const worldScenes = scenes.filter(s => s.location && locNames.has(s.location.toLowerCase()));
+        const worldScenes = scenes.filter(s => s.locations?.some(l => locNames.has(l.toLowerCase())));
         this.renderStat(statGrid, String(worldScenes.length), 'Scenes');
 
         // Location list
@@ -1586,7 +1586,7 @@ export class LocationView extends ItemView {
             { field: 'sequence', direction: 'asc' }
         );
         const locLower = loc.name.toLowerCase();
-        const locScenes = scenes.filter(s => s.location?.toLowerCase() === locLower);
+        const locScenes = scenes.filter(s => s.locations?.some(l => l.toLowerCase() === locLower));
 
         // Stats
         const statsBox = container.createDiv('location-side-stats');
@@ -1659,16 +1659,10 @@ export class LocationView extends ItemView {
 
         const charsHere = new Map<string, number>();
         for (const scene of locScenes) {
-            if (scene.pov) {
-                const resolved = resolveName(scene.pov);
-                charsHere.set(resolved, (charsHere.get(resolved) || 0) + 1);
-            }
             if (scene.characters) {
                 for (const c of scene.characters) {
                     const resolved = resolveName(c);
-                    if (resolved !== resolveName(scene.pov || '')) {
-                        charsHere.set(resolved, (charsHere.get(resolved) || 0) + 1);
-                    }
+                    charsHere.set(resolved, (charsHere.get(resolved) || 0) + 1);
                 }
             }
         }

@@ -11,9 +11,9 @@ import type SceneCardsPlugin from '../main';
 import { TIMELINE_VIEW_TYPE } from '../constants';
 import { applyMobileClass } from '../components/MobileAdapter';
 import { attachTooltip } from '../components/Tooltip';
-import { ButtonComponent, DropdownComponent, ItemView, Menu, Modal, Notice, Setting, TFile, TextComponent, WorkspaceLeaf } from 'obsidian';
+import { ItemView, Menu, Modal, Notice, Setting, TFile, WorkspaceLeaf } from 'obsidian';
 import * as obsidian from 'obsidian';
-import { BUILTIN_BEAT_SHEETS, Scene, SceneStatus, TIMELINE_MODES, TIMELINE_MODE_ICONS, TIMELINE_MODE_LABELS, TimelineMode, formatSceneLength, getStatusOrder, resolveStatusCfg } from '../models/Scene';
+import { BUILTIN_BEAT_SHEETS, Scene, SceneStatus, SortConfig, getStatusOrder, resolveStatusCfg } from '../models/Scene';
 import { getActDisplayLabel } from '../utils/actChapter';
 
 /**
@@ -262,57 +262,17 @@ export class TimelineView extends ItemView {
         if (existing) existing.remove();
 
         const timelineEl = container.createDiv('story-line-timeline');
-        const sortField = this.timelineOrder === 'chronological' ? 'chronologicalOrder' : 'chapter';
+        const sortField: SortConfig['field'] = 'chapter';
         const scenes = this.sceneManager.queryService.getFilteredScenes(
             undefined,
             { field: sortField, direction: 'asc' }
         ).filter(scene => !this.isNoteScene(scene));
 
-        // Precompute date/time validation flags for each scene index so rendering is consistent
-        // Scenes with non-linear timeline modes (flashback, dream, mythic, etc.) are exempt from
-        // date-order warnings — but are still rendered with their mode badge.
-        const EXEMPT_FROM_DATE_ORDER_SET = new Set<string | undefined>([
-            'flashback', 'flash_forward', 'dream', 'mythic', 'circular', 'simultaneous',
-        ]);
-        const dateTs = scenes.map(s => this.parseSceneDateTimestamp(s));
-        const timeTs = scenes.map(s => this.parseSceneTimeTimestamp(s));
-        const dateInvalidFlags = scenes.map((s, idx) => {
-            if (EXEMPT_FROM_DATE_ORDER_SET.has(s.timeline_mode)) return false;
-            const prev = idx > 0 ? dateTs[idx - 1] : null;
-            const curr = dateTs[idx];
-            const next = idx < scenes.length - 1 ? dateTs[idx + 1] : null;
-            // Also exempt if the adjacent scene is exempt
-            if (prev !== null && curr !== null && prev > curr) {
-                if (!EXEMPT_FROM_DATE_ORDER_SET.has(scenes[idx - 1]?.timeline_mode)) return true;
-            }
-            if (next !== null && curr !== null && curr > next) {
-                if (!EXEMPT_FROM_DATE_ORDER_SET.has(scenes[idx + 1]?.timeline_mode)) return true;
-            }
-            return false;
-        });
-        const timeInvalidFlags = scenes.map((s, idx) => {
-            if (EXEMPT_FROM_DATE_ORDER_SET.has(s.timeline_mode)) return false;
-            const prevDate = idx > 0 ? dateTs[idx - 1] : null;
-            const nextDate = idx < scenes.length - 1 ? dateTs[idx + 1] : null;
-            const prevTime = idx > 0 ? timeTs[idx - 1] : null;
-            const currTime = timeTs[idx];
-            const nextTime = idx < scenes.length - 1 ? timeTs[idx + 1] : null;
-
-            let invalid = false;
-            if (prevTime !== null && currTime !== null) {
-                if (!EXEMPT_FROM_DATE_ORDER_SET.has(scenes[idx - 1]?.timeline_mode)) {
-                    const datesEqual = (prevDate === null && dateTs[idx] === null) || (prevDate !== null && dateTs[idx] !== null && prevDate === dateTs[idx]);
-                    if (datesEqual && prevTime > currTime) invalid = true;
-                }
-            }
-            if (nextTime !== null && currTime !== null) {
-                if (!EXEMPT_FROM_DATE_ORDER_SET.has(scenes[idx + 1]?.timeline_mode)) {
-                    const datesEqual = (nextDate === null && dateTs[idx] === null) || (nextDate !== null && dateTs[idx] !== null && nextDate === dateTs[idx]);
-                    if (datesEqual && currTime > nextTime) invalid = true;
-                }
-            }
-            return invalid;
-        });
+        // Date/time validation flags are all false — story-date fields were removed.
+        const dateTs = scenes.map(() => null as number | null);
+        const timeTs = scenes.map(() => null as number | null);
+        const dateInvalidFlags = scenes.map(() => false);
+        const timeInvalidFlags = scenes.map(() => false);
 
         // Also get defined acts so we can show empty act dividers
         const definedActs = this.sceneManager.getDefinedActs();
@@ -394,11 +354,11 @@ export class TimelineView extends ItemView {
             scenes.splice(insertAt, 0, moved);
 
             if (this.timelineOrder === 'chronological') {
-                // Chronological order is a single global counter — flat 1..N is correct.
+                // Chronological order field was removed — resequence instead.
                 for (let i = 0; i < scenes.length; i++) {
                     await this.sceneManager.updateScene(
                         scenes[i].filePath,
-                        { chronologicalOrder: i + 1 } as Partial<Scene>,
+                        { sequence: i + 1 },
                     );
                 }
             } else {
@@ -467,7 +427,7 @@ export class TimelineView extends ItemView {
                 const cleanBeat = beatLabel?.replace(/^(Act|Prologue|Epilogue)\s*\d*\s*[—:]\s*/i, '');
                 const actDisplay = getActDisplayLabel(currentAct);
                 const actLabel = currentAct !== undefined
-                    ? (cleanBeat ? `${actDisplay} — ${cleanBeat}` : actDisplay)
+                    ? (cleanBeat ? cleanBeat : actDisplay)
                     : 'No Act';
                 tlItems.push({ kind: 'divider', actLabel, actNum: currentAct });
                 lastRenderedAct = currentAct;
@@ -569,7 +529,7 @@ export class TimelineView extends ItemView {
 
         const timelineEl = container.createDiv('story-line-timeline swimlane-timeline');
         enableDragToPan(timelineEl);
-        const sortField = this.timelineOrder === 'chronological' ? 'chronologicalOrder' : 'chapter';
+        const sortField: SortConfig['field'] = 'chapter';
         const scenes = this.sceneManager.queryService.getFilteredScenes(
             undefined,
             { field: sortField, direction: 'asc' }
@@ -610,7 +570,7 @@ export class TimelineView extends ItemView {
                 const cleanBeat = beatLabel?.replace(/^(Act|Prologue|Epilogue)\s*\d*\s*[—:]\s*/i, '');
                 const actDisplay = getActDisplayLabel(currentAct);
                 const label = currentAct !== undefined
-                    ? (cleanBeat ? `${actDisplay} — ${cleanBeat}` : actDisplay)
+                    ? (cleanBeat ? cleanBeat : actDisplay)
                     : 'No Act';
                 rows.push({ type: 'act-divider', actLabel: label, actNum: currentAct });
                 lastAct = currentAct;
@@ -660,28 +620,12 @@ export class TimelineView extends ItemView {
             const scene = row.scene!;
             const act = scene.act !== undefined ? String(scene.act).padStart(2, '0') : '??';
             const seq = scene.sequence !== undefined ? String(scene.sequence).padStart(2, '0') : '??';
-            const chronoSeq = scene.chronologicalOrder !== undefined ? String(scene.chronologicalOrder).padStart(2, '0') : null;
 
             // Sequence axis cell
             const seqCell = grid.createDiv('swimlane-seq-cell');
             seqCell.classList.add('timeline-seq-clickable');
             seqCell.createSpan({ cls: 'timeline-seq-badge', text: `${act}-${seq}` });
-            // Show chronological order badge when it differs from reading order
-            if (chronoSeq !== null && scene.chronologicalOrder !== scene.sequence) {
-                const chronoBadge = seqCell.createSpan({ cls: 'timeline-chrono-badge', text: `C${chronoSeq}` });
-                chronoBadge.setAttribute('title', `Chronological order: ${chronoSeq}`);
-            }
-            if (scene.storyDate) {
-                seqCell.createSpan({ cls: 'timeline-date-badge', text: scene.storyDate });
-            }
-            if (scene.storyTime) {
-                seqCell.createSpan({ cls: 'timeline-time-badge', text: scene.storyTime });
-            }
-            seqCell.setAttribute('title', 'Click to edit date/time');
-            seqCell.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.openTimeEditModal(scene);
-            });
+            seqCell.setAttribute('title', 'Scene sequence');
 
             // Determine which lane(s) this scene belongs to
             const sceneKeys = this.getSceneLaneKeys(scene);
@@ -707,12 +651,12 @@ export class TimelineView extends ItemView {
     private getSceneLaneKeys(scene: Scene): string[] {
         switch (this.swimlaneGroupBy) {
             case 'pov':
-                return [scene.pov || '(no POV)'];
             case 'character':
                 if (scene.characters && scene.characters.length > 0) return this.cleanLaneKeys(scene.characters);
                 return ['(no character)'];
             case 'location':
-                return [scene.location || '(no location)'];
+                if (scene.locations && scene.locations.length > 0) return this.cleanLaneKeys(scene.locations);
+                return ['(no location)'];
             case 'plotline':
             case 'tag':
                 if (scene.tags && scene.tags.length > 0) return this.cleanLaneKeys(scene.tags);
@@ -750,45 +694,24 @@ export class TimelineView extends ItemView {
 
         card.createDiv({ cls: 'timeline-card-title', text: scene.title || 'Untitled' });
 
-        // Timeline mode badge (for non-linear scenes)
-        const slMode = scene.timeline_mode || 'linear';
-        if (slMode !== 'linear') {
-            const modeBadge = card.createDiv({ cls: `timeline-mode-badge timeline-mode-${slMode}` });
-            const modeIcon = modeBadge.createSpan();
-            obsidian.setIcon(modeIcon, TIMELINE_MODE_ICONS[slMode] || 'clock');
-            modeBadge.createSpan({ text: ` ${TIMELINE_MODE_LABELS[slMode]}` });
-            if (scene.timeline_strand) {
-                modeBadge.createSpan({ cls: 'timeline-strand-label', text: ` · ${scene.timeline_strand}` });
-            }
-        }
-
         const meta = card.createDiv('timeline-card-meta');
-        // Show the field that is NOT the grouping field (avoid redundancy)
-        if (this.swimlaneGroupBy !== 'pov' && scene.pov) {
-            meta.createSpan({ cls: 'timeline-card-pov', text: `POV: ${scene.pov}` });
-        }
         if (this.swimlaneGroupBy !== 'character' && scene.characters?.length) {
             meta.createSpan({ cls: 'timeline-card-pov', text: scene.characters.join(', ') });
         }
-        if (this.swimlaneGroupBy !== 'location' && scene.location) {
+        if (this.swimlaneGroupBy !== 'location' && scene.locations?.length) {
             const locSpan = meta.createSpan({ cls: 'timeline-card-location' });
             obsidian.setIcon(locSpan, 'map-pin');
-            locSpan.appendText(' ' + scene.location);
+            locSpan.appendText(' ' + scene.locations.join(', '));
         }
         if (this.swimlaneGroupBy !== 'plotline' && this.swimlaneGroupBy !== 'tag' && scene.tags?.length) {
             meta.createSpan({ cls: 'timeline-card-pov', text: scene.tags.join(', ') });
         }
 
-        // Status + word count footer
+        // Status footer
         const footer = card.createDiv('timeline-card-footer');
         const statusCfg = resolveStatusCfg(scene.status || 'idea');
         const statusBadge = footer.createSpan({ cls: 'timeline-card-status', text: statusCfg.label });
         statusBadge.setCssStyles({ color: statusCfg.color });
-
-        if (scene.wordcount || scene.charcount) {
-            const unit = this.plugin.settings.countUnit === 'chars' ? 'chars' : 'words';
-            footer.createSpan({ cls: 'timeline-card-wc', text: formatSceneLength(scene, unit) });
-        }
 
         // Click / double-click / context menu
         card.addEventListener('click', (e) => {
@@ -880,33 +803,14 @@ export class TimelineView extends ItemView {
             }
         });
 
-        // Left column: sequence badge + date/time (clickable to edit)
+        // Left column: sequence badge
         const seqCol = entry.createDiv('timeline-entry-seq');
-        seqCol.classList.add('timeline-seq-clickable');
         const act = scene.act !== undefined ? String(scene.act).padStart(2, '0') : '??';
         const seq = scene.sequence !== undefined ? String(scene.sequence).padStart(2, '0') : '??';
-        const chronoSeq = scene.chronologicalOrder !== undefined ? String(scene.chronologicalOrder).padStart(2, '0') : null;
 
         seqCol.createSpan({ cls: 'timeline-seq-badge', text: `${act}-${seq}` });
 
-        // Show chronological order badge when it differs from reading order
-        if (chronoSeq !== null && scene.chronologicalOrder !== scene.sequence) {
-            const chronoBadge = seqCol.createSpan({ cls: 'timeline-chrono-badge', text: `C${chronoSeq}` });
-            chronoBadge.setAttribute('title', `Chronological order: ${chronoSeq}`);
-        }
-
-        const dateBadge = scene.storyDate ? seqCol.createSpan({ cls: 'timeline-date-badge', text: scene.storyDate }) : null;
-        const timeBadge = scene.storyTime ? seqCol.createSpan({ cls: 'timeline-time-badge', text: scene.storyTime }) : null;
-        if (!scene.storyDate && !scene.storyTime) {
-            const addHint = seqCol.createSpan({ cls: 'timeline-add-time-hint' });
-            obsidian.setIcon(addHint, 'clock');
-        }
-
-        seqCol.setAttribute('title', 'Click to edit date/time');
-        seqCol.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this.openTimeEditModal(scene);
-        });
+        seqCol.setAttribute('title', 'Scene sequence');
 
         // Center: dot + line
         const dotCol = entry.createDiv('timeline-entry-dot-col');
@@ -925,57 +829,17 @@ export class TimelineView extends ItemView {
 
         card.createDiv({ cls: 'timeline-card-title', text: scene.title || 'Untitled' });
 
-        // Timeline mode badge (for non-linear scenes)
-        const tlMode = scene.timeline_mode || 'linear';
-        if (tlMode !== 'linear') {
-            const modeBadge = card.createDiv({ cls: `timeline-mode-badge timeline-mode-${tlMode}` });
-            const modeIcon = modeBadge.createSpan();
-            obsidian.setIcon(modeIcon, TIMELINE_MODE_ICONS[tlMode] || 'clock');
-            modeBadge.createSpan({ text: ` ${TIMELINE_MODE_LABELS[tlMode]}` });
-            if (scene.timeline_strand) {
-                modeBadge.createSpan({ cls: 'timeline-strand-label', text: ` · ${scene.timeline_strand}` });
-            }
-        }
-
         const meta = card.createDiv('timeline-card-meta');
-        if (scene.pov) {
-            meta.createSpan({ cls: 'timeline-card-pov', text: `POV: ${scene.pov}` });
+        if (scene.characters?.length) {
+            meta.createSpan({ cls: 'timeline-card-pov', text: scene.characters.join(', ') });
         }
-        if (scene.location) {
+        if (scene.locations?.length) {
             const locSpan = meta.createSpan({ cls: 'timeline-card-location' });
             obsidian.setIcon(locSpan, 'map-pin');
-            locSpan.appendText(' ' + scene.location);
-        }
-        if (scene.timeline) {
-            const timeSpan = meta.createSpan({ cls: 'timeline-card-time' });
-            obsidian.setIcon(timeSpan, 'calendar-days');
-            timeSpan.appendText(' ' + scene.timeline);
-        }
-        if (scene.storyDate || scene.storyTime) {
-            const dateSpan = meta.createSpan({ cls: 'timeline-card-time' });
-            obsidian.setIcon(dateSpan, 'calendar-days');
-            dateSpan.appendText(' ' + `${scene.storyDate || ''} ${scene.storyTime || ''}`.trim());
+            locSpan.appendText(' ' + scene.locations.join(', '));
         }
 
-        if (dateInvalid && dateBadge) {
-            dateBadge.addClass('timeline-date-invalid');
-            dateBadge.setAttr('title', 'Date out of order');
-        }
-        if (timeInvalid && timeBadge) {
-            timeBadge.addClass('timeline-time-invalid');
-            timeBadge.setAttr('title', 'Time out of order');
-        }
-
-        if (scene.conflict) {
-            card.createDiv({
-                cls: 'timeline-card-conflict',
-                text: scene.conflict.length > 100
-                    ? scene.conflict.substring(0, 100) + '...'
-                    : scene.conflict
-            });
-        }
-
-        // Status + word count footer
+        // Status footer
         const footer = card.createDiv('timeline-card-footer');
         const statusCfg = resolveStatusCfg(scene.status || 'idea');
         const statusBadge = footer.createSpan({
@@ -983,14 +847,6 @@ export class TimelineView extends ItemView {
             text: statusCfg.label,
         });
         statusBadge.setCssStyles({ color: statusCfg.color });
-
-        if (scene.wordcount || scene.charcount) {
-            const unit = this.plugin.settings.countUnit === 'chars' ? 'chars' : 'words';
-            footer.createSpan({
-                cls: 'timeline-card-wc',
-                text: formatSceneLength(scene, unit),
-            });
-        }
 
         // Characters
         if (scene.characters?.length) {
@@ -1023,60 +879,6 @@ export class TimelineView extends ItemView {
         });
     }
 
-    /**
-     * Parse date-only component into a numeric value (midnight epoch or day-count). Returns null if unavailable.
-     */
-    private parseSceneDateTimestamp(scene: Scene): number | null {
-        try {
-            const datePart = scene.storyDate?.trim();
-            if (datePart) {
-                const parsed = Date.parse(datePart);
-                if (!isNaN(parsed)) return new Date(new Date(parsed).toDateString()).getTime();
-                const dayMatch = datePart.match(/dag\s*(\d+)/i) || (scene.timeline || '').match(/dag\s*(\d+)/i);
-                if (dayMatch) {
-                    const dayNum = parseInt(dayMatch[1], 10);
-                    if (!isNaN(dayNum)) return dayNum * 24 * 60 * 60 * 1000;
-                }
-            }
-        } catch (e) {
-            // ignore
-        }
-        return null;
-    }
-
-    /**
-     * Parse time-only component into milliseconds-since-midnight. Returns null if unavailable.
-     */
-    private parseSceneTimeTimestamp(scene: Scene): number | null {
-        try {
-            let timePart = scene.storyTime?.trim();
-            if (timePart) {
-                // Normalize common separators (accept '11:20' and '11.20')
-                timePart = timePart.replace(/\./g, ':');
-                // Accept HH:MM or HH:MM:SS
-                const m = timePart.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-                if (m) {
-                    const h = parseInt(m[1], 10);
-                    const mm = parseInt(m[2], 10);
-                    const ss = m[3] ? parseInt(m[3], 10) : 0;
-                    if (!isNaN(h) && !isNaN(mm)) {
-                        const val = (h * 3600 + mm * 60 + ss) * 1000;
-                        
-                        return val;
-                    }
-                }
-                // Try parsing as Date on epoch day
-                const parsed = Date.parse('1970-01-01 ' + timePart);
-                if (!isNaN(parsed)) {
-                    
-                    return parsed;
-                }
-            }
-        } catch (e) {
-            // ignore
-        }
-        return null;
-    }
     /**
      * Select a scene and show it in the inspector
      */
@@ -1308,7 +1110,7 @@ export class TimelineView extends ItemView {
                 const row = wrapper.createDiv('structure-row');
                 const cleanLabel = label?.replace(/^(Act|Prologue|Epilogue)\s*\d*\s*[—:]\s*/i, '');
                 const actDisplay = getActDisplayLabel(act);
-                const labelText = cleanLabel ? `${actDisplay} — ${cleanLabel}` : actDisplay;
+                const labelText = cleanLabel ? cleanLabel : actDisplay;
                 row.createSpan({ cls: 'structure-label', text: labelText });
                 row.createSpan({ cls: 'structure-count', text: `${count} scene${count !== 1 ? 's' : ''}` });
 
@@ -1580,108 +1382,10 @@ export class TimelineView extends ItemView {
     }
 
     /**
-     * Modal to edit storyDate, storyTime, timeline, and chronological order for a scene
+     * Time & order editing was removed together with the story-date fields.
      */
     private openTimeEditModal(scene: Scene): void {
-        const modal = new Modal(this.app);
-        modal.titleEl.setText(`Time & Order — ${scene.title || 'Untitled'}`);
-
-        let storyDate = scene.storyDate || '';
-        let storyTime = scene.storyTime || '';
-        let timeline = scene.timeline || '';
-        let chronoOrder = scene.chronologicalOrder !== undefined ? String(scene.chronologicalOrder) : '';
-        let timelineMode: TimelineMode = scene.timeline_mode || 'linear';
-        let timelineStrand = scene.timeline_strand || '';
-
-        // Date field (free text: "2026-02-17", "Day 1", "Monday", etc.)
-        new Setting(modal.contentEl)
-            .setName('Date / day')
-            .setDesc('E.g. 2026-02-17, day 1, monday, chapter 3???')
-            .addText((text: TextComponent) => {
-                text.setValue(storyDate)
-                    .setPlaceholder('E.g. Day 1')
-                    .onChange((v: string) => (storyDate = v));
-            });
-
-        // Time field
-        new Setting(modal.contentEl)
-            .setName('Time')
-            .setDesc('E.g. 14:00, morning, evening, night…')
-            .addText((text: TextComponent) => {
-                text.setValue(storyTime)
-                    .setPlaceholder('E.g. Evening')
-                    .onChange((v: string) => (storyTime = v));
-            });
-
-        // Legacy timeline field
-        new Setting(modal.contentEl)
-            .setName('Timeline note')
-            .setDesc('Free-form note about when this happens in the story')
-            .addText((text: TextComponent) => {
-                text.setValue(timeline)
-                    .setPlaceholder('E.g. After the party')
-                    .onChange((v: string) => (timeline = v));
-            });
-
-        // Chronological order field
-        new Setting(modal.contentEl)
-            .setName('Chronological order')
-            .setDesc('The order this event happens in story time (for non-linear narratives)')
-            .addText((text: TextComponent) => {
-                text.setValue(chronoOrder)
-                    .setPlaceholder('E.g. 5')
-                    .onChange((v: string) => (chronoOrder = v));
-                text.inputEl.type = 'number';
-                text.inputEl.min = '1';
-            });
-
-        // ── Timeline Mode dropdown ──
-        const modeSection = modal.contentEl.createDiv('time-edit-mode-section');
-        new Setting(modeSection)
-            .setName('Timeline mode')
-            .setDesc('How the plugin handles this scene\'s temporal position')
-            .addDropdown((dd: DropdownComponent) => {
-                for (const m of TIMELINE_MODES) {
-                    dd.addOption(m, TIMELINE_MODE_LABELS[m]);
-                }
-                dd.setValue(timelineMode);
-                dd.onChange((v: string) => {
-                    timelineMode = v as TimelineMode;
-                    // Show/hide strand field based on mode
-                    strandSetting.settingEl.setCssStyles({ display: (v === 'parallel' || v === 'frame') ? '' : 'none' });
-                });
-            });
-
-        // ── Timeline Strand field (only for parallel/frame) ──
-        const strandSetting = new Setting(modeSection)
-            .setName('Timeline strand')
-            .setDesc('Name for this timeline strand (e.g. "1943", "outer frame", "sarah\'s past")')
-            .addText((text: TextComponent) => {
-                text.setValue(timelineStrand)
-                    .setPlaceholder('E.g. 1943')
-                    .onChange((v: string) => (timelineStrand = v));
-            });
-        // Only show strand field for parallel/frame modes
-        strandSetting.settingEl.setCssStyles({ display: (timelineMode === 'parallel' || timelineMode === 'frame') ? '' : 'none' });
-
-        new Setting(modal.contentEl)
-            .addButton((btn: ButtonComponent) => {
-                btn.setButtonText('Save').setCta().onClick(async () => {
-                    const updates: Partial<Scene> = {};
-                    updates.storyDate = storyDate.trim() || undefined;
-                    updates.storyTime = storyTime.trim() || undefined;
-                    updates.timeline = timeline.trim() || undefined;
-                    const chronoNum = parseInt(chronoOrder.trim(), 10);
-                    updates.chronologicalOrder = !isNaN(chronoNum) && chronoNum > 0 ? chronoNum : undefined;
-                    updates.timeline_mode = timelineMode !== 'linear' ? timelineMode : undefined;
-                    updates.timeline_strand = timelineStrand.trim() || undefined;
-                    await this.sceneManager.updateScene(scene.filePath, updates);
-                    this.refresh();
-                    modal.close();
-                });
-            });
-
-        modal.open();
+        new Notice('Story date/time fields were removed.');
     }
 
     private async openScene(scene: Scene): Promise<void> {

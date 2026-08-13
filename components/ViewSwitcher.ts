@@ -2,19 +2,15 @@
 import { WorkspaceLeaf } from 'obsidian';
 import * as obsidian from 'obsidian';
 import type SceneCardsPlugin from '../main';
-import { ExportModal } from './ExportModal';
 import { isMobile, DESKTOP_ONLY_VIEWS } from './MobileAdapter';
 import { attachTooltip } from './Tooltip';
 import {
     BOARD_VIEW_TYPE,
-    TIMELINE_VIEW_TYPE,
     STORYLINE_VIEW_TYPE,
     CHARACTER_VIEW_TYPE,
     STATS_VIEW_TYPE,
-    PLOTGRID_VIEW_TYPE,
     LOCATION_VIEW_TYPE,
     CODEX_VIEW_TYPE,
-    MANUSCRIPT_VIEW_TYPE,
     DYNAMIC_NARRATIVE_VIEW_TYPE,
     COMMENTS_VIEW_TYPE,
 } from '../constants';
@@ -28,11 +24,8 @@ export interface ViewSwitcherEntry {
 
 export const VIEW_ENTRIES: ViewSwitcherEntry[] = [
     { type: BOARD_VIEW_TYPE, label: 'Board', icon: 'layout-grid' },
-    { type: PLOTGRID_VIEW_TYPE, label: 'Plotgrid', icon: 'table' },
-    { type: TIMELINE_VIEW_TYPE, label: 'Timeline', icon: 'clock' },
     { type: STORYLINE_VIEW_TYPE, label: 'Plotlines', icon: 'git-branch' },
     { type: DYNAMIC_NARRATIVE_VIEW_TYPE, label: 'Dynamic Narrative', icon: 'map' },
-    { type: MANUSCRIPT_VIEW_TYPE, label: 'Manuscript', icon: 'book-open-text' },
     { type: CODEX_VIEW_TYPE, label: 'Codex', icon: 'book-open' },
     { type: STATS_VIEW_TYPE, label: 'Stats', icon: 'bar-chart-2' },
     { type: COMMENTS_VIEW_TYPE, label: 'Comments', icon: 'message-square' },
@@ -101,19 +94,6 @@ export function renderViewSwitcher(
             });
         }
     }
-
-    // Export button (after all view tabs)
-    const exportBtn = switcher.createEl('button', {
-        cls: 'story-line-view-tab story-line-export-btn',
-    });
-    const exportIcon = exportBtn.createSpan({ cls: 'view-tab-icon' });
-    obsidian.setIcon(exportIcon, 'download');
-    exportBtn.createSpan({ cls: 'view-tab-label', text: 'Export' });
-    attachTooltip(exportBtn, 'Export');
-    exportBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        new ExportModal(plugin).open();
-    });
 
     // v1.10.17 — collapse view-tab labels when the toolbar is too narrow
     // to fit everything on one row. CSS container queries on the switcher

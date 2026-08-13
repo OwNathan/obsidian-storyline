@@ -3,7 +3,7 @@ import * as obsidian from 'obsidian';
 import type SceneCardsPlugin from '../main';
 import { SceneManager } from '../services/SceneManager';
 import { Scene, getStatusOrder, resolveStatusCfg } from '../models/Scene';
-import { renderAutocompleteInput } from './InlineSuggest';
+import { renderTagPillInput } from './InlineSuggest';
 
 /**
  * Lightweight "Info" side panel — a planning-focused mini Inspector.
@@ -95,7 +95,14 @@ export class InfoPanelComponent {
             // Title kept small for context
             const titleEl = this.container.createDiv('sl-info-title');
             titleEl.setText(scene.title || 'Untitled');
-            this.renderSynopsis(scene);
+            this.container.createDiv({
+                cls: 'sl-info-section-label',
+                text: 'Synopsis',
+            });
+            this.container.createEl('p', {
+                cls: 'setting-item-description',
+                text: 'The Synopsis field was removed.',
+            });
             return;
         }
 
@@ -114,14 +121,8 @@ export class InfoPanelComponent {
         // ── Status ──
         this.renderStatusRow(scene);
 
-        // ── POV ──
-        this.renderPovRow(scene);
-
-        // ── Location ──
-        this.renderLocationRow(scene);
-
-        // ── Word count (read-only) ──
-        this.renderWordCountRow(scene);
+        // ── Locations ──
+        this.renderLocationsRow(scene);
     }
 
     private renderStatusRow(scene: Scene): void {
@@ -173,60 +174,20 @@ export class InfoPanelComponent {
         });
     }
 
-    private renderPovRow(scene: Scene): void {
+    private renderLocationsRow(scene: Scene): void {
         const row = this.container.createDiv('sl-info-row');
-        row.createSpan({ cls: 'sl-info-label', text: 'POV' });
+        row.createSpan({ cls: 'sl-info-label', text: 'Locations' });
         const field = row.createDiv('sl-info-field');
-        renderAutocompleteInput({
+        renderTagPillInput({
             container: field,
-            value: scene.pov || '',
-            getSuggestions: () => this.getCharacterNames(),
-            onChange: async (val) => {
-                await this.sceneManager.updateScene(scene.filePath, { pov: val });
-                scene.pov = val;
-            },
-            placeholder: 'Search characters…',
-        });
-    }
-
-    private renderLocationRow(scene: Scene): void {
-        const row = this.container.createDiv('sl-info-row');
-        row.createSpan({ cls: 'sl-info-label', text: 'Location' });
-        const field = row.createDiv('sl-info-field');
-        renderAutocompleteInput({
-            container: field,
-            value: scene.location || '',
+            values: scene.locations || [],
             getSuggestions: () => this.getLocationNames(),
-            onChange: async (val) => {
-                await this.sceneManager.updateScene(scene.filePath, { location: val });
-                scene.location = val;
+            onChange: async (values) => {
+                await this.sceneManager.updateScene(scene.filePath, { locations: values });
+                scene.locations = values;
             },
-            placeholder: 'Search locations…',
-        });
-    }
-
-    private renderWordCountRow(scene: Scene): void {
-        const row = this.container.createDiv('sl-info-row');
-        row.createSpan({ cls: 'sl-info-label', text: 'Words' });
-        const value = row.createSpan({ cls: 'sl-info-value' });
-        const current = scene.wordcount ?? 0;
-        const target = scene.target_wordcount;
-        value.setText(target ? `${current} / ${target}` : `${current}`);
-    }
-
-    private renderSynopsis(scene: Scene): void {
-        const section = this.container.createDiv('sl-info-section');
-        section.createDiv({ cls: 'sl-info-section-label', text: 'Synopsis' });
-
-        const textarea = section.createEl('textarea', {
-            cls: 'sl-info-synopsis-textarea',
-            attr: { placeholder: 'Brief scene synopsis…' },
-        });
-        textarea.value = scene.synopsis || '';
-        textarea.addEventListener('change', async () => {
-            const val = textarea.value.trim();
-            await this.sceneManager.updateScene(scene.filePath, { synopsis: val || undefined });
-            scene.synopsis = val || undefined;
+            placeholder: 'Add location…',
+            getDisplayLabel: this.getLocationDisplayLabel(),
         });
     }
 
@@ -482,12 +443,19 @@ export class InfoPanelComponent {
                 names.set(loc.name.toLowerCase(), loc.name);
             }
         }
-        for (const name of this.sceneManager.queryService.getUniqueValues('location')) {
+        for (const name of this.sceneManager.queryService.getUniqueValues('locations')) {
             if (!names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
         }
         return Array.from(names.values()).sort((a, b) =>
             a.toLowerCase().localeCompare(b.toLowerCase())
         );
+    }
+
+    private getLocationDisplayLabel(): (value: string) => string {
+        const lm = this.plugin.locationManager;
+        if (!lm) return (v) => v;
+        const displayMap = lm.getDisplayNameMap();
+        return (value: string) => displayMap.get(value) || value;
     }
 }
 /* eslint-enable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises -- end file-wide suppression for Obsidian DOM and event APIs */

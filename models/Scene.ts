@@ -114,54 +114,26 @@ export interface Scene {
     chapter?: number | string;
     /** Order in overall story (reading order — the order scenes appear in the manuscript) */
     sequence?: number;
-    /** Chronological order — the order events happen in story time (for non-linear narratives) */
-    chronologicalOrder?: number;
-    /** Point of view character */
-    pov?: string;
     /** Characters present in scene (wikilinks) */
     characters?: string[];
-    /** Location (wikilink) */
-    location?: string;
-    /** When in story time (legacy, use storyDate/storyTime) */
-    timeline?: string;
-    /** Date in story (e.g. 2026-02-17, or 'Day 1') */
-    storyDate?: string;
-    /** Time in story (e.g. 14:00, 'evening', 'morning') */
-    storyTime?: string;
+    /** Locations linked to the scene (wikilinks) */
+    locations?: string[];
+    /** Dynamic-narrative scenarios linked to this scene (titles) */
+    scenarios?: string[];
     /** Scene completion status */
     status?: SceneStatus;
     /** Scene category (user-configurable, replaces status display when enabled) */
     category?: SceneCategory;
-    /** Main conflict */
-    conflict?: string;
-    /** Emotional tone */
-    emotion?: string;
-    /** Character arc intensity: -10 (setback) to +10 (breakthrough) */
-    intensity?: number;
-    /** Actual word count */
-    wordcount?: number;
-    /** Actual character count (excludes markdown markup, comments, etc.) */
-    charcount?: number;
-    /** Target word count */
-    target_wordcount?: number;
     /** Tags for plotlines, themes, etc. */
     tags?: string[];
-    /** Scenes that set up this scene (file paths or titles) */
-    setup_scenes?: string[];
-    /** Scenes that pay off from this scene (file paths or titles) */
-    payoff_scenes?: string[];
     /** Created date */
     created?: string;
     /** Modified date */
     modified?: string;
-    /** Body content (without frontmatter) */
-    body?: string;
     /** Editorial notes / revision comments (not part of manuscript) */
     notes?: string;
     /** Vault-relative path to an external notes markdown file (SceneNotes folder) */
     notesFile?: string;
-    /** Brief scene synopsis (planning sketch — shown in the Info side panel) */
-    synopsis?: string;
     /** True when this item is a corkboard note card (not a regular scene card) */
     corkboardNote?: boolean;
     /** Optional custom corkboard note color (hex, e.g. #F7E27A) */
@@ -172,10 +144,6 @@ export interface Scene {
     corkboardNoteCaption?: string;
     /** Plot-grid origin label (e.g. "Act 1 / Romance") — informational, stripped on convert-to-scene */
     plotgridOrigin?: string;
-    /** Timeline handling mode (linear, flashback, dream, parallel, etc.) */
-    timeline_mode?: TimelineMode;
-    /** Named strand for parallel / frame narratives (e.g. "1943", "outer frame") */
-    timeline_strand?: string;
     /** Optional subtitle shown below the title (e.g. "Three years later", "Meanwhile, in Paris") */
     subtitle?: string;
     /** Optional custom scene card color (hex, e.g. #FF6B6B) — overrides color-coding when set */
@@ -193,8 +161,6 @@ export interface Scene {
     ignored_detections?: string[];
     /** Issue #128 — marks this scene as an Arc Point (key turning point in the story) */
     arcAnchor?: boolean;
-    /** Marks this scene as parked/out of manuscript flow without archiving it */
-    inactive?: boolean;
 }
 
 /**
@@ -237,7 +203,7 @@ export interface FilterPreset {
 /**
  * Sort options
  */
-export type SortField = 'sequence' | 'chronologicalOrder' | 'storyDate' | 'title' | 'status' | 'act' | 'chapter' | 'wordcount' | 'modified';
+export type SortField = 'sequence' | 'title' | 'status' | 'act' | 'chapter' | 'modified';
 export type SortDirection = 'asc' | 'desc';
 
 export interface SortConfig {
@@ -251,27 +217,7 @@ export interface SortConfig {
 export type ViewType = 'board' | 'timeline' | 'storyline' | 'character' | 'stats' | 'plotgrid' | 'manuscript' | 'codex' | 'location';
 
 /**
- * Build the human-readable length label for a scene, honouring the user's
- * `countUnit` setting ('words' or 'chars'). Returns e.g. `"1234 words"` or
- * `"5678 chars"`. When a target word count is supplied and the unit is words,
- * the label reads `"1234 / 800 words"`; for chars the target is omitted
- * (targets are word-based).
- */
-export function formatSceneLength(
-    scene: Pick<Scene, 'wordcount' | 'charcount' | 'target_wordcount'>,
-    unit: 'words' | 'chars' = 'words',
-): string {
-    if (unit === 'chars') {
-        const chars = scene.charcount ?? 0;
-        return `${chars} chars`;
-    }
-    const wc = scene.wordcount ?? 0;
-    const target = scene.target_wordcount;
-    return target ? `${wc} / ${target} words` : `${wc} words`;
-}
-
-/**
- * A reusable scene template with pre-filled defaults and body text
+ * A reusable scene template with pre-filled defaults.
  */
 export interface SceneTemplate {
     /** Template display name */
@@ -279,9 +225,7 @@ export interface SceneTemplate {
     /** Short description shown in the UI */
     description?: string;
     /** Default field values pre-filled when this template is selected */
-    defaultFields: Partial<Pick<Scene, 'status' | 'emotion' | 'tags' | 'conflict' | 'target_wordcount'>>;
-    /** Body text inserted into the scene file */
-    bodyTemplate: string;
+    defaultFields: Partial<Pick<Scene, 'status' | 'tags'>>;
 }
 
 /**
@@ -290,77 +234,28 @@ export interface SceneTemplate {
 export const BUILTIN_SCENE_TEMPLATES: SceneTemplate[] = [
     {
         name: 'Blank',
-        description: 'Empty scene — no pre-filled body',
+        description: 'Empty scene — no pre-filled fields',
         defaultFields: {},
-        bodyTemplate: '',
     },
     {
         name: 'Action Scene',
         description: 'Goal / Conflict / Outcome structure',
-        defaultFields: { emotion: 'tense' },
-        bodyTemplate:
-`## Goal
-What does the POV character want in this scene?
-
-## Conflict
-What stands in their way? Who opposes them?
-
-## Action
-Describe the key beats of the scene.
-
-## Outcome
-How does the scene end? What changes for the character?`,
+        defaultFields: {},
     },
     {
         name: 'Dialogue Scene',
         description: 'Character conversation with emotional stakes',
-        defaultFields: { emotion: 'reflective' },
-        bodyTemplate:
-`## Setup
-Where are the characters, and what brought them here?
-
-## Dialogue Focus
-What is the conversation about? What subtext is at play?
-
-## Emotional Stakes
-What does each speaker want from this exchange?
-
-## Takeaway
-How has the relationship shifted by the end?`,
+        defaultFields: {},
     },
     {
         name: 'Flashback',
         description: 'Past event revealed to the reader',
         defaultFields: { tags: ['flashback'] },
-        bodyTemplate:
-`## Trigger
-What in the present triggers this memory?
-
-## The Memory
-Describe the past event in vivid detail.
-
-## Emotional Weight
-Why does this memory matter now?
-
-## Return to Present
-How does the character feel after reliving this?`,
     },
     {
         name: 'Opening Chapter',
         description: 'Hook, world, and character introduction',
         defaultFields: { status: 'idea' },
-        bodyTemplate:
-`## Hook
-What grabs the reader's attention on page one?
-
-## World & Setting
-Establish time, place, and atmosphere.
-
-## Character Introduction
-Who is the POV character? What do they want?
-
-## Inciting Moment
-What disrupts the status quo?`,
     },
 ];
 
@@ -718,31 +613,13 @@ title: "{{title}}"
 act: {{act}}
 chapter: {{chapter}}
 sequence: {{sequence}}
-chronologicalOrder: {{chronologicalOrder}}
-pov: "{{pov}}"
 characters: {{characters}}
-location: "{{location}}"
+locations: {{locations}}
 status: {{status}}
-conflict: "{{conflict}}"
 tags: {{tags}}
 created: {{created}}
 modified: {{modified}}
 ---
-
-# Scene Description
-{{description}}
-
-## Goal
-What does the POV character want?
-
-## Conflict
-What stands in their way?
-
-## Outcome
-How does the scene end? What changes?
-
-## Notes
-Additional thoughts, references, or reminders
 `;
 
 /**

@@ -2,7 +2,7 @@
 import { Scene, SceneStatus, SceneTemplate, BUILTIN_SCENE_TEMPLATES, getStatusOrder, getStatusConfig } from '../models/Scene';
 import { SceneManager } from '../services/SceneManager';
 import type SceneCardsPlugin from '../main';
-import { renderAutocompleteInput, renderTagPillInput } from './InlineSuggest';
+import { renderTagPillInput } from './InlineSuggest';
 import { isPureNumericActChapter, nextNumericActChapter, getActDisplayLabel } from '../utils/actChapter';
 import { App, Modal, Notice, Setting } from 'obsidian';
 
@@ -12,8 +12,7 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 export class QuickAddModal extends Modal {
     private plugin: SceneCardsPlugin;
     private sceneManager: SceneManager;
-    private result: Partial<Scene> & { description?: string } = {};
-    private conflictSameAsDescription = false;
+    private result: Partial<Scene> = {};
     private selectedTemplate: SceneTemplate | null = null;
     private onSubmit: (scene: Partial<Scene>, openAfter: boolean) => void;
     private defaults: Partial<Scene>;
@@ -145,37 +144,15 @@ export class QuickAddModal extends Modal {
             this.result.chapter = val ? Number(val) : undefined;
         });
 
-        // POV (autocomplete input)
-        const povSetting = new Setting(contentEl).setName('Pov character');
-        const povContainer = povSetting.controlEl.createDiv('sl-quickadd-autocomplete');
-        renderAutocompleteInput({
-            container: povContainer,
-            value: this.result.pov || '',
-            getSuggestions: () => {
-                const characters = this.sceneManager.queryService.getAllCharacters();
-                const cm = this.plugin.characterManager;
-                const names = new Map<string, string>();
-                for (const c of characters) names.set(c.toLowerCase(), c);
-                if (cm) {
-                    for (const ch of cm.getAllCharacters()) {
-                        if (!names.has(ch.name.toLowerCase())) names.set(ch.name.toLowerCase(), ch.name);
-                    }
-                }
-                return Array.from(names.values()).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-            },
-            onChange: (value) => { this.result.pov = value || undefined; },
-            placeholder: 'Search characters…',
-        });
-
-        // Location (autocomplete input)
-        const locSetting = new Setting(contentEl).setName('Location');
-        const locContainer = locSetting.controlEl.createDiv('sl-quickadd-autocomplete');
-        renderAutocompleteInput({
+        // Locations (tag-pill autocomplete)
+        const locSetting = new Setting(contentEl).setName('Locations');
+        const locContainer = locSetting.controlEl.createDiv('sl-quickadd-tagpill');
+        renderTagPillInput({
             container: locContainer,
-            value: '',
+            values: this.result.locations || [],
             getSuggestions: () => this.getLocationNames(),
-            onChange: (value) => { this.result.location = value || undefined; },
-            placeholder: 'Search locations…',
+            onChange: (values) => { this.result.locations = values.length > 0 ? values : undefined; },
+            placeholder: 'Add location…',
             getDisplayLabel: this.getLocationDisplayLabel(),
         });
 
@@ -199,39 +176,6 @@ export class QuickAddModal extends Modal {
             },
             onChange: (values) => { this.result.characters = values.length > 0 ? values : undefined; },
             placeholder: 'Add character…',
-        });
-
-        // Scene Draft (becomes body text)
-        new Setting(contentEl)
-            .setName('Scene draft')
-            .addTextArea(area => {
-                area.setPlaceholder('Write your scene draft here…')
-                    .onChange(value => this.result.description = value || undefined);
-                area.inputEl.rows = 3;
-                area.inputEl.addClass('story-line-wide-input');
-            });
-
-        // Conflict section wrapper
-        const conflictWrapper = contentEl.createDiv('story-line-conflict-section');
-        
-        // Conflict header with toggle
-        const conflictHeader = conflictWrapper.createDiv('story-line-conflict-header');
-        const conflictToggle = conflictHeader.createEl('label', { cls: 'story-line-conflict-toggle' });
-        const checkbox = conflictToggle.createEl('input', { attr: { type: 'checkbox' } });
-        conflictToggle.createSpan({ text: 'Same as description' });
-
-        const conflictSetting = new Setting(conflictWrapper)
-            .setName('Conflict')
-            .addTextArea(area => {
-                area.setPlaceholder('What is the main conflict?')
-                    .onChange(value => this.result.conflict = value || undefined);
-                area.inputEl.rows = 2;
-                area.inputEl.addClass('story-line-wide-input');
-            });
-
-        checkbox.addEventListener('change', () => {
-            this.conflictSameAsDescription = checkbox.checked;
-            conflictSetting.settingEl.setCssStyles({ display: checkbox.checked ? 'none' : '' });
         });
 
         // Tags / Plotlines (autocomplete tag-pill input)
@@ -289,35 +233,16 @@ export class QuickAddModal extends Modal {
     }
 
     /**
-     * Merge template defaults + description text into body field before submitting
+     * Merge template defaults into the result before submitting
      */
     private prepareResult(): void {
         // Apply template default fields (only for fields the user didn't explicitly set)
         if (this.selectedTemplate) {
             const df = this.selectedTemplate.defaultFields;
             if (df.status && !this.result.status) this.result.status = df.status;
-            if (df.emotion && !this.result.emotion) this.result.emotion = df.emotion;
-            if (df.conflict && !this.result.conflict) this.result.conflict = df.conflict;
-            if (df.target_wordcount && !this.result.target_wordcount) this.result.target_wordcount = df.target_wordcount;
             if (df.tags?.length && (!this.result.tags || this.result.tags.length === 0)) {
                 this.result.tags = [...df.tags];
             }
-        }
-
-        const desc = (this.result as unknown as Record<string, unknown>).description as string | undefined;
-        if (desc) {
-            this.result.body = desc;
-            if (this.conflictSameAsDescription) {
-                this.result.conflict = desc;
-            }
-            delete (this.result as unknown as Record<string, unknown>).description;
-        }
-
-        // Append template body after user description
-        if (this.selectedTemplate?.bodyTemplate) {
-            const existing = this.result.body || '';
-            const separator = existing ? '\n\n' : '';
-            this.result.body = existing + separator + this.selectedTemplate.bodyTemplate;
         }
     }
 
@@ -342,7 +267,7 @@ export class QuickAddModal extends Modal {
         }
 
         // From scene metadata (catches locations not yet profiled)
-        const sceneLocations = this.sceneManager.queryService.getUniqueValues('location');
+        const sceneLocations = this.sceneManager.queryService.getUniqueValues('locations');
         for (const name of sceneLocations) {
             const key = name.toLowerCase();
             if (!names.has(key)) names.set(key, name);
