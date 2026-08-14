@@ -65,8 +65,9 @@ export class SceneQueryService {
      * Get scenes grouped by a field (for board view columns).
      *
      * `field` may be one of the built-in keys (`act`, `chapter`, `status`, `pov`)
-     * or a custom-field reference `cf:<templateId>`. Custom-field values that are
-     * arrays (multi-select) place the scene in every matching group.
+     * or a custom-field reference `cf:<compositeKey>`. Custom-field values that
+     * are multi-select (comma-joined in `scene.custom`) place the scene in every
+     * matching group.
      */
     getScenesGroupedBy(
         field: string,
@@ -81,7 +82,7 @@ export class SceneQueryService {
         // group keys, which previously threw `t.startsWith is not a function`.
         const fieldStr = typeof field === 'string' ? field : String(field ?? '');
         const isCustom = fieldStr.startsWith('cf:');
-        const customId = isCustom ? fieldStr.slice(3) : '';
+        const customKey = isCustom ? fieldStr.slice(3) : '';
 
         const push = (key: string, scene: Scene) => {
             if (!groups.has(key)) groups.set(key, []);
@@ -90,11 +91,10 @@ export class SceneQueryService {
 
         for (const scene of scenes) {
             if (isCustom) {
-                const raw = scene.universalFields?.[customId];
-                if (Array.isArray(raw) && raw.length > 0) {
-                    for (const v of raw) push(String(v), scene);
-                } else if (typeof raw === 'string' && raw.trim()) {
-                    push(raw, scene);
+                const raw = scene.custom?.[customKey];
+                const vals = raw ? raw.split(',').map(v => v.trim()).filter(Boolean) : [];
+                if (vals.length > 0) {
+                    for (const v of vals) push(v, scene);
                 } else {
                     push('(empty)', scene);
                 }
@@ -303,10 +303,8 @@ export class SceneQueryService {
         if (filter.customFields) {
             for (const [tplId, accepted] of Object.entries(filter.customFields)) {
                 if (!accepted || accepted.length === 0) continue;
-                const raw = scene.universalFields?.[tplId];
-                const sceneVals: string[] = Array.isArray(raw)
-                    ? raw.map(String)
-                    : (typeof raw === 'string' && raw.trim() ? [raw] : []);
+                const raw = scene.custom?.[tplId];
+                const sceneVals: string[] = raw ? raw.split(',').map(v => v.trim()).filter(Boolean) : [];
                 if (!sceneVals.some(v => accepted.includes(v))) return false;
             }
         }

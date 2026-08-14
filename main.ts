@@ -5,9 +5,10 @@ import { asRecord, isRecord } from './utils/narrow';
 import type { FilterPreset } from './models/Scene';
 import { SceneManager } from './services/SceneManager';
 import { registerCustomStatuses, registerSceneCategories } from './models/Scene';
-import { setWriteSceneFieldsAsWikilinks, setWordcountExclusions, setWordcountLocale } from './services/MetadataParser';
+import { setWriteSceneFieldsAsWikilinks, setWordcountExclusions, setWordcountLocale, setEntityTemplatesProvider } from './services/MetadataParser';
 import { normalizeStoryLineLocale } from './utils/locale';
-import { setActiveTemplatesProvider, setTopLevelMirrorEnabled, mirrorUniversalFieldsToTopLevel, hydrateUniversalFieldsFromTopLevel, isReservedTopLevelKey, type FieldTemplateChange } from './services/FieldTemplateService';
+import { setCustomTopLevelMirrorProvider, setCustomTopLevelMirrorEnabled, mirrorCustomToTopLevel, hydrateCustomFromTopLevel } from './services/customTopLevelMirror';
+import { ENTITY_TYPE_SCENE, ENTITY_TYPE_CHARACTER, ENTITY_TYPE_WORLD, ENTITY_TYPE_LOCATION, entityTypeForCodex } from './models/EntityTemplate';
 import {
     BOARD_VIEW_TYPE,
     TIMELINE_VIEW_TYPE,
@@ -58,13 +59,15 @@ import { ViewSnapshotService } from './services/ViewSnapshotService';
 import { openManageSnapshotsModal } from './components/ViewSnapshotModal';
 import { LinkScanner } from './services/LinkScanner';
 import { CascadeRenameService } from './services/CascadeRenameService';
-import { FieldTemplateService } from './services/FieldTemplateService';
+import { CustomKeyMigrationService } from './services/CustomKeyMigrationService';
+import { EntityTemplateService } from './services/EntityTemplateService';
 import { SeriesManager } from './services/SeriesManager';
 import { buildFormattingToolbar } from './components/FormattingToolbar';
 import { setupMobileKeyboardHandling } from './components/MobileAdapter';
 import { DynamicNarrativeManager } from './dynamic-narrative/services/DynamicNarrativeManager';
 import { DynamicNarrativeView } from './dynamic-narrative/views/DynamicNarrativeView';
 import { CommentsManager } from './services/CommentsManager';
+import { EntityFileSyncService } from './services/EntityFileSyncService';
 
 /**
  * StoryLine Plugin for Obsidian
@@ -86,11 +89,18 @@ export default class SceneCardsPlugin extends Plugin {
     viewSnapshotService!: ViewSnapshotService;
     linkScanner!: LinkScanner;
     cascadeRename!: CascadeRenameService;
-    fieldTemplates!: FieldTemplateService;
+    customKeyMigrator!: CustomKeyMigrationService;
+    entityTemplates!: EntityTemplateService;
     seriesManager!: SeriesManager;
     researchManager!: ResearchManager;
     dynamicNarrativeManager!: DynamicNarrativeManager;
     commentsManager!: CommentsManager;
+    /**
+     * Silent body → frontmatter reconciler (Issue #228 phase 2). Watches
+     * entity notes edited outside StoryLine and rewrites the YAML to match
+     * the body's mirrored custom-field sections. See EntityFileSyncService.
+     */
+    entityFileSync!: EntityFileSyncService;
     /** The leaf currently hosting a StoryLine view */
     storyLeaf: WorkspaceLeaf | null = null;
     /** Removes native browser tooltips (`title`) inside StoryLine UI */
@@ -132,20 +142,24 @@ export default class SceneCardsPlugin extends Plugin {
         this.linkScanner = new LinkScanner(this.characterManager, this.locationManager);
         this.linkScanner.setCodexManager(this.codexManager);
         this.cascadeRename = new CascadeRenameService(this.app, this.sceneManager, this.characterManager, this.locationManager);
-        this.fieldTemplates = new FieldTemplateService(this.app, () => this.getProjectSystemFolder());
-        // Issue #71 — expose templates to parsers for top-level YAML mirroring
-        setActiveTemplatesProvider(() => this.fieldTemplates.getAll());
-        setTopLevelMirrorEnabled(this.settings.universalFieldsMirrorTopLevel !== false);
-        // Issue #71 follow-up — when a template's topLevelKey or folderSource
-        // changes, retro-mirror existing entities so users don't have to
-        // re-edit every record by hand.
-        this.fieldTemplates.setOnChange(async (change) => {
-            await this.migrateUniversalFieldMirror(change);
+        this.customKeyMigrator = new CustomKeyMigrationService(this.sceneManager, this.characterManager, this.locationManager, this.codexManager);
+        this.entityTemplates = new EntityTemplateService(this.app, () => this.getProjectSystemFolder());
+        // Refresh open views when entity-template structure changes
+        this.entityTemplates.setOnChange(() => {
+            this.refreshOpenViews();
         });
+        // Issue #71 — expose entity templates to the top-level YAML mirror
+        setCustomTopLevelMirrorProvider(() => this.entityTemplates);
+        setCustomTopLevelMirrorEnabled(this.settings.customTopLevelMirror !== false);
+        // Phase 2 — expose entity templates to MetadataParser for scene body mirroring
+        setEntityTemplatesProvider(() => this.entityTemplates);
         this.seriesManager = new SeriesManager(this.app, this);
         this.researchManager = new ResearchManager(this.app, this);
         this.dynamicNarrativeManager = new DynamicNarrativeManager(this.app, this);
         this.commentsManager = new CommentsManager(this.app);
+        // Silent body → frontmatter reconciler (Issue #228 phase 2).
+        this.entityFileSync = new EntityFileSyncService(this.app, this);
+        this.entityFileSync.attach();
 
         // Wire up undo/redo to refresh views + re-index
         this.sceneManager.undoManager.onAfterUndoRedo = async () => {
@@ -256,11 +270,8 @@ export default class SceneCardsPlugin extends Plugin {
             await this.migrateProjectDataFromSettings();
             // Load per-project data from System/ files (tagColors, aliases, etc.)
             await this.loadProjectSystemData();
-            // Load universal field templates from System/field-templates.json
-            await this.fieldTemplates.load();
-            this.codexManager.setFieldTemplates(this.fieldTemplates.getAll());
-            this.characterManager.setFieldTemplates(this.fieldTemplates.getAll());
-            this.locationManager.setFieldTemplates(this.fieldTemplates.getAll());
+            // Load unified entity templates from System/entity-templates.json
+            await this.entityTemplates.load();
             // Load corkboard layout from System/board.json
             await this.sceneManager.loadCorkboardPositions();
             // Load active view snapshot state
@@ -1170,7 +1181,7 @@ export default class SceneCardsPlugin extends Plugin {
         registerCustomStatuses(this.settings.customStatuses || []);
         registerSceneCategories(this.settings.sceneCategories || []);
         setWriteSceneFieldsAsWikilinks(this.settings.writeFieldsAsWikilinks !== false);
-        setTopLevelMirrorEnabled(this.settings.universalFieldsMirrorTopLevel !== false);
+        setCustomTopLevelMirrorEnabled(this.settings.customTopLevelMirror !== false);
         setWordcountExclusions({
             comments: this.settings.excludeCommentsFromWordcount !== false,
             checklists: this.settings.excludeChecklistFromWordcount === true,
@@ -1417,62 +1428,35 @@ export default class SceneCardsPlugin extends Plugin {
     // ────────────────────────────────────
 
     /**
-     * Re-mirror universal-field values to top-level YAML for every existing
-     * entity (characters, codex entries, locations, scenes) after a template
-     * change. This means users adding `topLevelKey` to a previously-saved
-     * field — or turning the global mirror toggle on — instantly see their
-     * existing data flow into Properties / Bases / Dataview without having
-     * to re-edit each note. Folder-sourced selections are wrapped as
-     * `[[wikilinks]]` automatically by the mirror function.
-     *
-     * Pass `change` from the FieldTemplateService to also clean up a renamed
-     * topLevelKey or a deleted template's stale top-level YAML key. Pass
-     * nothing to do a full re-mirror sweep (used when the global toggle
-     * flips on).
+     * Re-mirror custom-field values to top-level YAML for every existing
+     * entity (characters, codex entries, locations, scenes) — used when the
+     * user flips the "Mirror custom fields to top-level YAML" toggle ON.
+     * Values already saved in the `custom:` block flow into Properties /
+     * Bases / Dataview without requiring a manual re-edit per note.
      */
-    async migrateUniversalFieldMirror(change?: FieldTemplateChange): Promise<void> {
-        const oldKey = change?.oldTopLevelKey && change.topLevelKeyChanged ? change.oldTopLevelKey : undefined;
-        const removedTpl = change?.type === 'remove';
-
-        // Only run when something user-visible would actually change.
-        // For add/update, skip if neither topLevelKey nor folderSource changed.
-        if (change && change.type !== 'remove') {
-            if (!change.topLevelKeyChanged && !change.folderSourceChanged) return;
-        }
-        // Mirror writes only happen when the global toggle is on; if it's off
-        // we still want to clean up old top-level keys (rename / removal),
-        // but skip the full re-mirror sweep otherwise.
-        const mirrorOn = this.settings.universalFieldsMirrorTopLevel !== false;
-        if (!mirrorOn && !oldKey && !removedTpl) return;
-
+    async retroMirrorCustomTopLevel(): Promise<void> {
+        const mirrorOn = this.settings.customTopLevelMirror !== false;
+        if (!mirrorOn) return;
         const files = this.collectEntityFiles();
         let touched = 0;
         for (const file of files) {
             try {
                 await this.app.fileManager.processFrontMatter(file, (fm) => {
-                    let didChange = false;
-                    // Strip a renamed / removed top-level key.
-                    if (oldKey && !isReservedTopLevelKey(oldKey) && fm[oldKey] !== undefined) {
-                        delete fm[oldKey];
-                        didChange = true;
-                    }
-                    if (removedTpl && change?.oldTopLevelKey && !isReservedTopLevelKey(change.oldTopLevelKey)) {
-                        if (fm[change.oldTopLevelKey] !== undefined) {
-                            delete fm[change.oldTopLevelKey];
-                            didChange = true;
-                        }
-                    }
-                    if (mirrorOn) {
-                        const before = JSON.stringify(fm);
+                    const before = JSON.stringify(fm);
+                    const entityType = this.resolveMirrorEntityType(fm);
+                    if (entityType) {
+                        const custom = fm.custom && typeof fm.custom === 'object'
+                            ? fm.custom as Record<string, string>
+                            : undefined;
+                        const sub = typeof fm.templateSubcategory === 'string' ? fm.templateSubcategory : undefined;
                         // Hydrate first so values that only live in top-level
-                        // YAML get a universalFields counterpart, then mirror
-                        // back to apply the (possibly new) wikilink wrapping.
-                        const hydrated = hydrateUniversalFieldsFromTopLevel(fm, fm.universalFields);
-                        if (hydrated !== fm.universalFields) fm.universalFields = hydrated;
-                        mirrorUniversalFieldsToTopLevel(fm, fm.universalFields);
-                        if (JSON.stringify(fm) !== before) didChange = true;
+                        // YAML get a `custom` counterpart, then mirror back to
+                        // apply the (possibly new) wikilink wrapping.
+                        const hydrated = hydrateCustomFromTopLevel(fm, custom, entityType, sub);
+                        if (hydrated !== custom) fm.custom = hydrated;
+                        mirrorCustomToTopLevel(fm, hydrated, entityType, sub);
                     }
-                    if (didChange) touched++;
+                    if (JSON.stringify(fm) !== before) touched++;
                 });
             } catch (e) {
                 void e;
@@ -1484,7 +1468,29 @@ export default class SceneCardsPlugin extends Plugin {
     }
 
     /**
-     * Collect every TFile that may carry `universalFields`: characters,
+     * Resolve the entity-template type for a frontmatter record. Returns
+     * undefined for files that aren't StoryLine entities (e.g. notes whose
+     * `type:` happens to be set to a non-entity value).
+     */
+    private resolveMirrorEntityType(fm: Record<string, unknown>): string | undefined {
+        const t = typeof fm.type === 'string' ? fm.type : '';
+        if (t === 'scene') return ENTITY_TYPE_SCENE;
+        if (t === 'character') return ENTITY_TYPE_CHARACTER;
+        if (t === 'world') return ENTITY_TYPE_WORLD;
+        if (t === 'location') return ENTITY_TYPE_LOCATION;
+        // Codex entries carry their category id as `type:` — only treat it
+        // as a codex entity type when the category is actually registered.
+        if (t) {
+            try {
+                const catIds = new Set((this.codexManager?.getCategories?.() ?? []).map(c => String(c.id)));
+                if (catIds.has(t)) return entityTypeForCodex(t);
+            } catch { /* noop */ }
+        }
+        return undefined;
+    }
+
+    /**
+     * Collect every TFile that may carry custom fields: characters,
      * codex entries, locations, and scenes (across all loaded projects).
      */
     private collectEntityFiles(): TFile[] {

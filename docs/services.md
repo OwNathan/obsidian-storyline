@@ -98,7 +98,7 @@ Extracts `[[wikilinks]]` and plain-text character/location/codex mentions from s
 
 **Key methods:**
 - `setCodexManager(codexManager: CodexManager)`
-- `rebuildLookups(manualAliases?: Record<string, string>)`
+- `rebuildLookups(manualAliases?: Record<string, string>)` -- reads `aliases`, `entryType`, `caseSensitive`, `excludeTerms` from every character, location, world, and codex entry (the legacy `nickname` field is no longer read; `aliases` replaces it)
 - `scanAll(scenes: Scene[])`
 - `scanText(text: string): { characters: string[], locations: string[], tags: string[], other: string[] }`
 - `computeCodexDigests(): Record<string, string>`
@@ -108,6 +108,23 @@ Extracts `[[wikilinks]]` and plain-text character/location/codex mentions from s
 - `DetectedLink` -- `{ name, type: 'character' | 'location' | 'codex' | 'other' }`
 - `LinkScanResult` -- classified links per scene
 - `EntityReference` -- `{ name, type, filePath, codexCategory? }`
+
+---
+
+## EntityFileSyncService (`services/EntityFileSyncService.ts`)
+
+Silent body → frontmatter reconciler for entity notes (characters, locations, worlds, codex entries) edited outside StoryLine.
+
+Whenever the body of an entity note changes in Obsidian's editor, the mirrored custom-field sections (every custom field of type **Text** or **Text block**, per the unified mirroring rule of Issue #228 phase 2) become the source of truth. This service watches `vault.on('modify')` and, after an 800 ms debounce, rewrites the frontmatter so the YAML matches the body.
+
+**Loop protection:**
+- Each manager (`CharacterManager`, `LocationManager`, `CodexManager`) exposes `isSelfWrite()` while it's mid-`vault.modify`. The service bails out while any of them is writing.
+- The service tracks the file paths it is itself saving in `selfPaths` and skips those for a 1.5 s grace window.
+- Before saving, it diffs the body's mirrored values against the current frontmatter; only diverging files are rewritten, so the modify event triggered by the service's own save sees nothing to do.
+
+**API:**
+- `constructor(app, plugin)` -- the plugin must satisfy the `EntityFileSyncHost` duck-typed interface (`isSystemFile`, `loadActiveProjectEntities`, and the four managers / `entityTemplates`).
+- `attach()` -- registers the `vault.on('modify')` listener via the plugin's `registerEvent`. Call once from `onload()`.
 
 ---
 
@@ -227,6 +244,19 @@ Manages snapshots of view states (board layout, plot grid data, scene ordering).
 - `loadActiveState()` -- restore active snapshot on startup
 
 Stored in `System/Snapshots/`.
+
+---
+
+## EntityTemplateService (`services/EntityTemplateService.ts`)
+
+Owns `System/entity-templates.json` (per-project) and provides the code-defined default catalogs plus the user-defined custom sections for every (entity type, subcategory) pair. Supersedes the legacy universal-field and per-view custom-section systems.
+
+**Key methods (mirroring):**
+- `getMirroredFieldKeys(entityType, subcategory?): string[]` -- composite keys of every custom field of type **Text** or **Text block** (the unified mirroring rule of Issue #228 phase 2: every text / text-block custom field is mirrored to the note body automatically; there is no longer a per-field `mirrorToMd` toggle).
+- `buildAutoMirroredSections(entityType, subcategory, custom): MirroredSection[]` -- builds the `MirroredSection[]` to pass straight to a manager `saveXxx` call. Empty values are kept so `buildMirroredBody` drops cleared fields from the body.
+- `findFieldByCompositeKey(entityType, compositeKey, subcategory?)` -- resolve a `section :: field` composite key to its `{ section, field }` definition.
+
+> Removed: `setFieldMirror()` and the `CustomFieldDef.mirrorToMd` flag. The `normalizeSection` step also strips any legacy `mirrorToMd` value from existing `entity-templates.json` files on load.
 
 ---
 

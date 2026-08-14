@@ -21,6 +21,7 @@ import { attachTooltip } from '../components/Tooltip';
 import { resolveImagePath } from '../components/ImagePicker';
 import type SceneCardsPlugin from '../main';
 import { compareActChapter, parseActChapterInput, getActDisplayLabel } from '../utils/actChapter';
+import { ENTITY_TYPE_SCENE } from '../models/EntityTemplate';
 
 type BoardMode = 'kanban' | 'corkboard';
 
@@ -185,13 +186,9 @@ export class BoardView extends ItemView {
                     { value: 'pov', label: 'POV' },
                 ];
                 // Append user-defined scene custom fields (dropdown / multi-select only)
-                if (this.plugin.fieldTemplates) {
-                    const sceneTpls = this.plugin.fieldTemplates.getAll()
-                        .filter(t => (t.category || 'character') === 'scene')
-                        .filter(t => t.type === 'dropdown' || t.type === 'multi-select');
-                    for (const tpl of sceneTpls) {
-                        groupOptions.push({ value: `cf:${tpl.id}`, label: tpl.label });
-                    }
+                const customFields = this.plugin.entityTemplates?.getAllCustomFieldsByType(ENTITY_TYPE_SCENE, ['dropdown', 'multi-select']) ?? [];
+                for (const cf of customFields) {
+                    groupOptions.push({ value: `cf:${cf.compositeKey}`, label: cf.field.name });
                 }
                 groupOptions.forEach(opt => {
                     const option = groupSelect.createEl('option', { text: opt.label, value: opt.value });

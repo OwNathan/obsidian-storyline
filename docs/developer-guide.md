@@ -158,6 +158,18 @@ if (Platform.isDesktopApp) {
 
 Scene, character, location, and codex data is stored as YAML frontmatter in Markdown files. The `MetadataParser` service handles parsing and serialization. Never break frontmatter round-tripping -- always preserve unknown fields when writing back.
 
+## Mirroring Rule (Issue #228 phase 2)
+
+> **Every custom field of type Text or Text block is mirrored to the entity note's body automatically, as `# Section` / `## Field` headings appended after a single `<!-- sl-mirror -->` separator. Default fields are never mirrored. There is no per-field toggle and no exception.**
+
+Consequences:
+
+- On **save** (UI edit in StoryLine), the body is regenerated from the in-memory entity's custom fields via `buildMirroredBody(notesContent, mirrored)` (`services/CodexManager.ts`). `mirrored` is built by `EntityTemplateService.buildAutoMirroredSections`, which iterates the custom-section template fields of type `text` / `textarea` -- so adding or removing a custom text / text-block field automatically changes the body shape on the next save.
+- On **load**, the managers' parsers (`CharacterManager.parseCharacterContent`, `LocationManager.parseAndStoreContent`, `CodexManager.parseEntry`, and `MetadataParser` for scenes) call `parseMirroredBody(body)` and apply **body wins** -- the body's mirrored values overwrite the frontmatter values in the in-memory entity. Frontmatter is the source of truth only for default fields; the body is the source of truth for custom text / text-block fields.
+- The `EntityFileSyncService` (`services/EntityFileSyncService.ts`) silently reconciles the on-disk frontmatter when the body is edited directly in Obsidian (not from StoryLine). It watches `vault.on('modify')` for entity files, debounces 800 ms, diffs the body's mirrored values against the frontmatter, and -- only if they diverge -- reloads entities via `loadActiveProjectEntities()` and rewrites the file through the relevant manager `saveXxx`. Loop protection is provided by the managers' `isSelfWrite()` flags, a per-path `selfPaths` grace set, and the idempotent diff check.
+
+The legacy per-field `mirrorToMd` flag and the "Mirror to note body" toggle button have been removed. Any `mirrorToMd` key present in an existing `entity-templates.json` is stripped on the next load (`EntityTemplateService.normalizeSection`).
+
 ## Version Management
 
 - Plugin version is in `manifest.json` and `package.json` (keep in sync).

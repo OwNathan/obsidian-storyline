@@ -2,8 +2,6 @@
 import type SceneCardsPlugin from './main';
 import { SLDocxSettings, SL_DEFAULT_DOCX_SETTINGS } from './services/DocxConverter';
 import { SLPdfSettings, SL_DEFAULT_PDF_SETTINGS } from './services/PdfConverter';
-import { AddFieldModal } from './components/AddFieldModal';
-import type { UniversalFieldTemplate } from './services/FieldTemplateService';
 import { ColorCodingMode, CustomStatusDef, SceneStatus, SceneTemplate, ViewType, SceneCategoryDef, getStatusConfig, getStatusOrder, registerCustomStatuses, registerSceneCategories, getSceneCategoryConfig, getSceneCategoryOrder } from './models/Scene';
 import { App, Modal, Notice, PluginSettingTab, Setting, TFolder, TextAreaComponent, AbstractInputSuggest } from 'obsidian';
 import * as obsidian from 'obsidian';
@@ -749,40 +747,6 @@ export interface SceneCardsSettings {
     /** User-created custom codex category definitions */
     codexCustomCategories: Array<{ id: string; label: string; icon: string; showInSidebar?: boolean }>;
 
-    // Per-category default custom field templates (#115). When a new entry is created
-    // in this category, the listed field names are pre-populated with empty values.
-    // Keyed by category id (e.g. 'items', 'creatures', or a custom id).
-    codexCategoryFieldTemplates?: Record<string, string[]>;
-    // Per-category user-defined custom sections (#114). Each section has a title,
-    // an ordered list of fields, and an optional `position` slot describing where
-    // the section is inserted among the built-in sections.
-    //
-    // Field entries can be either:
-    //   * a bare string (legacy v1.10.15 — equivalent to `{ name, type: 'text' }`), or
-    //   * a rich `{ name, type, placeholder?, options? }` definition added in
-    //     v1.10.17 so users get the same input types they're used to from
-    //     universal field templates (text, textarea, dropdown, multi-select,
-    //     checkbox).
-    //
-    // Field values still live in `<entity>.custom` keyed by the composite
-    // `${sectionTitle} :: ${fieldName}` so existing data round-trips cleanly.
-    codexCategoryCustomSections?: Record<string, Array<{
-        title: string;
-        fields: Array<string | { name: string; type?: string; placeholder?: string; options?: string[] }>;
-        position?: number;
-    }>>;
-    /** User-defined custom sections shared across all characters (#120 / v1.10.17). */
-    characterCustomSections?: Array<{
-        title: string;
-        fields: Array<string | { name: string; type?: string; placeholder?: string; options?: string[] }>;
-        position?: number;
-    }>;
-    /** User-defined custom sections shared across all locations / worlds (#120 / v1.10.17). */
-    locationCustomSections?: Array<{
-        title: string;
-        fields: Array<string | { name: string; type?: string; placeholder?: string; options?: string[] }>;
-        position?: number;
-    }>;
     /** Which codex category IDs should appear in the Scene Inspector sidebar */
     codexSidebarCategories: string[];
     /** Series name — groups projects that share a common universe / codex */
@@ -791,12 +755,6 @@ export interface SceneCardsSettings {
     sharedCodex: string;
     /** Extra vault-relative folder paths to scan for StoryLine entities */
     extraFolders: string[];
-
-    /** Hidden built-in field keys per view/category (e.g. { character: ['fears','belief'], items: ['previousOwners'] }) */
-    hiddenFields: Record<string, string[]>;
-
-    /** Mirrored textarea field keys per codex category — content synced to md body as H1/H2 sections */
-    mirroredFields: Record<string, string[]>;
 
     /** Show the built-in formatting toolbar in scene editors when Editing Toolbar plugin is not installed */
     showFormattingToolbar: boolean;
@@ -822,12 +780,12 @@ export interface SceneCardsSettings {
     writeFieldsAsWikilinks?: boolean;
 
     /**
-     * Issue #71 — when true, custom field values defined via Universal Field
-     * Templates are mirrored to top-level YAML keys (in addition to the
-     * `universalFields:` block) so they are visible to Obsidian Properties,
-     * Bases, and Dataview. Each template controls its own `topLevelKey`.
+     * Issue #71 — when true, custom-section field values defined via the
+     * entity templates are mirrored to top-level YAML keys (in addition to
+     * the `custom:` block) so they are visible to Obsidian Properties,
+     * Bases, and Dataview. Each field controls its own `topLevelKey`.
      */
-    universalFieldsMirrorTopLevel?: boolean;
+    customTopLevelMirror?: boolean;
 
     /**
      * Issue #66 — when true (and the active project belongs to a series),
@@ -989,19 +947,11 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
 
     codexEnabledCategories: ['items'],
     codexCustomCategories: [],
-    codexCategoryFieldTemplates: {},
-    codexCategoryCustomSections: {},
-    characterCustomSections: [],
-    locationCustomSections: [],
     /** Which codex category IDs should appear in the Scene Inspector sidebar */
     codexSidebarCategories: [] as string[],
     series: '',
     sharedCodex: '',
     extraFolders: [],
-
-    hiddenFields: {},
-
-    mirroredFields: {},
 
     showFormattingToolbar: true,
 
@@ -1013,7 +963,7 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
     timelineDragScrollZone: 60,
     sprintEndSound: true,
     writeFieldsAsWikilinks: true,
-    universalFieldsMirrorTopLevel: true,
+    customTopLevelMirror: true,
     seriesArcView: false,
     warnOnCrossBookMove: true,
     excludeCommentsFromWordcount: true,
@@ -1041,6 +991,11 @@ export const DEFAULT_SETTINGS: SceneCardsSettings = {
  */
 export class SceneCardsSettingTab extends PluginSettingTab {
     plugin: SceneCardsPlugin;
+
+    /** In-progress axis drafts (label/options not yet persisted because the
+     *  axis isn't valid yet). Keyed by entity type so an axis being built
+     *  survives switching entity types in the settings dropdown. */
+    private pendingAxisDrafts: Record<string, { label: string; options: string[] }> = {};
 
     constructor(app: App, plugin: SceneCardsPlugin) {
         super(app, plugin);
@@ -1770,19 +1725,19 @@ export class SceneCardsSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Mirror custom fields to top-level YAML')
-            .setDesc('Issue #71 — when on, universal field values are also written as top-level YAML keys (using each template\'s "top-level key") so they show up in Obsidian properties, bases, and dataview. Reserved StoryLine keys are skipped automatically.')
+            .setDesc('Issue #71 — when on, entity-template custom field values are also written as top-level YAML keys (using each field\'s "top-level key") so they show up in Obsidian properties, bases, and dataview. Reserved StoryLine keys are skipped automatically.')
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.universalFieldsMirrorTopLevel !== false)
+                .setValue(this.plugin.settings.customTopLevelMirror !== false)
                 .onChange(async (value) => {
-                    const wasOn = this.plugin.settings.universalFieldsMirrorTopLevel !== false;
-                    this.plugin.settings.universalFieldsMirrorTopLevel = value;
+                    const wasOn = this.plugin.settings.customTopLevelMirror !== false;
+                    this.plugin.settings.customTopLevelMirror = value;
                     await this.plugin.saveSettings();
                     // When the user flips the toggle ON, retro-mirror every
-                    // existing entity so values already saved in
-                    // `universalFields:` flow into the top-level YAML keys
+                    // existing entity so values already saved in the
+                    // `custom:` block flow into the top-level YAML keys
                     // without requiring a manual re-edit per record.
                     if (value && !wasOn) {
-                        try { await this.plugin.migrateUniversalFieldMirror(); }
+                        try { await this.plugin.retroMirrorCustomTopLevel(); }
                         catch (e) { console.error('[StoryLine] mirror toggle migration:', e); }
                     }
                 }));
@@ -2417,37 +2372,16 @@ export class SceneCardsSettingTab extends PluginSettingTab {
                 }));
 
         // ═══════════════════════════════════════════
-        //  Custom Scene Fields
+        //  Entity Templates (subcategory axes)
         // ═══════════════════════════════════════════
-        new Setting(containerEl).setName('Custom scene fields').setHeading();
+        new Setting(containerEl).setName('Entity templates').setHeading();
         containerEl.createEl('p', {
-            text: 'Define your own metadata fields that appear on every scene???s inspector. Useful for story grid functions, truby aspects, beat-sheet labels, genre conventions, and any other scene tagging your method requires. Dropdown and multi-select fields can also be used to filter and group scenes on the board.',
+            text: 'Define a subcategory axis per entity type (e.g. Character → "importance"). Each axis option gets its own set of custom sections, assignable per entity in the editors. Custom sections themselves are managed directly in the entity editors.',
             cls: 'setting-item-description',
         });
 
-        const sceneFieldListEl = containerEl.createDiv('story-line-scene-fields-list');
-        this.renderSceneCustomFieldList(sceneFieldListEl);
-
-        new Setting(containerEl)
-            .addButton(btn => btn
-                .setButtonText('Add scene field')
-                .setCta()
-                .onClick(() => {
-                    if (!this.plugin.fieldTemplates) return;
-                    const modal = new AddFieldModal(
-                        this.app,
-                        'Scene',
-                        null,
-                        async (template) => {
-                            template.category = 'scene';
-                            await this.plugin.fieldTemplates.add(template);
-                            this.renderSceneCustomFieldList(sceneFieldListEl);
-                        },
-                        undefined,
-                        ['Scene'],
-                    );
-                    modal.open();
-                }));
+        const entityTemplateSectionEl = containerEl.createDiv('story-line-entity-template-section');
+        this.renderEntityTemplateSection(entityTemplateSectionEl);
 
         // ═══════════════════════════════════════════
         //  Export & Import
@@ -3234,66 +3168,198 @@ export class SceneCardsSettingTab extends PluginSettingTab {
         }
     }
 
-    /** Render the list of user-defined custom scene fields */
-    private renderSceneCustomFieldList(container: HTMLElement): void {
+    /** Render the "Entity templates" settings section (subcategory axes). */
+    private renderEntityTemplateSection(container: HTMLElement): void {
         container.empty();
-        if (!this.plugin.fieldTemplates) {
+        const et = this.plugin.entityTemplates;
+        if (!et) {
             container.createEl('p', {
-                text: 'Open a project first to manage scene custom fields (templates are stored per project).',
+                text: 'Open a project first to manage entity templates (stored per project).',
                 cls: 'setting-item-description',
             });
             return;
         }
 
-        const sceneTpls: UniversalFieldTemplate[] = this.plugin.fieldTemplates.getAll()
-            .filter(t => (t.category || 'character') === 'scene')
-            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-        if (sceneTpls.length === 0) {
-            container.createEl('p', {
-                text: 'No custom scene fields yet. Click "add scene field" to create one.',
-                cls: 'setting-item-description',
-            });
-            return;
+        // Entity type picker: reserved types + dynamic codex categories
+        const typeOptions: Record<string, string> = {
+            scene: 'Scene',
+            character: 'Character',
+            world: 'World',
+            location: 'Location',
+        };
+        const codexMgr = this.plugin.codexManager;
+        if (codexMgr) {
+            for (const cat of codexMgr.getCategories()) {
+                typeOptions[`codex:${cat.id}`] = `${cat.label} (codex)`;
+            }
         }
 
-        for (const tpl of sceneTpls) {
-            const typeLabel = tpl.type === 'multi-select' ? 'Multi-select'
-                : tpl.type.charAt(0).toUpperCase() + tpl.type.slice(1);
-            const optionsHint = (tpl.type === 'dropdown' || tpl.type === 'multi-select') && tpl.options.length > 0
-                ? ` — ${tpl.options.length} option${tpl.options.length === 1 ? '' : 's'}`
-                : '';
-            new Setting(container)
-                .setName(tpl.label || '(unnamed)')
-                .setDesc(`${typeLabel}${optionsHint}`)
-                .addExtraButton(btn => btn
-                    .setIcon('pencil')
-                    .setTooltip('Edit field')
+        let currentType = 'character';
+        const axisContainer = container.createDiv();
+
+        new Setting(container)
+            .setName('Entity type')
+            .setDesc('Select the entity type whose subcategory axis you want to configure.')
+            .addDropdown(dd => {
+                dd.addOptions(typeOptions);
+                dd.setValue(currentType);
+                dd.onChange(v => {
+                    currentType = v;
+                    this.renderAxisEditor(axisContainer, currentType);
+                });
+            });
+
+        this.renderAxisEditor(axisContainer, currentType);
+    }
+
+    /** Persist (or cache, when not yet valid) an axis draft for an entity type. */
+    private async persistAxisDraft(entityType: string, label: string, options: string[]): Promise<void> {
+        const et = this.plugin.entityTemplates;
+        if (!et) return;
+        const clean = options.map(o => o.trim()).filter(Boolean);
+        if (!label.trim()) {
+            // No label yet — keep the draft so switching entity types (or
+            // re-rendering) never loses it.
+            this.pendingAxisDrafts[entityType] = { label, options };
+            return;
+        }
+        if (clean.length === 0) {
+            // Label but no options: clear any persisted axis (so editors stop
+            // showing stale options) and keep the label draft for rebuilding.
+            this.pendingAxisDrafts[entityType] = { label, options };
+            if (et.getAxis(entityType)) await et.setAxis(entityType, undefined);
+            return;
+        }
+        delete this.pendingAxisDrafts[entityType];
+        await et.setAxis(entityType, { id: 'subcategory', label: label.trim(), options: clean });
+    }
+
+    /** Render the subcategory axis editor for a single entity type. */
+    private renderAxisEditor(container: HTMLElement, entityType: string): void {
+        container.empty();
+        const et = this.plugin.entityTemplates;
+        if (!et) return;
+        const axis = et.getAxis(entityType);
+        const pending = this.pendingAxisDrafts[entityType];
+
+        // Seed from an in-progress draft (if any) or the persisted axis.
+        let draftLabel = pending?.label ?? axis?.label ?? '';
+        const draftOptions: string[] = pending ? [...pending.options] : (axis ? [...axis.options] : []);
+        let pendingOption = '';
+
+        const persist = () => { void this.persistAxisDraft(entityType, draftLabel, draftOptions); };
+
+        if (!axis && !pending) {
+            container.createEl('p', {
+                text: 'No subcategory axis configured for this entity type. Add a label and options — they are saved automatically and appear in the entity editors right away.',
+                cls: 'setting-item-description',
+            });
+        }
+
+        new Setting(container)
+            .setName('Axis label')
+            .setDesc('Label shown in the entity editors (e.g. "importance").')
+            .addText(text => {
+                text.setPlaceholder('Importance')
+                    .setValue(draftLabel)
+                    .onChange(v => { draftLabel = v.trim(); });
+                text.inputEl.addEventListener('blur', persist);
+            });
+
+        const optionsEl = container.createDiv('sl-entity-axis-options');
+        const renderOptions = () => {
+            optionsEl.empty();
+            if (draftOptions.length === 0) {
+                optionsEl.createEl('p', {
+                    text: 'No options yet. Add at least one option (saved automatically).',
+                    cls: 'setting-item-description',
+                });
+            }
+            for (let i = 0; i < draftOptions.length; i++) {
+                const idx = i;
+                new Setting(optionsEl)
+                    .setName(`Option ${idx + 1}`)
+                    .addText(text => text
+                        .setValue(draftOptions[idx])
+                        .onChange(v => {
+                            draftOptions[idx] = v.trim();
+                            this.pendingAxisDrafts[entityType] = { label: draftLabel, options: draftOptions };
+                        })
+                        .inputEl.addEventListener('blur', persist))
+                    .addExtraButton(btn => btn
+                        .setIcon('chevron-up')
+                        .setTooltip('Move up')
+                        .onClick(() => {
+                            if (idx === 0) return;
+                            const tmp = draftOptions[idx - 1];
+                            draftOptions[idx - 1] = draftOptions[idx];
+                            draftOptions[idx] = tmp;
+                            persist();
+                            renderOptions();
+                        }))
+                    .addExtraButton(btn => btn
+                        .setIcon('chevron-down')
+                        .setTooltip('Move down')
+                        .onClick(() => {
+                            if (idx >= draftOptions.length - 1) return;
+                            const tmp = draftOptions[idx + 1];
+                            draftOptions[idx + 1] = draftOptions[idx];
+                            draftOptions[idx] = tmp;
+                            persist();
+                            renderOptions();
+                        }))
+                    .addExtraButton(btn => btn
+                        .setIcon('x')
+                        .setTooltip('Remove option')
+                        .onClick(() => {
+                            draftOptions.splice(idx, 1);
+                            persist();
+                            renderOptions();
+                        }));
+            }
+            // Add-option row
+            new Setting(optionsEl)
+                .setName('Add option')
+                .addText(text => {
+                    text
+                        .setPlaceholder('E.g. Minor, secondary, main')
+                        .onChange(v => { pendingOption = v.trim(); });
+                    text.inputEl.addEventListener('keydown', (e: KeyboardEvent) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            if (pendingOption && !draftOptions.includes(pendingOption)) {
+                                draftOptions.push(pendingOption);
+                                pendingOption = '';
+                                persist();
+                                renderOptions();
+                            }
+                        }
+                    });
+                })
+                .addButton(btn => btn
+                    .setButtonText('Add')
                     .onClick(() => {
-                        const modal = new AddFieldModal(
-                            this.app,
-                            tpl.section,
-                            tpl,
-                            async (updated) => {
-                                await this.plugin.fieldTemplates.update(tpl.id, updated);
-                                this.renderSceneCustomFieldList(container);
-                            },
-                            async () => {
-                                await this.plugin.fieldTemplates.remove(tpl.id);
-                                this.renderSceneCustomFieldList(container);
-                            },
-                            ['Scene'],
-                        );
-                        modal.open();
-                    }))
-                .addExtraButton(btn => btn
-                    .setIcon('trash')
-                    .setTooltip('Delete field')
-                    .onClick(async () => {
-                        await this.plugin.fieldTemplates.remove(tpl.id);
-                        this.renderSceneCustomFieldList(container);
+                        if (pendingOption && !draftOptions.includes(pendingOption)) {
+                            draftOptions.push(pendingOption);
+                            pendingOption = '';
+                            persist();
+                            renderOptions();
+                        }
                     }));
-        }
+        };
+        renderOptions();
+
+        new Setting(container)
+            .setDesc('Changes are saved automatically. Use "remove axis" to delete the axis; entities then fall back to the base template.')
+            .addButton(btn => btn
+                .setButtonText('Remove axis')
+                .setWarning()
+                .onClick(async () => {
+                    delete this.pendingAxisDrafts[entityType];
+                    await et.setAxis(entityType, undefined);
+                    new Notice('Subcategory axis removed. Entities keep their current subcategory value but fall back to the base template.');
+                    this.renderAxisEditor(container, entityType);
+                }));
     }
 
     /** Render collapsible DOCX export settings section */

@@ -1,7 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel, UniversalFieldTemplate } from './FieldTemplateService';
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+import { hydrateCustomFromTopLevel, mirrorCustomToTopLevel } from './customTopLevelMirror';
+import { entityTypeForCodex } from '../models/EntityTemplate';
 import { App, TFile, normalizePath, parseYaml, stringifyYaml } from 'obsidian';
-import { CodexCategoryDef, CodexEntry, getBuiltinCodexCategory, withLinkingSection } from '../models/Codex';
+import { CODEX_DEFAULT_FIELD_KEYS, CodexCategoryDef, CodexEntry, getBuiltinCodexCategory } from '../models/Codex';
+import { DEFAULT_CODEX_CATEGORIES } from '../models/defaults/codex';
 
 /**
  * Manages generic Codex entries — loading, saving, creating, and deleting
@@ -41,8 +43,6 @@ export class CodexManager {
     /** Guard flag set during plugin-initiated saves to prevent feedback loops */
     private _isSaving = false;
 
-    private _fieldTemplates: UniversalFieldTemplate[] = [];
-
     constructor(app: App) {
         this.app = app;
     }
@@ -50,11 +50,6 @@ export class CodexManager {
     /** Whether the manager is currently writing a file (prevents modify-loop). */
     isSelfWrite(): boolean {
         return this._isSaving;
-    }
-
-    /** Set field templates for resolving universal field mirror keys during body parsing. */
-    setFieldTemplates(templates: UniversalFieldTemplate[]): void {
-        this._fieldTemplates = templates;
     }
 
     // ── Category management ────────────────────────────
@@ -74,15 +69,28 @@ export class CodexManager {
         for (const id of enabledIds) {
             const builtin = getBuiltinCodexCategory(id);
             if (builtin) {
-                // Issue #209 — ensure every category exposes the shared
-                // Linking & Matching section (aliases, type, case-sensitivity,
-                // exclude terms) so codex entries are consistent across types.
-                this.categoryDefs.set(id, withLinkingSection(builtin));
+                // Entity-template system: every category (built-in or custom)
+                // exposes the same locked default catalog (Overview: name/kind,
+                // Linking & Matching: entryType/aliases/caseSensitive/excludeTerms)
+                // plus the unified field-key list that drives serialization.
+                this.categoryDefs.set(id, this.withUnifiedDefaults(builtin));
             } else {
                 const custom = customDefs.find(c => c.id === id);
-                if (custom) this.categoryDefs.set(id, withLinkingSection(custom));
+                if (custom) this.categoryDefs.set(id, this.withUnifiedDefaults(custom));
             }
         }
+    }
+
+    /**
+     * Replace a category's per-type field catalog with the unified
+     * entity-template defaults. Folder/label/icon/tab metadata is kept.
+     */
+    private withUnifiedDefaults(cat: CodexCategoryDef): CodexCategoryDef {
+        return {
+            ...cat,
+            categories: DEFAULT_CODEX_CATEGORIES,
+            fieldKeys: [...CODEX_DEFAULT_FIELD_KEYS],
+        };
     }
 
     /** All resolved category definitions (respects current enabled list). */
@@ -294,7 +302,6 @@ export class CodexManager {
 
         const content = await this.app.vault.read(file);
         const existingFm = this.extractFrontmatter(content) || {};
-        const body = this.extractBody(content);
 
         const fm: Record<string, unknown> = { ...existingFm };
         fm.type = entry.type;
@@ -328,14 +335,8 @@ export class CodexManager {
             delete fm.custom;
         }
 
-        // Universal field template values
-        if (entry.universalFields && Object.keys(entry.universalFields).length > 0) {
-            fm.universalFields = entry.universalFields;
-        } else {
-            delete fm.universalFields;
-        }
-        // Issue #71 — mirror to top-level YAML keys for templates that opt in
-        mirrorUniversalFieldsToTopLevel(fm, entry.universalFields);
+        // Issue #71 — mirror custom-field values to top-level YAML keys
+        mirrorCustomToTopLevel(fm, entry.custom, entityTypeForCodex(entry.type), entry.templateSubcategory);
 
         // Build body: strip old mirrored sections, then rebuild with current mirrored fields
         const finalBody = buildMirroredBody('', mirrored ?? []);
@@ -436,7 +437,7 @@ export class CodexManager {
         const body = this.extractBody(content);
 
         // Parse mirrored sections from body (body wins over frontmatter)
-        const { notes: plainNotes, sections } = parseMirroredBody(body);
+        const { sections } = parseMirroredBody(body);
 
         const basename = filePath.split('/').pop()?.replace(/\.md$/i, '') ?? filePath;
 
@@ -448,11 +449,13 @@ export class CodexManager {
             gallery: this.parseGallery(safeFm.gallery),
             created: safeFm.created,
             modified: safeFm.modified,
-            custom: safeFm.custom && typeof safeFm.custom === 'object' ? safeFm.custom as Record<string, string> : undefined,
-            universalFields: hydrateUniversalFieldsFromTopLevel(
+            custom: hydrateCustomFromTopLevel(
                 safeFm,
-                safeFm.universalFields && typeof safeFm.universalFields === 'object' ? safeFm.universalFields as Record<string, unknown> : undefined,
-            ) as Record<string, string | string[]> | undefined,
+                safeFm.custom && typeof safeFm.custom === 'object' ? safeFm.custom as Record<string, string> : undefined,
+                entityTypeForCodex(catDef.id),
+                typeof safeFm.templateSubcategory === 'string' ? safeFm.templateSubcategory : undefined,
+            ),
+            templateSubcategory: typeof safeFm.templateSubcategory === 'string' ? safeFm.templateSubcategory : undefined,
             books: Array.isArray(safeFm.books) ? safeFm.books.map(String) : undefined,
         };
 
@@ -469,10 +472,7 @@ export class CodexManager {
             for (const sec of sections) {
                 const key = this.resolveMirrorKey(sec.sectionTitle, sec.fieldLabel, catDef);
                 if (!key) continue;
-                if (key.startsWith('uf_')) {
-                    if (!entry.universalFields) entry.universalFields = {};
-                    entry.universalFields[key] = sec.value;
-                } else if (key.includes(' :: ')) {
+                if (key.includes(' :: ')) {
                     if (!entry.custom) entry.custom = {};
                     entry.custom[key] = sec.value;
                 } else {
@@ -486,19 +486,9 @@ export class CodexManager {
 
     /**
      * Resolve a sectionTitle + fieldLabel pair to a field key.
-     * Checks: custom-section composite keys, universal field templates, built-in fields.
+     * Checks: custom-section composite keys, built-in fields.
      */
     private resolveMirrorKey(sectionTitle: string, fieldLabel: string, catDef: CodexCategoryDef): string | null {
-        // Composite custom-section key
-        const composite = `${sectionTitle} :: ${fieldLabel}`;
-        if (this._fieldTemplates.some(t => t.section === sectionTitle && t.label === fieldLabel)) return null; // let universal check handle it
-        // Actually check if any custom section with this composite exists
-        const customKey = composite;
-        // We can't verify custom sections here; just return the composite if it looks like one
-        // Universal field — match by section and label
-        const tpl = this._fieldTemplates.find(t => t.section === sectionTitle && t.label === fieldLabel);
-        if (tpl) return tpl.id;
-
         // Built-in field — scan category sections
         for (const cat of catDef.categories) {
             if (cat.title !== sectionTitle) continue;
@@ -506,8 +496,8 @@ export class CodexManager {
             if (field) return field.key;
         }
 
-        // Fallback: could be custom-section composite key
-        return composite;
+        // Fallback: custom-section composite key
+        return `${sectionTitle} :: ${fieldLabel}`;
     }
 
     private extractFrontmatter(content: string): Record<string, unknown> | null {
@@ -648,4 +638,4 @@ export function parseMirroredBody(body: string): {
 
     return { notes, sections };
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

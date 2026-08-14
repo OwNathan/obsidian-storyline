@@ -9536,18 +9536,47 @@ body.theme-dark .location-field-input.dropdown {
     color: var(--text-normal);
 }
 
-/* Custom fields row */
-.codex-custom-field-row {
+/* Custom field row layout — unified across codex / character / location.
+   Label sits on its own line (top); the input and its action buttons
+   (edit, move up/down, move section, remove) share a single horizontal
+   line below it so the buttons never drop underneath the field. */
+.codex-custom-field-row,
+.character-custom-field-row,
+.location-custom-field-row {
     display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
 }
-.codex-custom-field-row .codex-field-label {
-    flex-shrink: 0; min-width: 0; max-width: 140px;
-    display: inline-block;
+/* Label forced to the full width → wraps to its own line above the input. */
+.codex-custom-field-row > .codex-field-label,
+.character-custom-field-row > .character-field-label,
+.location-custom-field-row > .location-field-label {
+    width: 100%;
     margin-bottom: 0;
 }
-.codex-custom-field-row .codex-field-input { flex: 1; min-width: 0; }
+/* Input/textarea/select occupy the remaining width on the second line,
+   next to the action buttons. `width:auto` cancels the default 100%.
+   Checkboxes are excluded so they keep their small, natural size. */
+.codex-custom-field-row > .codex-field-input:not(.codex-custom-checkbox),
+.codex-custom-field-row > .codex-field-textarea,
+.character-custom-field-row > .character-field-input:not(.codex-custom-checkbox),
+.character-custom-field-row > .character-field-textarea,
+.location-custom-field-row > .location-field-input:not(.codex-custom-checkbox),
+.location-custom-field-row > .location-field-textarea {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+}
+/* Multi-select tag widget (a wrapping div, not the text input itself) fills
+   the remaining width on the button line. */
+.codex-custom-field-row > .codex-custom-multi-wrap,
+.character-custom-field-row > .codex-custom-multi-wrap,
+.location-custom-field-row > .codex-custom-multi-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+}
 
 /* Multi-select widget used inside custom-section fields (v1.10.17). Compact
    pills + a free-form text input. Comma-friendly storage on save. */
@@ -15024,4 +15053,29 @@ body.dn-resizing .dn-resize-handle::after {
     .dn-entity-select-controls {
         grid-template-columns: 1fr;
     }
+}
+
+/* Subcategory picker (entity templates, Phase 2) */
+.sl-subcategory-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 2px;
+    margin-bottom: 8px;
+}
+.sl-subcategory-picker-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.sl-subcategory-picker-select {
+    font-size: 12px;
+    padding: 3px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    cursor: pointer;
+    max-width: 220px;
 }

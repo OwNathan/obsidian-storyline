@@ -18,8 +18,6 @@ export interface Character {
     image?: string;
     /** Image gallery (max 5 images with captions) */
     gallery?: Array<{ path: string; caption: string }>;
-    /** Nicknames or aliases */
-    nickname?: string;
     /** Age or date of birth */
     age?: string;
     /** Role in the story (string or list of roles — issue #72 Tier 1) */
@@ -178,14 +176,6 @@ export interface Character {
     props?: string;
     /** User-defined custom fields */
     custom?: Record<string, string>;
-    /**
-     * Universal field values keyed by template ID (from field-templates.json).
-     * `boolean` is supported for `checkbox`-type templates (added in
-     * 1.10.43); older data stores `'true'` / `'false'` strings and the
-     * checkbox renderer accepts both shapes.
-     */
-    universalFields?: Record<string, string | string[] | boolean>;
-
     // ── Series sharing ─────────────────────────────
     /**
      * Which books (project titles) this character appears in. Empty / missing
@@ -194,6 +184,14 @@ export interface Character {
      * belongs to a series.
      */
     books?: string[];
+
+    // ── Entity template subcategory ─────────────────
+    /**
+     * Value of the entity type's subcategory axis (e.g. "minor", "main" for
+     * an "importance" axis on characters). Ignored when the entity type has
+     * no subcategory axis configured.
+     */
+    templateSubcategory?: string;
 
     // ── Meta ───────────────────────────────────────────
     /** Created date */
@@ -206,7 +204,9 @@ export interface Character {
     // ── Linking & Matching (Issue #228) ───────────────
     /** Optional sub-type badge (e.g. "Antagonist", "Mentor"). */
     entryType?: string;
-    /** When true, name + nickname match only on exact case. */
+    /** Comma- or newline-separated alternative names that should also link to this character. */
+    aliases?: string;
+    /** When true, name + aliases match only on exact case. */
     caseSensitive?: boolean;
     /** Comma-separated phrases that should NOT link to this character. */
     excludeTerms?: string;
@@ -232,6 +232,9 @@ export interface CharacterFieldDef {
     /** When true, render an on/off checkbox instead of a text input
      *  (e.g. case-sensitive matching). Stored as a boolean. */
     toggle?: boolean;
+    /** When true, rendered by a dedicated widget in the view (never a plain
+     *  input) — used by the default catalogs. */
+    special?: boolean;
 }
 
 /**
@@ -572,7 +575,6 @@ export const CHARACTER_CATEGORIES: CharacterFieldCategory[] = [
         fields: [
             { key: 'name', label: 'Name', placeholder: 'Full name of the character' },
             { key: 'tagline', label: 'Tagline', placeholder: 'Choose which field to show on the card' },
-            { key: 'nickname', label: 'Nickname / Alias', placeholder: 'Alternative names and their origins', multiline: true },
             { key: 'age', label: 'Age', placeholder: 'Date of birth, current life stage' },
             { key: 'role', label: 'Role in Story', placeholder: 'Protagonist, antagonist, mentor, sidekick…' },
             { key: 'occupation', label: 'Occupation', placeholder: 'Current job, income level, career history' },
@@ -639,15 +641,15 @@ export const CHARACTER_CATEGORIES: CharacterFieldCategory[] = [
         ],
     },
     // ── Linking & Matching (Issue #228) ───────────────────────────
-    // Mirrors the shared section Codex entries already have. Aliases are
-    // intentionally omitted — Characters already expose `nickname` in Basic
-    // Information, which the LinkScanner reads as a comma-separated alias
-    // list. The fields here control sub-type display and matching rules.
+    // Mirrors the shared section Codex entries already have. The `aliases`
+    // field here is the canonical alias list the LinkScanner uses for plain-
+    // text matching (the legacy `nickname` field has been dropped).
     {
         title: 'Linking & Matching',
         icon: 'link',
         fields: [
             { key: 'entryType', label: 'Type', placeholder: 'Sub-type (e.g. Antagonist, Mentor, Deuteragonist…)' },
+            { key: 'aliases', label: 'Aliases', placeholder: 'Comma-separated alternative names that link to this character', multiline: true },
             { key: 'caseSensitive', label: 'Case-sensitive matching', placeholder: 'Off — match regardless of case', toggle: true },
             { key: 'excludeTerms', label: 'Exclude terms', placeholder: 'Comma-separated phrases that should NOT link here (e.g. "Saint John")', multiline: true },
         ],
@@ -658,14 +660,15 @@ export const CHARACTER_CATEGORIES: CharacterFieldCategory[] = [
  * Frontmatter keys that map to Character fields (excludes computed/meta keys)
  */
 export const CHARACTER_FIELD_KEYS: (keyof Character)[] = [
-    'name', 'tagline', 'image', 'gallery', 'nickname', 'age', 'role', 'roles', 'occupation', 'residency', 'locations', 'family', 'relations',
+    'name', 'tagline', 'image', 'gallery', 'age', 'role', 'roles', 'occupation', 'residency', 'locations', 'family', 'relations',
     'appearance', 'distinguishingFeatures', 'style', 'quirks',
     'personality', 'internalMotivation', 'externalMotivation', 'strengths', 'flaws', 'fears', 'belief', 'misbelief',
     'formativeMemories', 'accomplishments', 'secrets',
     'startingPoint', 'goal', 'expectedChange',
     'habits', 'props',
     'books',
-    'entryType', 'caseSensitive', 'excludeTerms',
+    'entryType', 'aliases', 'caseSensitive', 'excludeTerms',
+    'templateSubcategory',
 ];
 
 export const CHARACTER_RELATION_ARRAY_FIELDS: (keyof Character)[] = [
@@ -863,7 +866,7 @@ export function relationDisplayLabel(relation: CharacterRelation): string {
  * allies/enemies (string arrays) and custom (object).
  */
 const PROP_SCAN_FIELDS: (keyof Character)[] = [
-    'nickname', 'age', 'occupation', 'family',
+    'aliases', 'age', 'occupation', 'family',
     'appearance', 'distinguishingFeatures', 'style', 'quirks',
     'personality', 'internalMotivation', 'externalMotivation',
     'strengths', 'flaws', 'fears', 'belief', 'misbelief',

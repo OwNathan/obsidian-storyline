@@ -156,6 +156,9 @@ Board, Timeline, Plotgrid, and Manuscript views share the same `Filters` compone
 ### Inspector Component
 The `Inspector` component (`components/Inspector.ts`) is reused across BoardView, SceneInspectorView, DetailsView, and PlotgridView for scene metadata editing.
 
+### Body Mirroring (custom text / text-block fields)
+Every entity editor (CharacterView, LocationView, CodexView, and the scene Inspector) mirrors every custom field of type **Text** or **Text block** into the entity's Markdown body as `# Section` / `## Field` headings after a single `<!-- sl-mirror -->` separator. There is no per-field toggle — the mirroring is automatic (Issue #228 phase 2). Default fields are never mirrored; they live only in frontmatter. Editing a mirrored section directly in Obsidian's editor reconciles the frontmatter silently via `EntityFileSyncService` (body wins, debounced, loop-protected). Scene bodies keep the manuscript prose above the separator, with the mirrored custom sections appended at the end.
+
 ### View Tab Toolbar
 All views use a shared tab-based toolbar for switching between views. Tab labels auto-hide when the toolbar is narrow (configurable via `autoHideViewLabels` setting).
 

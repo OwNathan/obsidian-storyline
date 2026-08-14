@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { App, ItemView, WorkspaceLeaf, Modal, Setting, Notice, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, Modal, Setting, Notice, TFile } from 'obsidian';
 import * as obsidian from 'obsidian';
 import type SceneCardsPlugin from '../main';
 import { SceneManager } from '../services/SceneManager';
@@ -9,19 +9,18 @@ import { CODEX_VIEW_TYPE, CHARACTER_VIEW_TYPE, LOCATION_VIEW_TYPE, COMMENTS_VIEW
 import { renderViewSwitcher } from '../components/ViewSwitcher';
 import { applyMobileClass } from '../components/MobileAdapter';
 import { pickImage as pickImageModal, resolveImagePath } from '../components/ImagePicker';
-import { AddFieldModal } from '../components/AddFieldModal';
 import { AddCommentModal } from '../components/AddCommentModal';
 import { renderCommentCapsule } from '../components/CommentCapsule';
 import { attachTooltip } from '../components/Tooltip';
-import { openConfirmModal } from '../components/ConfirmModal';
 import {
-    CUSTOM_SECTION_KEY_SEP,
     renderCustomSectionsAtSlot,
+    renderMergedSection,
     renderAddCustomSectionButton,
+    syncLinkedSections,
     type CustomSectionsHost,
-    type CustomSection,
 } from '../components/CustomSectionsRenderer';
-import type { UniversalFieldTemplate } from '../services/FieldTemplateService';
+import { entityTypeForCodex } from '../models/EntityTemplate';
+import { renderSubcategoryPicker } from '../components/SubcategoryPicker';
 
 /**
  * Codex View — central hub for all codex categories.
@@ -48,6 +47,9 @@ export class CodexView extends ItemView {
     private collapsedSections: Set<string> = new Set();
     /** Search filter text */
     private searchText: string = '';
+    /** Key of the last-rendered page — used to only restore scroll when
+     *  re-rendering the same entity (not on navigation). */
+    private _lastRenderKey: string = '';
 
     // ── Auto-save state ────────────────────────────────
     private _saveTimer: number | null = null;
@@ -164,6 +166,13 @@ export class CodexView extends ItemView {
     // ══════════════════════════════════════════════════
 
     private renderView(container: HTMLElement): void {
+        // Preserve scroll position across the full DOM rebuild so collapsing /
+        // adding a section or saving the file doesn't jump the scrollbar. Only
+        // restore when re-rendering the same page — navigation resets to top.
+        const renderKey = this.selectedEntry ?? `overview:${this.activeCategory}`;
+        const samePage = renderKey === this._lastRenderKey;
+        const prevScrollTop = container.scrollTop;
+        const prevScrollLeft = container.scrollLeft;
         this.clearPortaledDropdowns(); // issue #102 — don't leak portaled popups across re-renders
         container.empty();
 
@@ -200,6 +209,10 @@ export class CodexView extends ItemView {
         } else {
             this.renderOverview(content);
         }
+
+        container.scrollTop = samePage ? prevScrollTop : 0;
+        container.scrollLeft = samePage ? prevScrollLeft : 0;
+        this._lastRenderKey = renderKey;
     }
 
     // ══════════════════════════════════════════════════
@@ -543,16 +556,35 @@ export class CodexView extends ItemView {
         const formPanel = layout.createDiv('codex-detail-form');
         const sidePanel = layout.createDiv('codex-detail-side');
 
-        // Render field categories interleaved with user-defined custom sections (#114)
-        const customHost = this.buildCustomSectionsHost(draft, catDef.categories.length);
+        // Subcategory picker (only when the codex category has an axis)
+        renderSubcategoryPicker({
+            container: formPanel,
+            entityTemplates: this.plugin.entityTemplates,
+            entityType: entityTypeForCodex(draft.type),
+            current: draft.templateSubcategory,
+            onChange: async (value) => {
+                draft.templateSubcategory = value;
+                this.scheduleSave(draft);
+                // Flush the save so the in-memory cache reflects the new
+                // subcategory, then re-render immediately so the new
+                // subcategory's custom sections appear without a manual reload.
+                await this.flushPendingSave();
+                if (this.rootContainer) this.renderView(this.rootContainer);
+            },
+        });
+
+        // Render entity-template default sections interleaved with
+        // user-defined custom sections (#114)
+        const defaultSections = this.plugin.entityTemplates.getCodexDefaultSections();
+        const customHost = this.buildCustomSectionsHost(draft, defaultSections.length);
         renderCustomSectionsAtSlot(formPanel, customHost, 0);
-        for (let i = 0; i < catDef.categories.length; i++) {
-            this.renderFieldCategory(formPanel, catDef.categories[i], draft, catDef);
+        for (let i = 0; i < defaultSections.length; i++) {
+            this.renderFieldCategory(formPanel, defaultSections[i], draft);
+            // Custom sections sharing this default section's title render
+            // inline (fields only, no duplicate header).
+            renderMergedSection(formPanel, customHost, defaultSections[i].title);
             renderCustomSectionsAtSlot(formPanel, customHost, i + 1);
         }
-
-        // Custom fields section
-        this.renderCustomFields(formPanel, draft);
 
         // "+ Add custom section" button at the bottom
         renderAddCustomSectionButton(formPanel, customHost);
@@ -571,20 +603,23 @@ export class CodexView extends ItemView {
 
     // ── Field category rendering ───────────────────────
 
+    /**
+     * Render a locked default section: header + its immutable fields in
+     * order. Defaults cannot be hidden, reordered, or extended with
+     * universal fields — custom fields live in custom sections (which may
+     * share this section's title to merge inline via renderMergedSection).
+     */
     private renderFieldCategory(
         container: HTMLElement,
         cat: CodexFieldCategory,
         draft: CodexEntry,
-        catDef: CodexCategoryDef,
     ): void {
-        const sectionKey = `${catDef.id}-${cat.title}`;
+        const sectionKey = `${draft.type}-${cat.title}`;
         const isCollapsed = this.collapsedSections.has(sectionKey);
 
         const section = container.createDiv('codex-section');
         const sectionHeader = section.createDiv('codex-section-header');
-        sectionHeader.addEventListener('click', (e) => {
-            // Ignore clicks on the add-field button
-            if ((e.target as HTMLElement).closest('.character-section-add-field-btn')) return;
+        sectionHeader.addEventListener('click', () => {
             if (this.collapsedSections.has(sectionKey)) {
                 this.collapsedSections.delete(sectionKey);
             } else {
@@ -601,92 +636,10 @@ export class CodexView extends ItemView {
 
         sectionHeader.createSpan({ cls: 'codex-section-title', text: cat.title });
 
-        // '+' button to add a universal field to this section
-        const addFieldBtn = sectionHeader.createEl('button', {
-            cls: 'character-section-add-field-btn',
-            attr: { title: 'Add universal field to this section', 'aria-label': 'Add universal field' },
-        });
-        obsidian.setIcon(addFieldBtn, 'plus');
-        addFieldBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const sectionNames = catDef.categories.map(c => c.title);
-            const existingSiblings = this.plugin.fieldTemplates
-                .getBySection(cat.title, catDef.id)
-                .map(t => ({ id: t.id, label: t.label }));
-            // Snapshot the current built-in keys so moveAfter can resolve the
-            // merged order even before the new field is rendered (issue #197).
-            const builtInKeysForAdd = cat.fields
-                .filter(f => !(this.plugin.settings.hiddenFields[catDef.id] ?? []).includes(f.key))
-                .map(f => f.key);
-            const modal = new AddFieldModal(
-                this.app,
-                cat.title,
-                null,
-                async (template, positionAfterId) => {
-                    template.category = catDef.id;
-                    await this.plugin.fieldTemplates.add(template);
-                    if (positionAfterId !== undefined) {
-                        await this.plugin.fieldTemplates.moveAfter(
-                            cat.title, catDef.id, builtInKeysForAdd,
-                            template.id, positionAfterId,
-                        );
-                    }
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                },
-                undefined,
-                sectionNames,
-                existingSiblings,
-            );
-            modal.open();
-        });
-
         if (!isCollapsed) {
             const body = section.createDiv('codex-section-body');
-
-            // Filter hidden fields
-            const hiddenKeys = this.plugin.settings.hiddenFields[catDef.id] ?? [];
-            const visibleFields = cat.fields.filter(f => !hiddenKeys.includes(f.key));
-            const hiddenFieldsInCat = cat.fields.filter(f => hiddenKeys.includes(f.key));
-
-            // Render fields in user-defined merged order (built-in + universal).
-            // Issue #92 follow-up — universal fields can be moved past built-ins
-            // and built-ins themselves can be reordered via the up/down chevrons
-            // that appear on hover.
-            const universalFields = this.plugin.fieldTemplates.getBySection(cat.title, catDef.id);
-            const fieldMap = new Map(visibleFields.map(f => [f.key, f]));
-            const tplMap = new Map(universalFields.map(t => [t.id, t]));
-            const builtInKeys = visibleFields.map(f => f.key);
-            const merged = this.plugin.fieldTemplates.getMergedOrder(cat.title, catDef.id, builtInKeys);
-            for (const entry of merged) {
-                if (entry.kind === 'builtin') {
-                    const f = fieldMap.get(entry.key);
-                    if (f) this.renderField(body, f, draft, catDef, cat.title, builtInKeys);
-                } else {
-                    const t = tplMap.get(entry.key);
-                    if (t) this.renderUniversalField(body, t, draft, catDef.id, builtInKeys);
-                }
-            }
-
-            // Hidden fields toggle
-            if (hiddenFieldsInCat.length > 0) {
-                const toggleEl = body.createDiv('hidden-fields-toggle');
-                toggleEl.createEl('a', {
-                    text: `Show ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`,
-                    cls: 'hidden-fields-toggle-link',
-                });
-                const hiddenContainer = body.createDiv('hidden-fields-container');
-                hiddenContainer.setCssStyles({ display: 'none' });
-                for (const field of hiddenFieldsInCat) {
-                    this.renderField(hiddenContainer, field, draft, catDef);
-                }
-                let showing = false;
-                toggleEl.addEventListener('click', () => {
-                    showing = !showing;
-                    hiddenContainer.setCssStyles({ display: showing ? '' : 'none' });
-                    toggleEl.querySelector('a')!.textContent = showing
-                        ? `Hide ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`
-                        : `Show ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`;
-                });
+            for (const field of cat.fields) {
+                this.renderField(body, field, draft);
             }
         }
     }
@@ -695,85 +648,10 @@ export class CodexView extends ItemView {
         container: HTMLElement,
         field: CodexFieldDef,
         draft: CodexEntry,
-        catDef: CodexCategoryDef,
-        sectionTitle?: string,
-        builtInKeys?: string[],
     ): void {
         const { key, label, placeholder, multiline, characterRef, toggle } = field;
         const row = container.createDiv('codex-field-row');
-        const labelEl = row.createEl('label', { cls: 'codex-field-label', text: label });
-
-        // Up/down chevrons — reorder this built-in field within the section,
-        // interleaved with universal fields. Only shown when we have the
-        // section context to dispatch the move call.
-        if (sectionTitle && builtInKeys) {
-            this.addBuiltInMoveChevrons(labelEl, sectionTitle, catDef.id, builtInKeys, key);
-        }
-
-        // Hide/unhide toggle (skip 'name')
-        if (key !== 'name') {
-            const hiddenKeys = this.plugin.settings.hiddenFields[catDef.id] ?? [];
-            const isHidden = hiddenKeys.includes(key);
-            const hideBtn = labelEl.createSpan({
-                cls: 'field-hide-btn',
-                attr: { 'aria-label': isHidden ? 'Show this field' : 'Hide this field' },
-            });
-            obsidian.setIcon(hideBtn, isHidden ? 'eye' : 'eye-off');
-            hideBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const settings = this.plugin.settings;
-                if (!settings.hiddenFields[catDef.id]) settings.hiddenFields[catDef.id] = [];
-                const list = settings.hiddenFields[catDef.id];
-                const idx = list.indexOf(key);
-                if (idx >= 0) {
-                    list.splice(idx, 1);
-                } else {
-                    list.push(key);
-                }
-                await this.plugin.saveSettings();
-                if (this.rootContainer) this.renderView(this.rootContainer);
-            });
-
-            // Mirror-to-body toggle (textarea fields only, after hide toggle)
-            if (multiline) {
-                const mirroredKeys = this.plugin.settings.mirroredFields[catDef.id] ?? [];
-                const isMirrored = mirroredKeys.includes(key);
-                const mirrorBtn = labelEl.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
-                });
-                obsidian.setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const settings = this.plugin.settings;
-                    if (!settings.mirroredFields[catDef.id]) settings.mirroredFields[catDef.id] = [];
-                    const list = settings.mirroredFields[catDef.id];
-                    const idx = list.indexOf(key);
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                    } else {
-                        list.push(key);
-                    }
-                    // Force-save entity so body reflects new mirror state immediately
-                    const allKeys = settings.mirroredFields[catDef.id] ?? [];
-                    let mirrored: MirroredSection[] | undefined;
-                    if (allKeys.length > 0) {
-                        const sections: MirroredSection[] = [];
-                        for (const mk of allKeys) {
-                            const si = this.resolveMirroredSectionInfo(mk, draft, catDef);
-                            if (si) sections.push(si);
-                        }
-                        if (sections.length > 0) mirrored = sections;
-                    }
-                    await this.codexManager.saveEntry(draft, mirrored);
-                    this._lastSaveTime = Date.now();
-                    this._pendingDraft = null;
-                    if (this._saveTimer) { window.clearTimeout(this._saveTimer); this._saveTimer = null; }
-                    await this.plugin.saveSettings();
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                });
-            }
-        }
+        row.createEl('label', { cls: 'codex-field-label', text: label });
 
         const currentValue = draft[key] != null ? String(draft[key]) : '';
 
@@ -863,526 +741,44 @@ export class CodexView extends ItemView {
         }
     }
 
-    // ── Universal field rendering ──────────────────────
-
-    /** Shared helper — attach up/down chevron buttons to a built-in field's
-     *  label so it participates in the merged section ordering. */
-    private addBuiltInMoveChevrons(
-        labelEl: HTMLElement,
-        section: string,
-        category: string,
-        builtInKeys: string[],
-        fieldKey: string,
-    ): void {
-        const upBtn = labelEl.createSpan({
-            cls: 'field-move-btn',
-            attr: { title: 'Move field up', 'aria-label': 'Move field up' },
-        });
-        obsidian.setIcon(upBtn, 'chevron-up');
-        upBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryUp(section, category, builtInKeys, 'builtin', fieldKey);
-            if (this.rootContainer) this.renderView(this.rootContainer);
-        });
-
-        const downBtn = labelEl.createSpan({
-            cls: 'field-move-btn',
-            attr: { title: 'Move field down', 'aria-label': 'Move field down' },
-        });
-        obsidian.setIcon(downBtn, 'chevron-down');
-        downBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryDown(section, category, builtInKeys, 'builtin', fieldKey);
-            if (this.rootContainer) this.renderView(this.rootContainer);
-        });
-    }
-
-    private renderUniversalField(
-        parent: HTMLElement,
-        tpl: UniversalFieldTemplate,
-        draft: CodexEntry,
-        categoryId: string,
-        builtInKeys?: string[],
-    ): void {
-        if (!draft.universalFields) draft.universalFields = {};
-        // 1.10.43: `universalFields` values can be string | string[] | boolean.
-        // `value` is the coerced string used by text / dropdown paths; the
-        // checkbox path reads `rawValue` to detect the actual boolean.
-        const rawValue = draft.universalFields[tpl.id];
-        const value: string = typeof rawValue === 'string' ? rawValue : '';
-
-        const row = parent.createDiv('codex-field-row codex-universal-field-row');
-
-        // Label with an edit icon
-        const labelWrap = row.createDiv('codex-universal-label-wrap');
-        labelWrap.createEl('label', { cls: 'codex-field-label', text: tpl.label });
-
-        const editBtn = labelWrap.createSpan({
-            cls: 'codex-universal-edit-btn',
-            attr: { title: 'Edit or remove this universal field', 'aria-label': 'Edit field' },
-        });
-        obsidian.setIcon(editBtn, 'pencil');
-        editBtn.addEventListener('click', () => {
-            const siblings = this.plugin.fieldTemplates
-                .getBySection(tpl.section, tpl.category)
-                .map(t => ({ id: t.id, label: t.label }));
-            const modal = new AddFieldModal(
-                this.app,
-                tpl.section,
-                tpl,
-                async (updated, positionAfterId) => {
-                    await this.plugin.fieldTemplates.update(tpl.id, updated);
-                    if (positionAfterId !== undefined) {
-                        await this.plugin.fieldTemplates.moveAfter(
-                            tpl.section, tpl.category, builtInKeys ?? [],
-                            tpl.id, positionAfterId,
-                        );
-                    }
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                },
-                async () => {
-                    await this.plugin.fieldTemplates.remove(tpl.id);
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                },
-                undefined,
-                siblings,
-            );
-            modal.open();
-        });
-
-        // Issue #92 — up/down move buttons (revealed on hover)
-        const moveUpBtn = labelWrap.createSpan({
-            cls: 'codex-universal-move-btn',
-            attr: { title: 'Move field up', 'aria-label': 'Move field up' },
-        });
-        obsidian.setIcon(moveUpBtn, 'chevron-up');
-        moveUpBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryUp(
-                tpl.section, tpl.category, builtInKeys ?? [], 'universal', tpl.id,
-            );
-            if (this.rootContainer) this.renderView(this.rootContainer);
-        });
-
-        const moveDownBtn = labelWrap.createSpan({
-            cls: 'codex-universal-move-btn',
-            attr: { title: 'Move field down', 'aria-label': 'Move field down' },
-        });
-        obsidian.setIcon(moveDownBtn, 'chevron-down');
-        moveDownBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryDown(
-                tpl.section, tpl.category, builtInKeys ?? [], 'universal', tpl.id,
-            );
-            if (this.rootContainer) this.renderView(this.rootContainer);
-        });
-
-        // Input control based on template type
-        if (tpl.type === 'multi-select') {
-            const raw = draft.universalFields[tpl.id];
-            const selected: string[] = Array.isArray(raw) ? [...raw] : (typeof raw === 'string' && raw ? [raw] : []);
-
-            const allOptions = [...tpl.options];
-            if (tpl.folderSource) {
-                const folder = this.app.vault.getAbstractFileByPath(tpl.folderSource);
-                if (folder && 'children' in folder) {
-                    for (const child of (folder as obsidian.TFolder).children) {
-                        if (child instanceof obsidian.TFile && child.extension === 'md') {
-                            if (!allOptions.includes(child.basename)) allOptions.push(child.basename);
-                        }
-                    }
-                }
-            }
-            allOptions.sort((a, b) => a.localeCompare(b));
-
-            const msContainer = row.createDiv('universal-multi-select');
-            const pillsEl = msContainer.createDiv('universal-multi-pills');
-            const inputRow = msContainer.createDiv('universal-multi-input-row');
-            const msInput = inputRow.createEl('input', {
-                cls: 'universal-multi-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder || 'Type to add\u2026' },
-            });
-            // Issue #102 — portal dropdown to <body> so position:fixed coords are
-            // relative to the viewport even when an ancestor uses `transform`,
-            // `filter`, `contain` or other properties that establish a
-            // containing block (which made the popup drift off the input).
-            const msDropdown = activeDocument.body.createDiv('universal-multi-dropdown');
-            msDropdown.setCssStyles({ display: 'none' });
-            this._portaledDropdowns.push(msDropdown);
-
-            const renderPills = () => {
-                pillsEl.empty();
-                for (const item of selected) {
-                    const pill = pillsEl.createSpan({ cls: 'universal-multi-pill' });
-                    pill.createSpan({ text: item });
-                    const x = pill.createSpan({ cls: 'universal-multi-pill-x', text: '\u00d7' });
-                    x.addEventListener('click', () => {
-                        const idx = selected.indexOf(item);
-                        if (idx >= 0) selected.splice(idx, 1);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                    });
-                }
-            };
-            renderPills();
-
-            const updateMsDropdown = (filter: string) => {
-                msDropdown.empty();
-                const lf = filter.toLowerCase();
-                const available = allOptions.filter(o => !selected.includes(o) && o.toLowerCase().includes(lf));
-                if (available.length === 0) { msDropdown.setCssStyles({ display: 'none' }); return; }
-                msDropdown.setCssStyles({ display: '' });
-                // Issue #91 — reposition via fixed coords so the popup escapes section overflow
-                const r = msInput.getBoundingClientRect();
-                const spaceBelow = window.innerHeight - r.bottom;
-                const popupMax = 200;
-                const flipUp = spaceBelow < 120 && r.top > spaceBelow;
-                msDropdown.setCssStyles({
-                    position: 'fixed',
-                    left: r.left + 'px',
-                    width: r.width + 'px',
-                    top: flipUp ? '' : (r.bottom + 'px'),
-                    bottom: flipUp ? (window.innerHeight - r.top) + 'px' : '',
-                    maxHeight: Math.min(popupMax, flipUp ? r.top - 8 : spaceBelow - 8) + 'px',
-                    zIndex: '1000',
-                });
-                for (const opt of available) {
-                    const item = msDropdown.createDiv({ cls: 'universal-multi-dropdown-item', text: opt });
-                    item.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        selected.push(opt);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                        msInput.value = '';
-                        updateMsDropdown('');
-                    });
-                }
-            };
-
-            msInput.addEventListener('focus', () => updateMsDropdown(msInput.value));
-            msInput.addEventListener('input', () => updateMsDropdown(msInput.value));
-            msInput.addEventListener('blur', () => { window.setTimeout(() => { msDropdown.setCssStyles({ display: 'none' }); }, 200); });
-            msInput.addEventListener('keydown', (e: KeyboardEvent) => {
-                if (e.key === 'Enter' && msInput.value.trim()) {
-                    e.preventDefault();
-                    const val = msInput.value.trim();
-                    if (!selected.includes(val)) {
-                        selected.push(val);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                    }
-                    msInput.value = '';
-                    updateMsDropdown('');
-                }
-            });
-        } else if (tpl.type === 'dropdown') {
-            const select = row.createEl('select', { cls: 'codex-field-input dropdown' });
-            select.createEl('option', { text: tpl.placeholder || 'Select…', value: '' });
-
-            const dropdownOptions = [...tpl.options];
-            if (tpl.folderSource) {
-                const folder = this.app.vault.getAbstractFileByPath(tpl.folderSource);
-                if (folder && 'children' in folder) {
-                    for (const child of (folder as obsidian.TFolder).children) {
-                        if (child instanceof obsidian.TFile && child.extension === 'md') {
-                            if (!dropdownOptions.includes(child.basename)) dropdownOptions.push(child.basename);
-                        }
-                    }
-                }
-                dropdownOptions.sort((a, b) => a.localeCompare(b));
-            }
-
-            for (const opt of dropdownOptions) {
-                const el = select.createEl('option', { text: opt, value: opt });
-                if (value === opt) el.selected = true;
-            }
-            if (value && !dropdownOptions.includes(value)) {
-                const el = select.createEl('option', { text: value, value });
-                el.selected = true;
-            }
-            select.addEventListener('change', () => {
-                draft.universalFields![tpl.id] = select.value;
-                this.scheduleSave(draft);
-            });
-        } else if (tpl.type === 'textarea') {
-            const textarea = row.createEl('textarea', {
-                cls: 'codex-field-textarea',
-                attr: { placeholder: tpl.placeholder, rows: '2' },
-            });
-            textarea.value = value;
-            const autoGrow = () => {
-                textarea.setCssStyles({ height: 'auto' });
-                textarea.setCssStyles({ height: Math.max(textarea.scrollHeight, 48) + 'px' });
-            };
-            window.setTimeout(autoGrow, 0);
-            textarea.addEventListener('input', () => {
-                draft.universalFields![tpl.id] = textarea.value;
-                this.scheduleSave(draft);
-                autoGrow();
-            });
-
-            // Mirror-to-body toggle
-            {
-                const mirroredKeys = this.plugin.settings.mirroredFields[categoryId] ?? [];
-                const isMirrored = mirroredKeys.includes(tpl.id);
-                const mirrorBtn = labelWrap.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
-                });
-                obsidian.setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const settings = this.plugin.settings;
-                    if (!settings.mirroredFields[categoryId]) settings.mirroredFields[categoryId] = [];
-                    const list = settings.mirroredFields[categoryId];
-                    const idIdx = list.indexOf(tpl.id);
-                    if (idIdx >= 0) {
-                        list.splice(idIdx, 1);
-                    } else {
-                        list.push(tpl.id);
-                    }
-                    // Force-save entity so body reflects new mirror state immediately
-                    const catDef = this.codexManager.getCategoryDef(categoryId);
-                    const allKeys = settings.mirroredFields[categoryId] ?? [];
-                    let mirrored: MirroredSection[] | undefined;
-                    if (catDef && allKeys.length > 0) {
-                        const sections: MirroredSection[] = [];
-                        for (const mk of allKeys) {
-                            const si = this.resolveMirroredSectionInfo(mk, draft, catDef);
-                            if (si) sections.push(si);
-                        }
-                        if (sections.length > 0) mirrored = sections;
-                    }
-                    await this.codexManager.saveEntry(draft, mirrored);
-                    this._lastSaveTime = Date.now();
-                    this._pendingDraft = null;
-                    if (this._saveTimer) { window.clearTimeout(this._saveTimer); this._saveTimer = null; }
-                    await this.plugin.saveSettings();
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                });
-            }
-        } else if (tpl.type === 'checkbox') {
-            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
-            const wrap = row.createDiv('codex-field-checkbox-wrap');
-            const cb = wrap.createEl('input', {
-                cls: 'codex-field-checkbox',
-                type: 'checkbox',
-            });
-            cb.checked = checked;
-            cb.addEventListener('change', () => {
-                draft.universalFields![tpl.id] = cb.checked;
-                this.scheduleSave(draft);
-            });
-        } else {
-            const input = row.createEl('input', {
-                cls: 'codex-field-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder },
-            });
-            input.value = value;
-            input.addEventListener('input', () => {
-                draft.universalFields![tpl.id] = input.value;
-                this.scheduleSave(draft);
-            });
-        }
-    }
-
-    // ── Custom fields ──────────────────────────────────
-
-    /** Composite-key separator used to namespace fields inside user-defined
-     *  custom sections (#114). Re-exported from the shared helper so existing
-     *  call-sites within this file keep working. */
-    private static readonly CUSTOM_SECTION_KEY_SEP = CUSTOM_SECTION_KEY_SEP;
-
-    private renderCustomFields(container: HTMLElement, draft: CodexEntry): void {
-        // Merge per-category template fields into draft.custom so they appear
-        // automatically for new entries (#115)
-        const template = this.plugin.settings.codexCategoryFieldTemplates?.[draft.type] || [];
-        if (template.length > 0) {
-            if (!draft.custom) draft.custom = {};
-            for (const name of template) {
-                if (!(name in draft.custom)) draft.custom[name] = '';
-            }
-        }
-
-        const section = container.createDiv('codex-section');
-        const header = section.createDiv('codex-section-header');
-        const chevron = header.createSpan({ cls: 'codex-section-chevron' });
-
-        const sectionKey = 'custom-fields';
-        const isCollapsed = this.collapsedSections.has(sectionKey);
-        obsidian.setIcon(chevron, isCollapsed ? 'chevron-right' : 'chevron-down');
-
-        const icon = header.createSpan({ cls: 'codex-section-icon' });
-        obsidian.setIcon(icon, 'plus-circle');
-        header.createSpan({ cls: 'codex-section-title', text: 'Custom Fields' });
-
-        header.addEventListener('click', () => {
-            if (this.collapsedSections.has(sectionKey)) {
-                this.collapsedSections.delete(sectionKey);
-            } else {
-                this.collapsedSections.add(sectionKey);
-            }
-            if (this.rootContainer) this.renderView(this.rootContainer);
-        });
-
-        if (isCollapsed) return;
-
-        const body = section.createDiv('codex-section-body');
-        const custom = draft.custom || {};
-
-        for (const [fieldName, fieldValue] of Object.entries(custom)) {
-            // Skip composite keys belonging to user-defined custom sections (#114)
-            if (fieldName.includes(CodexView.CUSTOM_SECTION_KEY_SEP)) continue;
-            const row = body.createDiv('codex-field-row codex-custom-field-row');
-            row.createEl('label', { cls: 'codex-field-label', text: fieldName });
-
-            const input = row.createEl('input', {
-                cls: 'codex-field-input',
-                attr: { type: 'text', placeholder: `Value for ${fieldName}` },
-            });
-            input.value = fieldValue;
-            input.addEventListener('input', () => {
-                if (!draft.custom) draft.custom = {};
-                draft.custom[fieldName] = input.value;
-                this.scheduleSave(draft);
-            });
-
-            const removeBtn = row.createEl('button', {
-                cls: 'codex-custom-field-remove',
-                attr: { 'aria-label': 'Remove field' },
-            });
-            obsidian.setIcon(removeBtn, 'x');
-            removeBtn.addEventListener('click', () => {
-                const tplMap = this.plugin.settings.codexCategoryFieldTemplates;
-                const inTemplate = !!(tplMap && tplMap[draft.type] && tplMap[draft.type].includes(fieldName));
-                const doRemove = (alsoFromTemplate: boolean) => {
-                    if (draft.custom) {
-                        delete draft.custom[fieldName];
-                        if (Object.keys(draft.custom).length === 0) draft.custom = undefined;
-                    }
-                    if (alsoFromTemplate && tplMap && tplMap[draft.type]) {
-                        tplMap[draft.type] = tplMap[draft.type].filter(n => n !== fieldName);
-                        if (tplMap[draft.type].length === 0) delete tplMap[draft.type];
-                        void this.plugin.saveSettings();
-                    }
-                    this.scheduleSave(draft);
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                };
-                if (inTemplate) {
-                    // Confirm whether to remove from template (all entries) or just this entry
-                    openConfirmModal(this.app, {
-                        title: 'Remove Template Field',
-                        message: `"${fieldName}" is a template field for this category. Remove it from all entries in this category, or cancel to remove it from this entry only?`,
-                        confirmLabel: 'Remove from all entries',
-                        cancelLabel: 'This entry only',
-                        onConfirm: () => doRemove(true),
-                        onCancel: () => doRemove(false),
-                    });
-                } else {
-                    doRemove(false);
-                }
-            });
-        }
-
-        // Add custom field button
-        const addRow = body.createDiv('codex-add-custom-field-row');
-        const addBtn = addRow.createEl('button', { cls: 'codex-add-custom-btn', text: '+ add custom field' });
-        addBtn.addEventListener('click', () => {
-            const modal = new AddCustomFieldModal(this.app, (name, applyToAll) => {
-                if (!draft.custom) draft.custom = {};
-                if (!(name in draft.custom)) draft.custom[name] = '';
-                if (applyToAll) {
-                    if (!this.plugin.settings.codexCategoryFieldTemplates) {
-                        this.plugin.settings.codexCategoryFieldTemplates = {};
-                    }
-                    const tpl = this.plugin.settings.codexCategoryFieldTemplates[draft.type] || [];
-                    if (!tpl.includes(name)) {
-                        tpl.push(name);
-                        this.plugin.settings.codexCategoryFieldTemplates[draft.type] = tpl;
-                        void this.plugin.saveSettings();
-                    }
-                }
-                this.scheduleSave(draft);
-                if (this.rootContainer) this.renderView(this.rootContainer);
-            });
-            modal.open();
-        });
-    }
-
     // ── User-defined custom sections (#114) ────────────
 
     /**
      * Build the {@link CustomSectionsHost} used to interleave user-defined
-     * custom sections with the category-defined built-in sections. The host
-     * is rebuilt per-render so it always reflects the latest settings list
-     * for the current Codex category.
+     * custom sections with the entity-template default sections. The host
+     * is rebuilt per-render so it always reflects the latest template state
+     * for the current Codex category; structure changes persist via
+     * {@link EntityTemplateService}.
      */
     private buildCustomSectionsHost(
         draft: CodexEntry,
         builtinSectionCount: number,
     ): CustomSectionsHost<CodexEntry> {
-        if (!this.plugin.settings.codexCategoryCustomSections) {
-            this.plugin.settings.codexCategoryCustomSections = {};
-        }
-        const allSections = this.plugin.settings.codexCategoryCustomSections;
-        if (!allSections[draft.type]) allSections[draft.type] = [];
-        // Settings store the loose JSON shape; CustomSectionsHost expects
-        // the narrower CustomSection[]. Cast at the boundary — the field
-        // renderers normalise unknown `type` values via `normalizeField()`.
-        const sections = allSections[draft.type] as unknown as CustomSection[];
+        const entityType = entityTypeForCodex(draft.type);
+        const subcategory = draft.templateSubcategory;
+        const sections = this.plugin.entityTemplates.getCustomSections(entityType, subcategory);
+        const defaultTitles = this.plugin.entityTemplates.getDefaultSectionTitles(entityType);
         return {
             app: this.app,
             draft,
             sections,
+            entityType,
+            subcategory,
+            entityTemplates: this.plugin.entityTemplates,
+            remigrateLinkedKeys: (ops, subcats) => {
+                void this.plugin.customKeyMigrator.remigrateCustomKeys(entityType, ops, subcats, draft.filePath);
+            },
             builtinSectionCount,
             collapsedSections: this.collapsedSections,
             collapseKeyPrefix: `codex::${draft.type}`,
             cssPrefix: 'codex',
+            isMergedSectionTitle: (title: string) => defaultTitles.includes(title),
             scheduleSave: (d) => this.scheduleSave(d),
             persistSections: () => {
-                allSections[draft.type] = sections;
-                if (sections.length === 0) delete allSections[draft.type];
-                void this.plugin.saveSettings();
+                void this.plugin.entityTemplates.setCustomSections(entityType, subcategory, sections);
+                void syncLinkedSections(this.plugin.entityTemplates, entityType, subcategory, sections);
             },
             requestRerender: () => {
-                if (this.rootContainer) this.renderView(this.rootContainer);
-            },
-            isFieldMirrored: (compositeKey: string) => {
-                const list = this.plugin.settings.mirroredFields[draft.type] ?? [];
-                return list.includes(compositeKey);
-            },
-            toggleFieldMirror: async (compositeKey: string) => {
-                const settings = this.plugin.settings;
-                if (!settings.mirroredFields[draft.type]) settings.mirroredFields[draft.type] = [];
-                const list = settings.mirroredFields[draft.type];
-                const idx = list.indexOf(compositeKey);
-                if (idx >= 0) {
-                    list.splice(idx, 1);
-                } else {
-                    list.push(compositeKey);
-                }
-                // Force-save entity so body reflects new mirror state immediately
-                const catDef = this.codexManager.getCategoryDef(draft.type);
-                const allKeys = settings.mirroredFields[draft.type] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (catDef && allKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const mk of allKeys) {
-                        const si = this.resolveMirroredSectionInfo(mk, draft, catDef);
-                        if (si) sections.push(si);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
-                await this.codexManager.saveEntry(draft, mirrored);
-                this._lastSaveTime = Date.now();
-                this._pendingDraft = null;
-                if (this._saveTimer) { window.clearTimeout(this._saveTimer); this._saveTimer = null; }
-                await this.plugin.saveSettings();
                 if (this.rootContainer) this.renderView(this.rootContainer);
             },
         };
@@ -2044,55 +1440,18 @@ export class CodexView extends ItemView {
     // ── Mirror helper ──────────────────────────────────
 
     /**
-     * Resolve section title + field label + current value for a mirrored field key.
-     * Supports built-in keys, universal template IDs (uf_*), and composite
-     * custom-section keys (`sectionTitle :: fieldName`).
+     * Build the {@link MirroredSection} list for the current entry.
+     *
+     * Per the unified mirroring rule (Issue #228 phase 2), every custom field
+     * of type Text or Text block is mirrored to the note body automatically —
+     * there is no per-field toggle. Default fields are never mirrored.
      */
-    private resolveMirroredSectionInfo(
-        key: string,
-        draft: CodexEntry,
-        catDef: CodexCategoryDef,
-    ): MirroredSection | null {
-        // Custom-section composite key
-        if (key.includes(CodexView.CUSTOM_SECTION_KEY_SEP)) {
-            const [sectionTitle, fieldName] = key.split(CodexView.CUSTOM_SECTION_KEY_SEP);
-            const value = draft.custom?.[key] ?? '';
-            return {
-                sectionTitle: sectionTitle.trim(),
-                fieldKey: key,
-                fieldLabel: fieldName.trim(),
-                value: String(value),
-            };
-        }
-
-        // Universal field template ID
-        if (key.startsWith('uf_')) {
-            const tpl = this.plugin.fieldTemplates.getById(key);
-            if (!tpl) return null;
-            const value = draft.universalFields?.[key];
-            return {
-                sectionTitle: tpl.section,
-                fieldKey: key,
-                fieldLabel: tpl.label,
-                value: typeof value === 'string' ? value : (value ? String(value) : ''),
-            };
-        }
-
-        // Built-in field — find which category section contains this field
-        for (const cat of catDef.categories) {
-            const field = cat.fields.find(f => f.key === key);
-            if (field) {
-                const value = draft[key] != null ? String(draft[key]) : '';
-                return {
-                    sectionTitle: cat.title,
-                    fieldKey: key,
-                    fieldLabel: field.label,
-                    value,
-                };
-            }
-        }
-
-        return null;
+    private buildMirroredSections(draft: CodexEntry): MirroredSection[] {
+        return this.plugin.entityTemplates.buildAutoMirroredSections(
+            entityTypeForCodex(draft.type),
+            draft.templateSubcategory,
+            draft.custom,
+        );
     }
 
     // ── Auto-save ──────────────────────────────────────
@@ -2108,21 +1467,9 @@ export class CodexView extends ItemView {
 
     private async executeSave(draft: CodexEntry): Promise<void> {
         try {
-            const catDef = this.codexManager.getCategoryDef(draft.type);
-            const mirroredKeys = this.plugin.settings.mirroredFields[draft.type] ?? [];
-
-            // Build mirrored section info for saveEntry
-            let mirrored: MirroredSection[] | undefined;
-            if (catDef && mirroredKeys.length > 0) {
-                const sections: MirroredSection[] = [];
-                for (const key of mirroredKeys) {
-                    const sectionInfo = this.resolveMirroredSectionInfo(key, draft, catDef);
-                    if (sectionInfo) sections.push(sectionInfo);
-                }
-                if (sections.length > 0) mirrored = sections;
-            }
-
-            await this.codexManager.saveEntry(draft, mirrored);
+            // Build mirrored section info (every custom text / text-block
+            // field is mirrored automatically — see buildMirroredSections).
+            await this.codexManager.saveEntry(draft, this.buildMirroredSections(draft));
             this._lastSaveTime = Date.now();
             this._pendingDraft = null;
         } catch (err) {
@@ -2303,61 +1650,6 @@ export class CodexView extends ItemView {
         };
         activeDocument.addEventListener('keydown', onKey);
         const cleanup = () => { activeDocument.removeEventListener('keydown', onKey); };
-    }
-}
-
-// ═══════════════════════════════════════════════════
-//  Small modal for adding a custom field
-// ═══════════════════════════════════════════════════
-
-class AddCustomFieldModal extends Modal {
-    private callback: (name: string, applyToAll: boolean) => void;
-
-    constructor(app: App, callback: (name: string, applyToAll: boolean) => void) {
-        super(app);
-        this.callback = callback;
-    }
-
-    onOpen(): void {
-        this.titleEl.setText('Add custom field');
-        let fieldName = '';
-        let applyToAll = true;
-        let nameInput: HTMLInputElement | null = null;
-        new Setting(this.contentEl)
-            .setName('Field name')
-            .addText(text => {
-                text.setPlaceholder('E.g. Rarity, alignment???');
-                text.onChange(v => { fieldName = v; });
-                nameInput = text.inputEl;
-                text.inputEl.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        const v = (nameInput?.value || fieldName).trim();
-                        if (v) {
-                            e.preventDefault();
-                            this.close();
-                            this.callback(v, applyToAll);
-                        }
-                    }
-                });
-                window.setTimeout(() => text.inputEl.focus(), 50);
-            });
-
-        new Setting(this.contentEl)
-            .setName('Add to all entries in this category')
-            .setDesc('When enabled, this field becomes a template for the category and appears on every existing and future entry of this type.')
-            .addToggle(t => t.setValue(applyToAll).onChange(v => { applyToAll = v; }));
-
-        new Setting(this.contentEl)
-            .addButton(btn => btn
-                .setButtonText('Add')
-                .setCta()
-                .onClick(() => {
-                    const v = (nameInput?.value || fieldName).trim();
-                    if (v) {
-                        this.close();
-                        this.callback(v, applyToAll);
-                    }
-                }));
     }
 }
 

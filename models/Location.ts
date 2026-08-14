@@ -34,13 +34,6 @@ interface LocationBase {
     /** User-defined custom fields */
     custom?: Record<string, string>;
     /**
-     * Universal field values (keyed by template id).
-     * `boolean` is supported for `checkbox`-type templates (1.10.43+).
-     */
-    universalFields?: Record<string, string | string[] | boolean>;
-    /** Alternative names / aliases (comma-separated) — used by LinkScanner for plain-text matching */
-    nickname?: string;
-    /**
      * Which books (project titles) this entity appears in. Empty / missing
      * means the entity is shared by every book in the series. Used by the
      * "Current book only" filter in LocationView when the active project
@@ -51,10 +44,19 @@ interface LocationBase {
     // ── Linking & Matching (Issue #228) ───────────────
     /** Optional sub-type badge (e.g. "City", "Stronghold"). */
     entryType?: string;
-    /** When true, name + nickname match only on exact case. */
+    /** Comma- or newline-separated alternative names that should also link to this location. */
+    aliases?: string;
+    /** When true, name + aliases match only on exact case. */
     caseSensitive?: boolean;
     /** Comma-separated phrases that should NOT link to this location. */
     excludeTerms?: string;
+
+    // ── Entity template subcategory ─────────────────
+    /**
+     * Value of the entity type's subcategory axis. Ignored when the entity
+     * type has no subcategory axis configured.
+     */
+    templateSubcategory?: string;
 }
 
 // ── World ──────────────────────────────────────────
@@ -147,6 +149,9 @@ export interface LocationFieldDef {
     /** When true, render an on/off checkbox instead of a text input
      *  (e.g. case-sensitive matching). Stored as a boolean. */
     toggle?: boolean;
+    /** When true, rendered by a dedicated widget in the view (never a plain
+     *  input) — used by the default catalogs. */
+    special?: boolean;
 }
 
 /** Categories for World editing */
@@ -156,7 +161,6 @@ export const WORLD_CATEGORIES: LocationFieldCategory[] = [
         icon: 'globe',
         fields: [
             { key: 'name', label: 'Name', placeholder: 'Name of the world or setting' },
-            { key: 'nickname', label: 'Nickname / Alias', placeholder: 'Alternative names (comma-separated)', multiline: true },
             { key: 'description', label: 'Description', placeholder: 'General overview of this world', multiline: true },
         ],
     },
@@ -209,6 +213,21 @@ export const WORLD_CATEGORIES: LocationFieldCategory[] = [
             { key: 'history', label: 'History', placeholder: 'Key historical events, eras, conflicts', multiline: true },
         ],
     },
+    // ── Linking & Matching (Issue #228) ───────────────────────────
+    // Mirrors the shared section Codex entries and Characters already have.
+    // The `aliases` field here is the canonical alias list the LinkScanner
+    // uses for plain-text matching (the legacy `nickname` field has been
+    // dropped).
+    {
+        title: 'Linking & Matching',
+        icon: 'link',
+        fields: [
+            { key: 'entryType', label: 'Type', placeholder: 'Sub-type (e.g. Setting, Realm, Plane…)' },
+            { key: 'aliases', label: 'Aliases', placeholder: 'Comma-separated alternative names that link to this world', multiline: true },
+            { key: 'caseSensitive', label: 'Case-sensitive matching', placeholder: 'Off — match regardless of case', toggle: true },
+            { key: 'excludeTerms', label: 'Exclude terms', placeholder: 'Comma-separated phrases that should NOT link here', multiline: true },
+        ],
+    },
 ];
 
 /** Categories for Location editing */
@@ -218,7 +237,6 @@ export const LOCATION_CATEGORIES: LocationFieldCategory[] = [
         icon: 'map-pin',
         fields: [
             { key: 'name', label: 'Name', placeholder: 'Name of this location' },
-            { key: 'nickname', label: 'Nickname / Alias', placeholder: 'Alternative names (comma-separated)', multiline: true },
             { key: 'locationType', label: 'Type', placeholder: 'City, building, wilderness, room…' },
             { key: 'description', label: 'Description', placeholder: 'Sights, sounds, smells — what does it feel like?', multiline: true },
         ],
@@ -253,14 +271,16 @@ export const LOCATION_CATEGORIES: LocationFieldCategory[] = [
         ],
     },
     // ── Linking & Matching (Issue #228) ───────────────────────────
-    // Aliases are intentionally omitted — Locations already expose
-    // `nickname` in Overview, which the LinkScanner reads as a
-    // comma-separated alias list.
+    // Mirrors the shared section Codex entries and Characters already have.
+    // The `aliases` field here is the canonical alias list the LinkScanner
+    // uses for plain-text matching (the legacy `nickname` field has been
+    // dropped).
     {
         title: 'Linking & Matching',
         icon: 'link',
         fields: [
             { key: 'entryType', label: 'Type', placeholder: 'Sub-type (e.g. Stronghold, Landmark, Region…)' },
+            { key: 'aliases', label: 'Aliases', placeholder: 'Comma-separated alternative names that link to this location', multiline: true },
             { key: 'caseSensitive', label: 'Case-sensitive matching', placeholder: 'Off — match regardless of case', toggle: true },
             { key: 'excludeTerms', label: 'Exclude terms', placeholder: 'Comma-separated phrases that should NOT link here', multiline: true },
         ],
@@ -292,17 +312,19 @@ export const LOCATION_TYPES: string[] = [
 
 /** Frontmatter keys for World */
 export const WORLD_FIELD_KEYS: (keyof StoryWorld)[] = [
-    'name', 'image', 'gallery', 'nickname', 'description', 'geography', 'culture', 'politics',
+    'name', 'image', 'gallery', 'description', 'geography', 'culture', 'politics',
     'magicTechnology', 'beliefs', 'economy', 'history',
     'books',
-    'entryType', 'caseSensitive', 'excludeTerms',
+    'entryType', 'aliases', 'caseSensitive', 'excludeTerms',
+    'templateSubcategory',
 ];
 
 /** Frontmatter keys for Location */
 export const LOCATION_FIELD_KEYS: (keyof StoryLocation)[] = [
-    'name', 'image', 'gallery', 'nickname', 'locationType', 'world', 'parent', 'description',
+    'name', 'image', 'gallery', 'locationType', 'world', 'parent', 'description',
     'atmosphere', 'significance', 'inhabitants', 'connectedLocations', 'mapNotes',
     'books',
-    'entryType', 'caseSensitive', 'excludeTerms',
+    'entryType', 'aliases', 'caseSensitive', 'excludeTerms',
+    'templateSubcategory',
 ];
 /* eslint-enable @typescript-eslint/no-redundant-type-constituents -- end of file-wide suppression block opened at line 1 */

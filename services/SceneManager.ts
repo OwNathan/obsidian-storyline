@@ -498,8 +498,6 @@ export class SceneManager implements ISceneStore {
         // saveSettings (which also calls saveProjectSystemData — with the new
         // project's data already loaded this is a harmless round-trip).
         await this.plugin.loadProjectSystemData();
-        // Reload universal field templates for the new project
-        await this.plugin.fieldTemplates.load();
         await this.loadCorkboardPositions();
         await this.plugin.saveSettings();
         await this.initialize();
@@ -933,12 +931,6 @@ export class SceneManager implements ISceneStore {
         // Auto-populate beatsheet from project's active beat sheet template
         if (!isNote && !sceneData.beatsheet && this._activeProject?.activeBeatSheet) {
             sceneData.beatsheet = this._activeProject.activeBeatSheet;
-        }
-
-        // Issue #77 \u2014 seed universalFields with template defaults for any
-        // scene-category fields that have a defaultValue and aren't already set.
-        if (!isNote) {
-            sceneData.universalFields = this.seedSceneUniversalDefaults(sceneData.universalFields) as Record<string, string | string[]> | undefined;
         }
 
         // Issue #77 \u2014 parse the user's "Default scene frontmatter" YAML
@@ -2481,28 +2473,6 @@ export class SceneManager implements ISceneStore {
             console.warn('StoryLine: invalid YAML in defaultSceneFrontmatter setting', err);
         }
         return undefined;
-    }
-
-    /**
-     * Issue #77 \u2014 seed `universalFields` with `defaultValue` from every
-     * scene-category template that defines one, without overwriting any
-     * value the caller already supplied.
-     */
-    private seedSceneUniversalDefaults(existing: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-        const templates = this.plugin?.fieldTemplates?.getAll?.() ?? [];
-        const sceneTemplates = templates.filter(t => (t.category || 'character') === 'scene' && t.defaultValue);
-        if (sceneTemplates.length === 0) return existing;
-        const out: Record<string, unknown> = { ...(existing || {}) };
-        for (const t of sceneTemplates) {
-            if (out[t.id] !== undefined && out[t.id] !== '' && !(Array.isArray(out[t.id]) && (out[t.id] as unknown[]).length === 0)) continue;
-            const dv = t.defaultValue!;
-            if (t.type === 'multi-select') {
-                out[t.id] = dv.split(',').map(s => s.trim()).filter(Boolean);
-            } else {
-                out[t.id] = dv;
-            }
-        }
-        return Object.keys(out).length > 0 ? out : undefined;
     }
 
     // ────────────────────────────────────

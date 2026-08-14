@@ -6,6 +6,7 @@ import { resolveTagColor, getPlotlineHSL, resolveStickyNoteColors, resolveSticky
 import type { SceneManager } from '../services/SceneManager';
 import { formatActChapterPrefix } from '../utils/actChapter';
 import { ColorCodingMode, Scene, SceneStatus, getStatusOrder, resolveStatusCfg, resolveSceneCategoryCfg } from '../models/Scene';
+import { ENTITY_TYPE_SCENE } from '../models/EntityTemplate';
 
 /**
  * Renders a single scene card element
@@ -214,34 +215,35 @@ export class SceneCardComponent {
     }
 
     /**
-     * Render badges for scene custom (universal) field values and a hover
-     * tooltip summarizing all of them. Quietly does nothing if no values exist.
+     * Render badges for scene custom-field values and a hover tooltip
+     * summarizing all of them. Quietly does nothing if no values exist.
      */
     private renderCustomFieldBadges(scene: Scene, card: HTMLElement): void {
-        if (!scene.universalFields) return;
-        const tpls = this.plugin.fieldTemplates?.getAll()
-            .filter(t => (t.category || 'character') === 'scene') ?? [];
-        if (tpls.length === 0) return;
+        if (!scene.custom || Object.keys(scene.custom).length === 0) return;
+        const fields = this.plugin.entityTemplates?.getAllCustomFields(ENTITY_TYPE_SCENE) ?? [];
+        if (fields.length === 0) return;
 
         const summary: string[] = [];
         let badgesEl: HTMLElement | null = null;
         let shown = 0;
         const MAX_BADGES = 3;
 
-        for (const tpl of tpls) {
-            const raw = scene.universalFields[tpl.id];
+        for (const { compositeKey, field } of fields) {
+            const raw = scene.custom[compositeKey];
             if (raw === undefined || raw === null) continue;
-            const display = Array.isArray(raw) ? raw.join(', ') : String(raw);
+            const display = field.type === 'multi-select'
+                ? raw.split(',').map(v => v.trim()).filter(Boolean).join(', ')
+                : String(raw);
             if (!display.trim()) continue;
-            summary.push(`${tpl.label}: ${display}`);
+            summary.push(`${field.name}: ${display}`);
 
-            if (shown < MAX_BADGES && (tpl.type === 'dropdown' || tpl.type === 'multi-select')) {
+            if (shown < MAX_BADGES && (field.type === 'dropdown' || field.type === 'multi-select')) {
                 if (!badgesEl) badgesEl = card.createDiv('scene-card-custom-fields');
                 const text = display.length > 24 ? display.slice(0, 23) + '…' : display;
                 const badge = badgesEl.createSpan({ cls: 'scene-card-custom-badge' });
-                badge.createSpan({ cls: 'scene-card-custom-badge-label', text: `${tpl.label}: ` });
+                badge.createSpan({ cls: 'scene-card-custom-badge-label', text: `${field.name}: ` });
                 badge.createSpan({ text });
-                badge.setAttribute('title', `${tpl.label}: ${display}`);
+                badge.setAttribute('title', `${field.name}: ${display}`);
                 shown++;
             }
         }

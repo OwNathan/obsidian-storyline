@@ -1,9 +1,10 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
 import { Character, CharacterRelation, CharacterRelationCategory, CHARACTER_FIELD_KEYS, LEGACY_RELATION_FIELDS_TO_CLEAN, normalizeCharacterRelations, normalizeRoleEntries, CHARACTER_CATEGORIES } from '../models/Character';
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel, UniversalFieldTemplate } from './FieldTemplateService';
+import { hydrateCustomFromTopLevel, mirrorCustomToTopLevel } from './customTopLevelMirror';
+import { ENTITY_TYPE_CHARACTER } from '../models/EntityTemplate';
 import { App, TFile, normalizePath, parseYaml, stringifyYaml } from 'obsidian';
 import { coerceString } from '../utils/narrow';
-import { MirroredSection, buildMirroredBody, parseMirroredBody, ParsedMirrorSection } from './CodexManager';
+import { MirroredSection, buildMirroredBody, parseMirroredBody } from './CodexManager';
 
 /**
  * Manages character .md files — loading, saving, creating, and deleting
@@ -13,7 +14,6 @@ export class CharacterManager {
     private app: App;
     private characters: Map<string, Character> = new Map();
     private _isSaving = false;
-    private _fieldTemplates: UniversalFieldTemplate[] = [];
 
     constructor(app: App) {
         this.app = app;
@@ -22,11 +22,6 @@ export class CharacterManager {
     /** Whether the manager is currently writing a file (prevents modify-loop). */
     isSelfWrite(): boolean {
         return this._isSaving;
-    }
-
-    /** Set field templates for resolving universal field mirror keys during body parsing. */
-    setFieldTemplates(templates: UniversalFieldTemplate[]): void {
-        this._fieldTemplates = templates;
     }
 
     /**
@@ -92,16 +87,16 @@ export class CharacterManager {
 
     /**
      * Find a character by name (case-insensitive).
-     * Checks full name, nickname(s), and first name.
+     * Checks full name, alias(es), and first name.
      */
     findByName(name: string): Character | undefined {
         const lower = name.toLowerCase();
         for (const char of this.characters.values()) {
             if (char.name.toLowerCase() === lower) return char;
-            // Check nickname(s) — supports comma-separated
-            if (char.nickname) {
-                const nicks = char.nickname.split(',').map(n => n.trim().toLowerCase()).filter(Boolean);
-                if (nicks.includes(lower)) return char;
+            // Check alias(es) — supports comma- or newline-separated
+            if (char.aliases) {
+                const al = char.aliases.split(/[,\n]/).map(n => n.trim().toLowerCase()).filter(Boolean);
+                if (al.includes(lower)) return char;
             }
             // Check first name (first word of full name)
             const firstName = char.name.split(/\s+/)[0];
@@ -112,7 +107,7 @@ export class CharacterManager {
 
     /**
      * Build a map from lowercased alias → canonical character name (display casing).
-     * Aliases include: full name, each comma-separated nickname, the first
+     * Aliases include: full name, each comma- or newline-separated alias, the first
      * word of the full name (only if it's unique — i.e. no other character
      * shares the same first name), and any manual aliases passed in.
      *
@@ -136,11 +131,11 @@ export class CharacterManager {
             // Full name
             aliasMap.set(canonical.toLowerCase(), canonical);
 
-            // Nicknames
-            if (char.nickname) {
-                const nicks = char.nickname.split(',').map(n => n.trim()).filter(Boolean);
-                for (const nick of nicks) {
-                    aliasMap.set(nick.toLowerCase(), canonical);
+            // Aliases
+            if (char.aliases) {
+                const al = char.aliases.split(/[,\n]/).map(n => n.trim()).filter(Boolean);
+                for (const alias of al) {
+                    aliasMap.set(alias.toLowerCase(), canonical);
                 }
             }
 
@@ -233,6 +228,9 @@ export class CharacterManager {
         delete fm['romanticHistory'];
         delete fm['customRelationType'];
         delete fm['customRelationLabel'];
+        // Drop the legacy `nickname` field on save — replaced by `aliases`
+        // (Issue #228). Existing frontmatter is migrated away on next save.
+        delete fm['nickname'];
         for (const key of LEGACY_RELATION_FIELDS_TO_CLEAN) {
             delete fm[key];
         }
@@ -244,14 +242,8 @@ export class CharacterManager {
             delete fm.custom;
         }
 
-        // Universal fields (values from field-templates)
-        if (character.universalFields && Object.keys(character.universalFields).length > 0) {
-            fm.universalFields = character.universalFields;
-        } else {
-            delete fm.universalFields;
-        }
-        // Issue #71 — mirror to top-level YAML keys for templates that opt in
-        mirrorUniversalFieldsToTopLevel(fm, character.universalFields);
+        // Issue #71 — mirror custom-field values to top-level YAML keys
+        mirrorCustomToTopLevel(fm, character.custom, ENTITY_TYPE_CHARACTER, character.templateSubcategory);
 
         // Build body: strip old mirrored sections, then rebuild with notes + current mirrored fields
         const { notes: existingNotes } = parseMirroredBody(body);
@@ -360,7 +352,6 @@ export class CharacterManager {
             tagline: safeFm.tagline,
             image: safeFm.image,
             gallery: this.parseGallery(safeFm.gallery),
-            nickname: safeFm.nickname,
             age: safeFm.age != null ? String(safeFm.age) : undefined,
             role: safeFm.role,
             roles: normalizeRoleEntries(safeFm.roles),
@@ -390,15 +381,19 @@ export class CharacterManager {
             habits: safeFm.habits,
             props: safeFm.props,
             books: this.parseStringList(safeFm.books),
-            custom: safeFm.custom && typeof safeFm.custom === 'object'
-                ? (safeFm.custom as Record<string, string>)
-                : undefined,
-            universalFields: hydrateUniversalFieldsFromTopLevel(
+            entryType: typeof safeFm.entryType === 'string' ? safeFm.entryType : undefined,
+            aliases: typeof safeFm.aliases === 'string' ? safeFm.aliases : undefined,
+            caseSensitive: safeFm.caseSensitive === true,
+            excludeTerms: typeof safeFm.excludeTerms === 'string' ? safeFm.excludeTerms : undefined,
+            custom: hydrateCustomFromTopLevel(
                 safeFm,
-                safeFm.universalFields && typeof safeFm.universalFields === 'object'
-                    ? (safeFm.universalFields as Record<string, string | string[]>)
+                safeFm.custom && typeof safeFm.custom === 'object'
+                    ? (safeFm.custom as Record<string, string>)
                     : undefined,
-            ) as Record<string, string | string[]> | undefined,
+                ENTITY_TYPE_CHARACTER,
+                typeof safeFm.templateSubcategory === 'string' ? safeFm.templateSubcategory : undefined,
+            ),
+            templateSubcategory: typeof safeFm.templateSubcategory === 'string' ? safeFm.templateSubcategory : undefined,
             created: safeFm.created,
             modified: safeFm.modified,
             notes: plainNotes || undefined,
@@ -409,10 +404,7 @@ export class CharacterManager {
             for (const sec of sections) {
                 const key = this.resolveMirrorKey(sec.sectionTitle, sec.fieldLabel);
                 if (!key) continue;
-                if (key.startsWith('uf_')) {
-                    if (!character.universalFields) character.universalFields = {};
-                    character.universalFields[key] = sec.value;
-                } else if (key.includes(' :: ')) {
+                if (key.includes(' :: ')) {
                     if (!character.custom) character.custom = {};
                     character.custom[key] = sec.value;
                 } else {
@@ -428,10 +420,6 @@ export class CharacterManager {
      * Resolve a sectionTitle + fieldLabel pair to a field key for a Character.
      */
     private resolveMirrorKey(sectionTitle: string, fieldLabel: string): string | null {
-        // Universal field — match by section and label
-        const tpl = this._fieldTemplates.find(t => t.section === sectionTitle && t.label === fieldLabel);
-        if (tpl) return tpl.id;
-
         // Built-in field — scan CHARACTER_CATEGORIES
         for (const cat of CHARACTER_CATEGORIES) {
             if (cat.title !== sectionTitle) continue;

@@ -8,23 +8,23 @@ import { Scene, resolveStatusCfg } from '../models/Scene';
 import { coerceString } from '../utils/narrow';
 import {
     StoryWorld, StoryLocation, WorldOrLocation,
-    WORLD_CATEGORIES, LOCATION_CATEGORIES, LOCATION_TYPES,
+    LOCATION_TYPES,
     LocationFieldCategory, LocationFieldDef,
 } from '../models/Location';
 import { SceneManager } from '../services/SceneManager';
 import { LocationManager } from '../services/LocationManager';
 import { renderViewSwitcher } from '../components/ViewSwitcher';
 import { pickImage as pickImageModal, resolveImagePath } from '../components/ImagePicker';
-import { AddFieldModal } from '../components/AddFieldModal';
 import {
-    isCustomSectionKey,
     renderCustomSectionsAtSlot,
+    renderMergedSection,
     renderAddCustomSectionButton,
-    CUSTOM_SECTION_KEY_SEP,
+    syncLinkedSections,
     type CustomSectionsHost,
     type CustomSection,
 } from '../components/CustomSectionsRenderer';
-import type { UniversalFieldTemplate } from '../services/FieldTemplateService';
+import { ENTITY_TYPE_WORLD, ENTITY_TYPE_LOCATION } from '../models/EntityTemplate';
+import { renderSubcategoryPicker } from '../components/SubcategoryPicker';
 import type { MirroredSection } from '../services/CodexManager';
 import { formatActChapterPrefix } from '../utils/actChapter';
 
@@ -65,6 +65,9 @@ export class LocationView extends ItemView {
     private searchText: string = '';
     /** Current sort mode for the overview tree */
     private sortBy: 'name' | 'modified' | 'created' | 'type' = 'name';
+    /** Key of the last-rendered page — used to only restore scroll when
+     *  re-rendering the same entity (not on navigation). */
+    private _lastRenderKey: string = '';
     /**
      * When true and the active project belongs to a series, the tree hides
      * worlds and locations whose `books[]` field excludes the current book.
@@ -121,6 +124,13 @@ export class LocationView extends ItemView {
     // ── Main render ────────────────────────────────────
 
     private renderView(container: HTMLElement): void {
+        // Preserve scroll position across the full DOM rebuild so collapsing /
+        // adding a section or saving the file doesn't jump the scrollbar. Only
+        // restore when re-rendering the same page — navigation resets to top.
+        const renderKey = this.selectedItem ?? 'overview';
+        const samePage = renderKey === this._lastRenderKey;
+        const prevScrollTop = container.scrollTop;
+        const prevScrollLeft = container.scrollLeft;
         this.clearPortaledDropdowns(); // issue #102 — don't leak portaled popups across re-renders
         container.empty();
 
@@ -157,6 +167,10 @@ export class LocationView extends ItemView {
         } else {
             this.renderOverview(content);
         }
+
+        container.scrollTop = samePage ? prevScrollTop : 0;
+        container.scrollLeft = samePage ? prevScrollLeft : 0;
+        this._lastRenderKey = renderKey;
     }
 
     // ── Overview: tree hierarchy ───────────────────────
@@ -582,7 +596,7 @@ export class LocationView extends ItemView {
         }
 
         const isWorld = item.type === 'world';
-        const draft: WorldOrLocation = { ...item, custom: { ...(item.custom || {}) }, universalFields: { ...(item.universalFields || {}) } };
+        const draft: WorldOrLocation = { ...item, custom: { ...(item.custom || {}) } };
         // Snapshot for undo — taken once when the detail view opens
         this.undoSnapshot = { ...item, custom: { ...(item.custom || {}) } };
         // Track original name for cascade rename detection
@@ -699,24 +713,42 @@ export class LocationView extends ItemView {
         const formPanel = layout.createDiv('location-detail-form');
         const sidePanel = layout.createDiv('location-detail-side');
 
-        // Categories interleaved with user-defined custom sections (#120)
-        const categories = isWorld ? WORLD_CATEGORIES : LOCATION_CATEGORIES;
-        const customHost = this.buildCustomSectionsHost(draft, categories.length);
+        // Subcategory picker (only when the entity type has an axis)
+        renderSubcategoryPicker({
+            container: formPanel,
+            entityTemplates: this.plugin.entityTemplates,
+            entityType: isWorld ? ENTITY_TYPE_WORLD : ENTITY_TYPE_LOCATION,
+            current: draft.templateSubcategory,
+            onChange: async (value) => {
+                draft.templateSubcategory = value;
+                this.scheduleSave(draft);
+                // Flush the save so the in-memory cache reflects the new
+                // subcategory, then re-render immediately so the new
+                // subcategory's custom sections appear without a manual reload.
+                await this.flushSave();
+                if (this.rootContainer) this.renderView(this.rootContainer);
+            },
+        });
+
+        // Entity-template default sections interleaved with user-defined
+        // custom sections (#120)
+        const defaultSections = this.plugin.entityTemplates.getLocationDefaultSections(isWorld);
+        const customHost = this.buildCustomSectionsHost(draft, defaultSections.length);
         // Slot 0: any custom sections positioned above the first built-in.
         renderCustomSectionsAtSlot(formPanel, customHost, 0);
-        for (let i = 0; i < categories.length; i++) {
-            this.renderCategory(formPanel, categories[i], draft);
+        for (let i = 0; i < defaultSections.length; i++) {
+            const body = this.renderCategory(formPanel, defaultSections[i], draft);
+            // Custom sections sharing this default section's title render
+            // inline (fields only, no duplicate header).
+            renderMergedSection(body ?? formPanel, customHost, defaultSections[i].title);
             // Slot i+1: any custom sections after the i-th built-in.
             renderCustomSectionsAtSlot(formPanel, customHost, i + 1);
         }
 
-        // For locations: world & parent dropdowns
+        // For locations: world & parent dropdowns (dedicated Hierarchy widget)
         if (!isWorld) {
             this.renderLocationHierarchy(formPanel, draft as StoryLocation);
         }
-
-        // Custom fields
-        this.renderCustomFields(formPanel, draft);
 
         // "+ Add custom section" button at the bottom
         renderAddCustomSectionButton(formPanel, customHost);
@@ -736,11 +768,22 @@ export class LocationView extends ItemView {
         this.renderCommentsSection(sidePanel, item);
     }
 
+    /**
+     * Render a locked default section: header + its immutable fields in
+     * order. Fields marked `special` (rendered by dedicated widgets, e.g.
+     * world/parent in the Hierarchy section) are skipped here. Returns the
+     * section body element, or null when the section has no plain fields
+     * (callers then fall back to rendering merged custom fields at the top
+     * level).
+     */
     private renderCategory(
         parent: HTMLElement,
         category: LocationFieldCategory,
         draft: WorldOrLocation
-    ): void {
+    ): HTMLElement | null {
+        const plainFields = category.fields.filter(f => !f.special);
+        if (plainFields.length === 0) return null;
+
         const section = parent.createDiv('location-section');
         const isCollapsed = this.collapsedSections.has(category.title);
 
@@ -751,54 +794,10 @@ export class LocationView extends ItemView {
         obsidian.setIcon(icon, category.icon);
         sectionHeader.createSpan({ text: category.title });
 
-        // '+' button to add a universal field to this section
-        const addFieldBtn = sectionHeader.createEl('button', {
-            cls: 'character-section-add-field-btn',
-            attr: { title: 'Add universal field to this section', 'aria-label': 'Add universal field' },
-        });
-        obsidian.setIcon(addFieldBtn, 'plus');
-        addFieldBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const isWorld = draft.type === 'world';
-            const categories = isWorld ? WORLD_CATEGORIES : LOCATION_CATEGORIES;
-            const sectionNames = categories.map(c => c.title);
-            const existingSiblings = this.plugin.fieldTemplates
-                .getBySection(category.title, 'location')
-                .map(t => ({ id: t.id, label: t.label }));
-            // Snapshot the current built-in keys so moveAfter can resolve the
-            // merged order even before the new field is rendered (issue #197).
-            const builtInKeysForAdd = category.fields
-                .filter(f => !(this.plugin.settings.hiddenFields['location'] ?? []).includes(f.key))
-                .map(f => f.key);
-            const modal = new AddFieldModal(
-                this.app,
-                category.title,
-                null,
-                async (template, positionAfterId) => {
-                    template.category = 'location';
-                    await this.plugin.fieldTemplates.add(template);
-                    if (positionAfterId !== undefined) {
-                        await this.plugin.fieldTemplates.moveAfter(
-                            category.title, 'location', builtInKeysForAdd,
-                            template.id, positionAfterId,
-                        );
-                    }
-                    if (this.rootContainer) {
-                        this.renderDetail(this.rootContainer);
-                    }
-                },
-                undefined,
-                sectionNames,
-                existingSiblings,
-            );
-            modal.open();
-        });
-
         const sectionBody = section.createDiv('location-section-body');
         if (isCollapsed) sectionBody.setCssStyles({ display: 'none' });
 
-        sectionHeader.addEventListener('click', (e) => {
-            if ((e.target as HTMLElement).closest('.character-section-add-field-btn')) return;
+        sectionHeader.addEventListener('click', () => {
             if (this.collapsedSections.has(category.title)) {
                 this.collapsedSections.delete(category.title);
                 sectionBody.setCssStyles({ display: '' });
@@ -810,127 +809,16 @@ export class LocationView extends ItemView {
             }
         });
 
-        // Built-in fields (skip hidden ones)
-        const hiddenKeys = this.plugin.settings.hiddenFields['location'] ?? [];
-        const visibleFields = category.fields.filter(f => !hiddenKeys.includes(f.key));
-        const hiddenFieldsInCat = category.fields.filter(f => hiddenKeys.includes(f.key));
-
-        // Render in user-defined merged order (built-in + universal).
-        const universalFields = this.plugin.fieldTemplates.getBySection(category.title, 'location');
-        const fieldMap = new Map(visibleFields.map(f => [f.key, f]));
-        const tplMap = new Map(universalFields.map(t => [t.id, t]));
-        const builtInKeys = visibleFields.map(f => f.key);
-        const merged = this.plugin.fieldTemplates.getMergedOrder(category.title, 'location', builtInKeys);
-        for (const entry of merged) {
-            if (entry.kind === 'builtin') {
-                const f = fieldMap.get(entry.key);
-                if (f) this.renderField(sectionBody, f, draft, category.title, builtInKeys);
-            } else {
-                const t = tplMap.get(entry.key);
-                if (t) this.renderUniversalField(sectionBody, t, draft, builtInKeys, 'location');
-            }
+        for (const field of plainFields) {
+            this.renderField(sectionBody, field, draft);
         }
 
-        // Hidden fields toggle
-        if (hiddenFieldsInCat.length > 0) {
-            const toggleEl = sectionBody.createDiv('hidden-fields-toggle');
-            toggleEl.createEl('a', {
-                text: `Show ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`,
-                cls: 'hidden-fields-toggle-link',
-            });
-            const hiddenContainer = sectionBody.createDiv('hidden-fields-container');
-            hiddenContainer.setCssStyles({ display: 'none' });
-            for (const field of hiddenFieldsInCat) {
-                this.renderField(hiddenContainer, field, draft);
-            }
-            let showing = false;
-            toggleEl.addEventListener('click', () => {
-                showing = !showing;
-                hiddenContainer.setCssStyles({ display: showing ? '' : 'none' });
-                toggleEl.querySelector('a')!.textContent = showing
-                    ? `Hide ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`
-                    : `Show ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`;
-            });
-        }
+        return sectionBody;
     }
 
-    private renderField(parent: HTMLElement, field: LocationFieldDef, draft: WorldOrLocation, sectionTitle?: string, builtInKeys?: string[]): void {
+    private renderField(parent: HTMLElement, field: LocationFieldDef, draft: WorldOrLocation): void {
         const row = parent.createDiv('location-field-row');
         const labelEl = row.createEl('label', { cls: 'location-field-label', text: field.label });
-
-        // Up/down chevrons — reorder this built-in field within the section.
-        if (sectionTitle && builtInKeys) {
-            this.addBuiltInMoveChevrons(labelEl, sectionTitle, 'location', builtInKeys, field.key);
-        }
-
-        // Hide/unhide toggle (skip 'name')
-        if (field.key !== 'name') {
-            const hiddenKeys = this.plugin.settings.hiddenFields['location'] ?? [];
-            const isHidden = hiddenKeys.includes(field.key);
-            const hideBtn = labelEl.createSpan({
-                cls: 'field-hide-btn',
-                attr: { 'aria-label': isHidden ? 'Show this field' : 'Hide this field' },
-            });
-            obsidian.setIcon(hideBtn, isHidden ? 'eye' : 'eye-off');
-            hideBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const settings = this.plugin.settings;
-                if (!settings.hiddenFields['location']) settings.hiddenFields['location'] = [];
-                const list = settings.hiddenFields['location'];
-                const idx = list.indexOf(field.key);
-                if (idx >= 0) {
-                    list.splice(idx, 1);
-                } else {
-                    list.push(field.key);
-                }
-                await this.plugin.saveSettings();
-                if (this.rootContainer) this.renderDetail(this.rootContainer);
-            });
-
-            // Mirror toggle — only for multiline/textarea fields
-            if (field.multiline) {
-                const mirroredKeys = this.plugin.settings.mirroredFields['location'] ?? [];
-                const isMirrored = mirroredKeys.includes(field.key);
-                const mirrorBtn = labelEl.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to body' : 'Mirror to note body' },
-                });
-                obsidian.setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const settings = this.plugin.settings;
-                    if (!settings.mirroredFields['location']) settings.mirroredFields['location'] = [];
-                    const list = settings.mirroredFields['location'];
-                    const idx = list.indexOf(field.key);
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                    } else {
-                        list.push(field.key);
-                    }
-                    // Force-save entity so body reflects new mirror state immediately
-                    const allKeys = settings.mirroredFields['location'] ?? [];
-                    let mirrored: MirroredSection[] | undefined;
-                    if (allKeys.length > 0) {
-                        const sections: MirroredSection[] = [];
-                        for (const mk of allKeys) {
-                            const si = await this.resolveMirroredSectionInfo(mk, draft);
-                            if (si) sections.push(si);
-                        }
-                        if (sections.length > 0) mirrored = sections;
-                    }
-                    if (draft.type === 'world') {
-                        await this.locationManager.saveWorld(draft as StoryWorld, mirrored);
-                    } else {
-                        await this.locationManager.saveLocation(draft as StoryLocation, mirrored);
-                    }
-                    this._lastSaveTime = Date.now();
-                    this.pendingSaveDraft = null;
-                    if (this.autoSaveTimer) { window.clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
-                    await this.plugin.saveSettings();
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                });
-            }
-        }
 
         const value = coerceString((draft as unknown as Record<string, unknown>)[field.key]);
 
@@ -1031,315 +919,6 @@ export class LocationView extends ItemView {
         }
     }
 
-    /** Shared helper — attach up/down chevron buttons to a built-in field's
-     *  label so it participates in the merged section ordering. */
-    private addBuiltInMoveChevrons(
-        labelEl: HTMLElement,
-        section: string,
-        category: string,
-        builtInKeys: string[],
-        fieldKey: string,
-    ): void {
-        const upBtn = labelEl.createSpan({
-            cls: 'field-move-btn',
-            attr: { title: 'Move field up', 'aria-label': 'Move field up' },
-        });
-        obsidian.setIcon(upBtn, 'chevron-up');
-        upBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryUp(section, category, builtInKeys, 'builtin', fieldKey);
-            if (this.rootContainer) this.renderDetail(this.rootContainer);
-        });
-
-        const downBtn = labelEl.createSpan({
-            cls: 'field-move-btn',
-            attr: { title: 'Move field down', 'aria-label': 'Move field down' },
-        });
-        obsidian.setIcon(downBtn, 'chevron-down');
-        downBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryDown(section, category, builtInKeys, 'builtin', fieldKey);
-            if (this.rootContainer) this.renderDetail(this.rootContainer);
-        });
-    }
-
-    private renderUniversalField(
-        parent: HTMLElement,
-        tpl: UniversalFieldTemplate,
-        draft: WorldOrLocation,
-        builtInKeys?: string[],
-        categoryId?: string,
-    ): void {
-        if (!draft.universalFields) draft.universalFields = {};
-        // `universalFields` now holds `string | string[] | boolean` (checkbox
-        // support, 1.10.43). Keep `rawValue` as the union for the checkbox
-        // path and `value` as the coerced string for text / dropdown paths.
-        const rawValue = draft.universalFields[tpl.id];
-        const value: string = typeof rawValue === 'string' ? rawValue : '';
-
-        const row = parent.createDiv('location-field-row codex-universal-field-row');
-
-        const labelWrap = row.createDiv('codex-universal-label-wrap');
-        labelWrap.createEl('label', { cls: 'location-field-label', text: tpl.label });
-
-        const editBtn = labelWrap.createSpan({
-            cls: 'codex-universal-edit-btn',
-            attr: { title: 'Edit or remove this universal field', 'aria-label': 'Edit field' },
-        });
-        obsidian.setIcon(editBtn, 'pencil');
-        editBtn.addEventListener('click', () => {
-            const isWorld = draft.type === 'world';
-            const categories = isWorld ? WORLD_CATEGORIES : LOCATION_CATEGORIES;
-            const sectionNames = categories.map(c => c.title);
-            const siblings = this.plugin.fieldTemplates
-                .getBySection(tpl.section, tpl.category)
-                .map(t => ({ id: t.id, label: t.label }));
-            const modal = new AddFieldModal(
-                this.app,
-                tpl.section,
-                tpl,
-                async (updated, positionAfterId) => {
-                    updated.category = 'location';
-                    await this.plugin.fieldTemplates.update(tpl.id, updated);
-                    if (positionAfterId !== undefined) {
-                        await this.plugin.fieldTemplates.moveAfter(
-                            tpl.section, tpl.category, builtInKeys ?? [],
-                            tpl.id, positionAfterId,
-                        );
-                    }
-                    if (this.rootContainer) this.renderDetail(this.rootContainer);
-                },
-                async () => {
-                    await this.plugin.fieldTemplates.remove(tpl.id);
-                    if (this.rootContainer) this.renderDetail(this.rootContainer);
-                },
-                sectionNames,
-                siblings,
-            );
-            modal.open();
-        });
-
-        // Up/down move buttons — share field-move-btn styling for hover behavior.
-        const moveUpBtn = labelWrap.createSpan({
-            cls: 'codex-universal-move-btn',
-            attr: { title: 'Move field up', 'aria-label': 'Move field up' },
-        });
-        obsidian.setIcon(moveUpBtn, 'chevron-up');
-        moveUpBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryUp(
-                tpl.section, tpl.category, builtInKeys ?? [], 'universal', tpl.id,
-            );
-            if (this.rootContainer) this.renderDetail(this.rootContainer);
-        });
-
-        const moveDownBtn = labelWrap.createSpan({
-            cls: 'codex-universal-move-btn',
-            attr: { title: 'Move field down', 'aria-label': 'Move field down' },
-        });
-        obsidian.setIcon(moveDownBtn, 'chevron-down');
-        moveDownBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryDown(
-                tpl.section, tpl.category, builtInKeys ?? [], 'universal', tpl.id,
-            );
-            if (this.rootContainer) this.renderDetail(this.rootContainer);
-        });
-
-        if (tpl.type === 'multi-select') {
-            const raw = draft.universalFields[tpl.id];
-            const selected: string[] = Array.isArray(raw) ? [...raw] : (typeof raw === 'string' && raw ? [raw] : []);
-
-            const allOptions = [...tpl.options];
-            if (tpl.folderSource) {
-                const folder = this.app.vault.getAbstractFileByPath(tpl.folderSource);
-                if (folder && 'children' in folder) {
-                    for (const child of (folder as obsidian.TFolder).children) {
-                        if (child instanceof obsidian.TFile && child.extension === 'md') {
-                            if (!allOptions.includes(child.basename)) allOptions.push(child.basename);
-                        }
-                    }
-                }
-            }
-            allOptions.sort((a, b) => a.localeCompare(b));
-
-            const msContainer = row.createDiv('universal-multi-select');
-            const pillsEl = msContainer.createDiv('universal-multi-pills');
-            const inputRow = msContainer.createDiv('universal-multi-input-row');
-            const msInput = inputRow.createEl('input', {
-                cls: 'universal-multi-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder || 'Type to add\u2026' },
-            });
-            // Issue #102 — portal dropdown to <body> so position:fixed coords are
-            // viewport-relative even when an ancestor uses transform/contain.
-            const msDropdown = activeDocument.body.createDiv('universal-multi-dropdown');
-            msDropdown.setCssStyles({ display: 'none' });
-            this._portaledDropdowns.push(msDropdown);
-
-            const renderPills = () => {
-                pillsEl.empty();
-                for (const item of selected) {
-                    const pill = pillsEl.createSpan({ cls: 'universal-multi-pill' });
-                    pill.createSpan({ text: item });
-                    const x = pill.createSpan({ cls: 'universal-multi-pill-x', text: '\u00d7' });
-                    x.addEventListener('click', () => {
-                        const idx = selected.indexOf(item);
-                        if (idx >= 0) selected.splice(idx, 1);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                    });
-                }
-            };
-            renderPills();
-
-            const updateMsDropdown = (filter: string) => {
-                msDropdown.empty();
-                const lf = filter.toLowerCase();
-                const available = allOptions.filter(o => !selected.includes(o) && o.toLowerCase().includes(lf));
-                if (available.length === 0) { msDropdown.setCssStyles({ display: 'none' }); return; }
-                msDropdown.setCssStyles({ display: '' });
-                for (const opt of available) {
-                    const item = msDropdown.createDiv({ cls: 'universal-multi-dropdown-item', text: opt });
-                    item.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        selected.push(opt);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                        msInput.value = '';
-                        updateMsDropdown('');
-                    });
-                }
-            };
-
-            msInput.addEventListener('focus', () => updateMsDropdown(msInput.value));
-            msInput.addEventListener('input', () => updateMsDropdown(msInput.value));
-            msInput.addEventListener('blur', () => { window.setTimeout(() => { msDropdown.setCssStyles({ display: 'none' }); }, 200); });
-            msInput.addEventListener('keydown', (e: KeyboardEvent) => {
-                if (e.key === 'Enter' && msInput.value.trim()) {
-                    e.preventDefault();
-                    const val = msInput.value.trim();
-                    if (!selected.includes(val)) {
-                        selected.push(val);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                    }
-                    msInput.value = '';
-                    updateMsDropdown('');
-                }
-            });
-        } else if (tpl.type === 'dropdown') {
-            const select = row.createEl('select', { cls: 'location-field-input dropdown' });
-            select.createEl('option', { text: tpl.placeholder || 'Select…', value: '' });
-
-            const dropdownOptions = [...tpl.options];
-            if (tpl.folderSource) {
-                const folder = this.app.vault.getAbstractFileByPath(tpl.folderSource);
-                if (folder && 'children' in folder) {
-                    for (const child of (folder as obsidian.TFolder).children) {
-                        if (child instanceof obsidian.TFile && child.extension === 'md') {
-                            if (!dropdownOptions.includes(child.basename)) dropdownOptions.push(child.basename);
-                        }
-                    }
-                }
-                dropdownOptions.sort((a, b) => a.localeCompare(b));
-            }
-
-            for (const opt of dropdownOptions) {
-                const el = select.createEl('option', { text: opt, value: opt });
-                if (value === opt) el.selected = true;
-            }
-            if (value && !dropdownOptions.includes(value)) {
-                const el = select.createEl('option', { text: value, value });
-                el.selected = true;
-            }
-            select.addEventListener('change', () => {
-                draft.universalFields![tpl.id] = select.value;
-                this.scheduleSave(draft);
-            });
-        } else if (tpl.type === 'textarea') {
-            const textarea = row.createEl('textarea', {
-                cls: 'location-field-textarea',
-                attr: { placeholder: tpl.placeholder, rows: '3' },
-            });
-            textarea.value = value;
-            textarea.addEventListener('input', () => {
-                draft.universalFields![tpl.id] = textarea.value;
-                this.scheduleSave(draft);
-            });
-
-            // Mirror-to-body toggle
-            if (categoryId) {
-                const mirroredKeys = this.plugin.settings.mirroredFields[categoryId] ?? [];
-                const isMirrored = mirroredKeys.includes(tpl.id);
-                const mirrorBtn = labelWrap.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
-                });
-                obsidian.setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const settings = this.plugin.settings;
-                    if (!settings.mirroredFields[categoryId]) settings.mirroredFields[categoryId] = [];
-                    const list = settings.mirroredFields[categoryId];
-                    const idx = list.indexOf(tpl.id);
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                    } else {
-                        list.push(tpl.id);
-                    }
-                    // Force-save entity so body reflects new mirror state immediately
-                    const allKeys = settings.mirroredFields[categoryId] ?? [];
-                    let mirrored: MirroredSection[] | undefined;
-                    if (allKeys.length > 0) {
-                        const sections: MirroredSection[] = [];
-                        for (const mk of allKeys) {
-                            const si = await this.resolveMirroredSectionInfo(mk, draft);
-                            if (si) sections.push(si);
-                        }
-                        if (sections.length > 0) mirrored = sections;
-                    }
-                    if (draft.type === 'world') {
-                        await this.locationManager.saveWorld(draft as StoryWorld, mirrored);
-                    } else {
-                        await this.locationManager.saveLocation(draft as StoryLocation, mirrored);
-                    }
-                    this._lastSaveTime = Date.now();
-                    this.pendingSaveDraft = null;
-                    if (this.autoSaveTimer) { window.clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
-                    await this.plugin.saveSettings();
-                    if (this.rootContainer) this.renderView(this.rootContainer);
-                });
-            }
-        } else if (tpl.type === 'checkbox') {
-            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
-            const wrap = row.createDiv('location-field-checkbox-wrap');
-            const cb = wrap.createEl('input', {
-                cls: 'location-field-checkbox',
-                type: 'checkbox',
-            });
-            cb.checked = checked;
-            cb.addEventListener('change', () => {
-                draft.universalFields![tpl.id] = cb.checked;
-                this.scheduleSave(draft);
-            });
-        } else {
-            const input = row.createEl('input', {
-                cls: 'location-field-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder },
-            });
-            input.value = value;
-            input.addEventListener('input', () => {
-                draft.universalFields![tpl.id] = input.value;
-                this.scheduleSave(draft);
-            });
-        }
-    }
-
     private renderLocationHierarchy(parent: HTMLElement, draft: StoryLocation): void {
         const section = parent.createDiv('location-section');
         const sectionHeader = section.createDiv('location-section-header');
@@ -1382,158 +961,45 @@ export class LocationView extends ItemView {
         });
     }
 
-    private renderCustomFields(parent: HTMLElement, draft: WorldOrLocation): void {
-        const section = parent.createDiv('location-section');
-        const title = 'Custom Fields';
-        const isCollapsed = this.collapsedSections.has(title);
-
-        const sectionHeader = section.createDiv('location-section-header');
-        const chevron = sectionHeader.createSpan('location-section-chevron');
-        obsidian.setIcon(chevron, isCollapsed ? 'chevron-right' : 'chevron-down');
-        const icon = sectionHeader.createSpan('location-section-icon');
-        obsidian.setIcon(icon, 'plus-circle');
-        sectionHeader.createSpan({ text: title });
-
-        const sectionBody = section.createDiv('location-section-body');
-        if (isCollapsed) sectionBody.setCssStyles({ display: 'none' });
-
-        sectionHeader.addEventListener('click', () => {
-            if (this.collapsedSections.has(title)) {
-                this.collapsedSections.delete(title);
-                sectionBody.setCssStyles({ display: '' });
-                obsidian.setIcon(chevron, 'chevron-down');
-            } else {
-                this.collapsedSections.add(title);
-                sectionBody.setCssStyles({ display: 'none' });
-                obsidian.setIcon(chevron, 'chevron-right');
-            }
-        });
-
-        const renderAll = () => {
-            sectionBody.empty();
-            const custom = draft.custom || {};
-
-            for (const [key, val] of Object.entries(custom)) {
-                // Skip composite keys belonging to user-defined custom sections (#120)
-                if (isCustomSectionKey(key)) continue;
-                const row = sectionBody.createDiv('location-field-row location-custom-row');
-                const keyIn = row.createEl('input', {
-                    cls: 'location-field-input location-custom-key',
-                    type: 'text',
-                    attr: { placeholder: 'Field name' },
-                });
-                keyIn.value = key;
-
-                const valIn = row.createEl('input', {
-                    cls: 'location-field-input location-custom-value',
-                    type: 'text',
-                    attr: { placeholder: 'Value' },
-                });
-                valIn.value = val;
-
-                const removeBtn = row.createEl('button', { cls: 'location-custom-remove', attr: { title: 'Remove' } });
-                obsidian.setIcon(removeBtn, 'x');
-
-                keyIn.addEventListener('change', () => {
-                    delete draft.custom![key];
-                    const nk = keyIn.value.trim();
-                    if (nk) draft.custom![nk] = valIn.value;
-                    this.scheduleSave(draft);
-                });
-                valIn.addEventListener('input', () => {
-                    const k = keyIn.value.trim();
-                    if (k) { draft.custom![k] = valIn.value; this.scheduleSave(draft); }
-                });
-                removeBtn.addEventListener('click', () => {
-                    delete draft.custom![key];
-                    row.remove();
-                    this.scheduleSave(draft);
-                });
-            }
-
-            const addRow = sectionBody.createDiv('location-custom-add-row');
-            const addBtn = addRow.createEl('button', { cls: 'location-custom-add-btn', text: '+ add field' });
-            addBtn.addEventListener('click', () => {
-                if (!draft.custom) draft.custom = {};
-                let n = Object.keys(draft.custom).length + 1;
-                let nk = `field_${n}`;
-                while (draft.custom[nk]) nk = `field_${++n}`;
-                draft.custom[nk] = '';
-                renderAll();
-            });
-        };
-
-        renderAll();
-    }
 
     // ── User-defined custom sections (#120) ────────────
 
     /**
      * Build the {@link CustomSectionsHost} used to interleave user-defined
-     * custom sections with the built-in WORLD_CATEGORIES / LOCATION_CATEGORIES
-     * in the detail form. Rebuilt per-render so it always reflects the latest
-     * settings array reference.
+     * custom sections with the entity-template default sections in the
+     * detail form. Rebuilt per-render so it always reflects the latest
+     * template state; structure changes persist via
+     * {@link EntityTemplateService}.
      */
     private buildCustomSectionsHost(
         draft: WorldOrLocation,
         builtinSectionCount: number,
     ): CustomSectionsHost<WorldOrLocation> {
-        if (!this.plugin.settings.locationCustomSections) {
-            this.plugin.settings.locationCustomSections = [];
-        }
-        // Settings store the loose `{ fields: Array<string | { name; type?: string; ... }> }`
-        // shape (comes from user JSON). CustomSectionsHost expects the
-        // narrower `CustomSection[]` where `type` is a `CustomFieldType`
-        // union. Cast at the boundary — the field renderers already treat
-        // unknown `type` values as plain text via `normalizeField()`.
-        const sections = this.plugin.settings.locationCustomSections as unknown as CustomSection[];
+        const entityType = draft.type === 'world' ? ENTITY_TYPE_WORLD : ENTITY_TYPE_LOCATION;
+        const subcategory = draft.templateSubcategory;
+        const sections = this.plugin.entityTemplates.getCustomSections(entityType, subcategory);
+        const defaultTitles = this.plugin.entityTemplates.getDefaultSectionTitles(entityType);
         return {
             app: this.app,
             draft,
             sections,
+            entityType,
+            subcategory,
+            entityTemplates: this.plugin.entityTemplates,
+            remigrateLinkedKeys: (ops, subcats) => {
+                void this.plugin.customKeyMigrator.remigrateCustomKeys(entityType, ops, subcats, draft.filePath);
+            },
             builtinSectionCount,
             collapsedSections: this.collapsedSections,
             collapseKeyPrefix: 'location',
             cssPrefix: 'location',
+            isMergedSectionTitle: (title: string) => defaultTitles.includes(title),
             scheduleSave: (d) => this.scheduleSave(d),
-            persistSections: () => { void this.plugin.saveSettings(); },
+            persistSections: () => {
+                void this.plugin.entityTemplates.setCustomSections(entityType, subcategory, sections);
+                void syncLinkedSections(this.plugin.entityTemplates, entityType, subcategory, sections);
+            },
             requestRerender: () => {
-                if (this.rootContainer) this.renderView(this.rootContainer);
-            },
-            isFieldMirrored: (compositeKey: string) => {
-                const list = this.plugin.settings.mirroredFields['location'] ?? [];
-                return list.includes(compositeKey);
-            },
-            toggleFieldMirror: async (compositeKey: string) => {
-                const settings = this.plugin.settings;
-                if (!settings.mirroredFields['location']) settings.mirroredFields['location'] = [];
-                const list = settings.mirroredFields['location'];
-                const idx = list.indexOf(compositeKey);
-                if (idx >= 0) {
-                    list.splice(idx, 1);
-                } else {
-                    list.push(compositeKey);
-                }
-                // Force-save entity so body reflects new mirror state immediately
-                const allKeys = settings.mirroredFields['location'] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (allKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const mk of allKeys) {
-                        const si = await this.resolveMirroredSectionInfo(mk, draft);
-                        if (si) sections.push(si);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
-                if (draft.type === 'world') {
-                    await this.locationManager.saveWorld(draft as StoryWorld, mirrored);
-                } else {
-                    await this.locationManager.saveLocation(draft as StoryLocation, mirrored);
-                }
-                this._lastSaveTime = Date.now();
-                this.pendingSaveDraft = null;
-                if (this.autoSaveTimer) { window.clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
-                await this.plugin.saveSettings();
                 if (this.rootContainer) this.renderView(this.rootContainer);
             },
         };
@@ -1810,60 +1276,19 @@ export class LocationView extends ItemView {
     }
 
     /**
-     * Resolve section title + field label + current value for a mirrored field key.
-     * Supports built-in keys, universal template IDs (uf_*), and composite
-     * custom-section keys (`sectionTitle :: fieldName`).
-     * For built-in fields, scans both WORLD_CATEGORIES and LOCATION_CATEGORIES.
+     * Build the {@link MirroredSection} list for the current item.
+     *
+     * Per the unified mirroring rule (Issue #228 phase 2), every custom field
+     * of type Text or Text block is mirrored to the note body automatically —
+     * there is no per-field toggle. Default fields are never mirrored.
      */
-    private async resolveMirroredSectionInfo(
-        key: string,
-        draft: WorldOrLocation,
-    ): Promise<MirroredSection | null> {
-        // Custom-section composite key
-        if (key.includes(CUSTOM_SECTION_KEY_SEP)) {
-            const [sectionTitle, fieldName] = key.split(CUSTOM_SECTION_KEY_SEP);
-            const value = draft.custom?.[key] ?? '';
-            return {
-                sectionTitle: sectionTitle.trim(),
-                fieldKey: key,
-                fieldLabel: fieldName.trim(),
-                value: String(value),
-            };
-        }
-
-        // Universal field template ID
-        if (key.startsWith('uf_')) {
-            const tpl = this.plugin.fieldTemplates.getById(key);
-            if (!tpl) return null;
-            const value = draft.universalFields?.[key];
-            return {
-                sectionTitle: tpl.section,
-                fieldKey: key,
-                fieldLabel: tpl.label,
-                value: typeof value === 'string' ? value : (value ? String(value) : ''),
-            };
-        }
-
-        // Built-in field — scan both world and location categories
-        const categories = draft.type === 'world'
-            ? WORLD_CATEGORIES
-            : LOCATION_CATEGORIES;
-        for (const cat of categories) {
-            const field = cat.fields.find(f => f.key === key);
-            if (field) {
-                const value = (draft as unknown as Record<string, unknown>)[key] != null
-                    ? String((draft as unknown as Record<string, unknown>)[key])
-                    : '';
-                return {
-                    sectionTitle: cat.title,
-                    fieldKey: key,
-                    fieldLabel: field.label,
-                    value,
-                };
-            }
-        }
-
-        return null;
+    private buildMirroredSections(draft: WorldOrLocation): MirroredSection[] {
+        const entityType = draft.type === 'world' ? ENTITY_TYPE_WORLD : ENTITY_TYPE_LOCATION;
+        return this.plugin.entityTemplates.buildAutoMirroredSections(
+            entityType,
+            draft.templateSubcategory,
+            draft.custom,
+        );
     }
 
     private scheduleSave(draft: WorldOrLocation): void {
@@ -1886,16 +1311,7 @@ export class LocationView extends ItemView {
                 this._lastSaveTime = Date.now();
 
                 // Build mirrored section info for body mirroring
-                const mirroredKeys = this.plugin.settings.mirroredFields['location'] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (mirroredKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const key of mirroredKeys) {
-                        const sectionInfo = await this.resolveMirroredSectionInfo(key, draft);
-                        if (sectionInfo) sections.push(sectionInfo);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
+                const mirrored = this.buildMirroredSections(draft);
 
                 if (draft.type === 'world') {
                     await this.locationManager.saveWorld(draft as StoryWorld, mirrored);
@@ -1934,16 +1350,7 @@ export class LocationView extends ItemView {
                 this._lastSaveTime = Date.now();
 
                 // Build mirrored section info for body mirroring
-                const mirroredKeys = this.plugin.settings.mirroredFields['location'] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (mirroredKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const key of mirroredKeys) {
-                        const sectionInfo = await this.resolveMirroredSectionInfo(key, draft);
-                        if (sectionInfo) sections.push(sectionInfo);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
+                const mirrored = this.buildMirroredSections(draft);
 
                 if (draft.type === 'world') {
                     await this.locationManager.saveWorld(draft as StoryWorld, mirrored);

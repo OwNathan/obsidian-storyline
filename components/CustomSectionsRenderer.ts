@@ -15,6 +15,7 @@
 import { App, Menu, Modal, Notice, Setting, setIcon } from 'obsidian';
 import { attachTooltip } from './Tooltip';
 import { openConfirmModal } from './ConfirmModal';
+import type { EntityTemplateService } from '../services/EntityTemplateService';
 
 /** Composite-key separator used to namespace fields inside custom sections. */
 export const CUSTOM_SECTION_KEY_SEP = ' :: ';
@@ -42,6 +43,11 @@ export interface CustomFieldDef {
     options?: string[];
     /** Optional vault folder path whose note names are used as selectable options. */
     folderSource?: string;
+    /**
+     * Entity-template field flag — when set, the field's value is also
+     * mirrored to a top-level YAML key (Obsidian Properties / Dataview).
+     */
+    topLevelKey?: string;
 }
 
 /**
@@ -63,6 +69,13 @@ export interface CustomSection {
      * the slot is determined by their order in the `sections` array.
      */
     position?: number;
+    /**
+     * Stable identity shared by this section across subcategory templates.
+     * Sections with the same `linkId` are treated as one logical section —
+     * scoping (via "Available for subcategories") and structural edits
+     * (rename / fields / move / delete) propagate to every linked copy.
+     */
+    linkId?: string;
 }
 
 /** Normalise any legacy bare-string entry to a {@link CustomFieldDef}. */
@@ -74,6 +87,7 @@ export function normalizeField(entry: CustomFieldEntry): CustomFieldDef {
         placeholder: entry.placeholder,
         options: entry.options,
         folderSource: entry.folderSource,
+        topLevelKey: entry.topLevelKey,
     };
 }
 
@@ -90,6 +104,19 @@ export interface CustomSectionsHost<TDraft extends { custom?: Record<string, str
      * in place when the user adds / renames / deletes sections or fields.
      */
     sections: CustomSection[];
+    /** Entity type id for the entity being edited (e.g. `character`, `codex:npc`). */
+    entityType: string;
+    /** Subcategory (axis option) this host is editing, if any. */
+    subcategory?: string;
+    /** Template service used for subcategory axes + linked-section scoping. */
+    entityTemplates: EntityTemplateService;
+    /**
+     * Optional vault-wide remigration of composite keys after a structural
+     * rename/delete. The currently-edited entity is handled inline by the
+     * renderer; this callback migrates every *other* entity of the same type
+     * in `affectedSubcategories` (empty array ⇒ base only).
+     */
+    remigrateLinkedKeys?: (ops: { oldKey: string; newKey?: string }[], affectedSubcategories: string[]) => void;
     /**
      * Number of built-in (non-custom) sections rendered by the host view.
      * Used to clamp `position` and to compute the final "end" slot.
@@ -115,10 +142,13 @@ export interface CustomSectionsHost<TDraft extends { custom?: Record<string, str
     persistSections: () => void;
     /** Trigger a full re-render of the host view. */
     requestRerender: () => void;
-    /** Check whether a custom-section textarea field is mirrored to the note body (optional). */
-    isFieldMirrored?: (compositeKey: string) => boolean;
-    /** Toggle mirror state for a custom-section textarea field (optional). */
-    toggleFieldMirror?: (compositeKey: string) => Promise<void>;
+    /**
+     * Optional predicate — when true, a custom section whose title matches a
+     * built-in default section is rendered *inside* that section (fields only,
+     * no duplicate header) via {@link renderMergedSection} instead of being
+     * rendered as a standalone section by {@link renderCustomSectionsAtSlot}.
+     */
+    isMergedSectionTitle?: (title: string) => boolean;
 }
 
 /** Effective position for a section (clamped to [0, builtinCount]). */
@@ -132,6 +162,41 @@ function effectivePosition(sec: CustomSection, builtinCount: number): number {
 
 function compositeKey(sectionTitle: string, fieldName: string): string {
     return `${sectionTitle}${CUSTOM_SECTION_KEY_SEP}${fieldName}`;
+}
+
+/**
+ * Propagate the current (authoritative) copy of every linked section to all
+ * other subcategory templates sharing its `linkId`. Call after a structural
+ * mutation (rename / move / add|remove|edit|reorder field) has been persisted
+ * for the current subcategory so the live two-way link stays consistent.
+ */
+export async function syncLinkedSections(
+    entityTemplates: EntityTemplateService,
+    entityType: string,
+    subcategory: string | undefined,
+    sections: CustomSection[],
+): Promise<void> {
+    for (const sec of sections) {
+        if (sec.linkId) {
+            await entityTemplates.syncLinkedSection(entityType, sec.linkId, subcategory, sec);
+        }
+    }
+}
+
+/**
+ * Subcategories whose entities should have their composite keys remigrated
+ * after a structural edit to `sec`. For a linked section this is the set of
+ * axis options it is scoped to (`[]` ⇒ base only); for a non-linked section it
+ * is just the subcategory it currently lives in (or base).
+ */
+function affectedSubcategoriesFor<T extends { custom?: Record<string, string> }>(
+    host: CustomSectionsHost<T>,
+    sec: CustomSection,
+): string[] {
+    if (sec.linkId) {
+        return host.entityTemplates.getLinkedSubcategories(host.entityType, sec.linkId);
+    }
+    return host.subcategory ? [host.subcategory] : [];
 }
 
 function folderOptionNames(app: App, folderSource?: string): string[] {
@@ -289,6 +354,9 @@ export function renderCustomSectionsAtSlot<T extends { custom?: Record<string, s
     const buckets = bucketBySlot(host);
     if (slot < 0 || slot >= buckets.length) return;
     for (const sec of buckets[slot]) {
+        // Sections whose title matches a built-in default section are merged
+        // into it (rendered by the host via renderMergedSection) — skip here.
+        if (host.isMergedSectionTitle?.(sec.title)) continue;
         renderOneSection(container, host, sec);
     }
 }
@@ -357,11 +425,6 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
     const chevronLabel = `${cssPrefix}-section-chevron`;
     const iconLabel = `${cssPrefix}-section-icon`;
     const titleLabel = `${cssPrefix}-section-title`;
-    const fieldRowLabel = `${cssPrefix}-field-row`;
-    const fieldLabelLabel = `${cssPrefix}-field-label`;
-    const fieldInputLabel = `${cssPrefix}-field-input`;
-    const customRowLabel = `${cssPrefix}-custom-field-row`;
-    const customRemoveLabel = `${cssPrefix}-custom-field-remove`;
 
     {
         const section = container.createDiv(`${sectionLabel} ${cssPrefix}-section-custom`);
@@ -431,12 +494,15 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                     new Notice(`A section called "${trimmed}" already exists.`);
                     return;
                 }
+                const oldTitle = sec.title;
                 // Migrate composite keys in draft.custom from old → new title.
+                const ops: { oldKey: string; newKey?: string }[] = [];
                 if (draft.custom) {
                     for (const entry of sec.fields) {
                         const fname = fieldName(entry);
-                        const oldKey = compositeKey(sec.title, fname);
+                        const oldKey = compositeKey(oldTitle, fname);
                         const newKey = compositeKey(trimmed, fname);
+                        ops.push({ oldKey, newKey });
                         if (oldKey in draft.custom) {
                             draft.custom[newKey] = draft.custom[oldKey];
                             delete draft.custom[oldKey];
@@ -445,11 +511,36 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                 }
                 sec.title = trimmed;
                 host.persistSections();
+                host.remigrateLinkedKeys?.(ops, affectedSubcategoriesFor(host, sec));
                 host.scheduleSave(draft);
                 host.requestRerender();
             });
             modal.open();
         });
+
+        // "Available for subcategories" — scope this section across the axis
+        // options of the entity type. Hidden when no axis is configured.
+        const scopeAxis = host.entityTemplates.getAxis(host.entityType);
+        if (scopeAxis && scopeAxis.options.length > 0) {
+            const scopeBtn = actions.createSpan({
+                cls: 'codex-section-action-btn',
+                attr: { 'aria-label': 'Available for subcategories', role: 'button' },
+            });
+            setIcon(scopeBtn, 'network');
+            attachTooltip(scopeBtn, 'Available for subcategories');
+            scopeBtn.addEventListener('click', (e) => {
+                stop(e);
+                void (async () => {
+                    const linkId = await host.entityTemplates.ensureSectionLinkId(host.entityType, host.subcategory, sec);
+                    const current = host.entityTemplates.getLinkedSubcategories(host.entityType, linkId);
+                    new SectionScopeModal(app, scopeAxis.options, current, (selected) => {
+                        void host.entityTemplates.setSectionScope(host.entityType, linkId, sec, selected).then(() => {
+                            host.requestRerender();
+                        });
+                    }).open();
+                })();
+            });
+        }
 
         const deleteBtn = actions.createSpan({
             cls: 'codex-section-action-btn',
@@ -463,16 +554,24 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                 title: 'Remove Section',
                 message: `Remove "${sec.title}" from all entries that share this section list?`,
                 confirmLabel: 'Remove section',
-                onConfirm: () => {
+                onConfirm: async () => {
+                    const affected = affectedSubcategoriesFor(host, sec);
+                    const ops = sec.fields.map(entry => ({ oldKey: compositeKey(sec.title, fieldName(entry)) }));
                     if (draft.custom) {
                         for (const entry of sec.fields) {
                             delete draft.custom[compositeKey(sec.title, fieldName(entry))];
                         }
                         if (Object.keys(draft.custom).length === 0) draft.custom = undefined;
                     }
+                    // A linked section is removed from every subcategory it
+                    // was scoped to (including the base template).
+                    if (sec.linkId) {
+                        await host.entityTemplates.removeLinkedSection(host.entityType, sec.linkId);
+                    }
                     const idx = sections.indexOf(sec);
                     if (idx >= 0) sections.splice(idx, 1);
                     host.persistSections();
+                    host.remigrateLinkedKeys?.(ops, affected);
                     host.scheduleSave(draft);
                     host.requestRerender();
                 },
@@ -491,28 +590,37 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
         if (isCollapsed) return;
 
         const body = section.createDiv(bodyLabel);
+        renderSectionFields(body, host, sec);
+    }
+}
 
-        for (let fIdx = 0; fIdx < sec.fields.length; fIdx++) {
+/**
+ * Render the fields (+ "add field" row) of a custom section into a container.
+ *
+ * Used both by standalone custom sections (inside their section body) and by
+ * merged sections, where a custom section sharing a built-in section's title
+ * is rendered inside that built-in section's body without a header.
+ */
+function renderSectionFields<T extends { custom?: Record<string, string> }>(
+    container: HTMLElement,
+    host: CustomSectionsHost<T>,
+    sec: CustomSection,
+): void {
+    const { app, draft, sections, cssPrefix } = host;
+
+    const fieldRowLabel = `${cssPrefix}-field-row`;
+    const fieldLabelLabel = `${cssPrefix}-field-label`;
+    const fieldInputLabel = `${cssPrefix}-field-input`;
+    const customRowLabel = `${cssPrefix}-custom-field-row`;
+    const customRemoveLabel = `${cssPrefix}-custom-field-remove`;
+
+    for (let fIdx = 0; fIdx < sec.fields.length; fIdx++) {
             const entry = sec.fields[fIdx];
             const def = normalizeField(entry);
             const fname = def.name;
             const key = compositeKey(sec.title, fname);
-            const row = body.createDiv(`${fieldRowLabel} ${customRowLabel}`);
-            const labelEl = row.createEl('label', { cls: fieldLabelLabel, text: fname });
-
-            // Mirror-to-body toggle for textarea fields (only if host provides callbacks)
-            if (def.type === 'textarea' && host.isFieldMirrored && host.toggleFieldMirror) {
-                const isMirrored = host.isFieldMirrored(key);
-                const mirrorBtn = labelEl.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
-                });
-                setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await host.toggleFieldMirror!(key);
-                });
-            }
+            const row = container.createDiv(`${fieldRowLabel} ${customRowLabel}`);
+            row.createEl('label', { cls: fieldLabelLabel, text: fname });
 
             // Render the input element appropriate for the field's type.
             // Mirrors the universal field renderers so users get the same
@@ -526,11 +634,17 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                         attr: { placeholder: placeholderHint, rows: '3' },
                     });
                     ta.value = currentValue;
+                    const autoGrow = () => {
+                        ta.setCssStyles({ height: 'auto' });
+                        ta.setCssStyles({ height: ta.scrollHeight + 'px' });
+                    };
                     ta.addEventListener('input', () => {
                         if (!draft.custom) draft.custom = {};
                         draft.custom[key] = ta.value;
                         host.scheduleSave(draft);
+                        autoGrow();
                     });
+                    window.requestAnimationFrame(autoGrow);
                     break;
                 }
                 case 'dropdown': {
@@ -571,11 +685,13 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
 
                     const showSuggestions = () => {
                         const term = inp.value.trim().toLowerCase();
-                        if (!term || allowed.length === 0) {
+                        if (allowed.length === 0) {
                             suggestList.addClass('is-hidden');
                             suggestList.empty();
                             return;
                         }
+                        // Empty input shows all available (not-yet-selected) options;
+                        // typing filters them down.
                         const matches = allowed.filter(
                             o => o.toLowerCase().includes(term) && !values.includes(o)
                         );
@@ -587,7 +703,8 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                         suggestList.empty();
                         suggestList.removeClass('is-hidden');
                         for (const m of matches) {
-                            const item = suggestList.createDiv('codex-custom-multi-suggest-item', { text: m });
+                            const item = suggestList.createDiv('codex-custom-multi-suggest-item');
+                            item.textContent = m;
                             item.addEventListener('click', (ev) => {
                                 ev.stopPropagation();
                                 if (!values.includes(m)) {
@@ -612,7 +729,7 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                         suggestTimer = window.setTimeout(showSuggestions, 120);
                     });
                     inp.addEventListener('focus', () => {
-                        if (inp.value.trim()) showSuggestions();
+                        showSuggestions();
                     });
                     // Dismiss on blur (allow click-to-select first)
                     inp.addEventListener('blur', () => {
@@ -717,10 +834,12 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                         return;
                     }
                     // Migrate composite key if renamed
-                    if (trimmedName !== fname && draft.custom) {
+                    let ops: { oldKey: string; newKey?: string }[] | undefined;
+                    if (trimmedName !== fname) {
                         const oldKey = compositeKey(sec.title, fname);
                         const newKey = compositeKey(sec.title, trimmedName);
-                        if (oldKey in draft.custom) {
+                        ops = [{ oldKey, newKey }];
+                        if (draft.custom && oldKey in draft.custom) {
                             draft.custom[newKey] = draft.custom[oldKey];
                             delete draft.custom[oldKey];
                         }
@@ -731,8 +850,10 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                         placeholder: result.placeholder,
                         options: result.options,
                         folderSource: result.folderSource,
+                        topLevelKey: result.topLevelKey ?? def.topLevelKey,
                     };
                     host.persistSections();
+                    if (ops) host.remigrateLinkedKeys?.(ops, affectedSubcategoriesFor(host, sec));
                     host.scheduleSave(draft);
                     host.requestRerender();
                 }, def);
@@ -818,9 +939,11 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                     message: `Remove "${fname}" from section "${sec.title}" for all entries that share this section list?`,
                     confirmLabel: 'Remove field',
                     onConfirm: () => {
+                        const affected = affectedSubcategoriesFor(host, sec);
                         sec.fields = sec.fields.filter(f => fieldName(f) !== fname);
                         if (draft.custom) delete draft.custom[key];
                         host.persistSections();
+                        host.remigrateLinkedKeys?.([{ oldKey: key }], affected);
                         host.scheduleSave(draft);
                         host.requestRerender();
                     },
@@ -829,7 +952,7 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
         }
 
         // "+ Add field to this section"
-        const addRow = body.createDiv('codex-add-custom-field-row');
+        const addRow = container.createDiv('codex-add-custom-field-row');
         const addFieldBtn = addRow.createEl('button', {
             cls: 'codex-add-custom-btn',
             text: '+ add field to this section',
@@ -849,6 +972,7 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
                     placeholder: result.placeholder,
                     options: result.options,
                     folderSource: result.folderSource,
+                    topLevelKey: result.topLevelKey,
                 });
                 if (!draft.custom) draft.custom = {};
                 draft.custom[compositeKey(sec.title, trimmed)] = '';
@@ -859,11 +983,101 @@ function renderOneSection<T extends { custom?: Record<string, string> }>(
             modal.open();
         });
     }
+
+/**
+ * Render the custom fields of all custom sections whose title matches a
+ * built-in default section into that default section's body.
+ *
+ * Hosts call this once per built-in section body; the matching custom
+ * sections are skipped by {@link renderCustomSectionsAtSlot} so their fields
+ * appear inline (without a duplicate header).
+ */
+export function renderMergedSection<T extends { custom?: Record<string, string> }>(
+    container: HTMLElement,
+    host: CustomSectionsHost<T>,
+    sectionTitle: string,
+): void {
+    const merged = host.sections.filter(sec => sec.title === sectionTitle);
+    if (merged.length === 0) return;
+    seedDraftCustom(host);
+    for (const sec of merged) {
+        renderSectionFields(container, host, sec);
+    }
 }
 
 // ═══════════════════════════════════════════════════
 //  Add / Rename a custom section
 // ═══════════════════════════════════════════════════
+
+/**
+ * Multi-select of the entity type's subcategory axis options, used to define
+ * which subcategories a section is available in. Selecting nothing scopes the
+ * section to the base template only (entities with no subcategory set).
+ */
+export class SectionScopeModal extends Modal {
+    private options: string[];
+    private selected: Set<string>;
+    private callback: (selected: string[]) => void;
+
+    constructor(app: App, options: string[], selected: string[], callback: (selected: string[]) => void) {
+        super(app);
+        this.options = options;
+        this.selected = new Set(selected);
+        this.callback = callback;
+    }
+
+    onOpen(): void {
+        this.titleEl.setText('Available for subcategories');
+        this.contentEl.createEl('p', {
+            text: 'Choose which subcategories this section appears in. With none selected, it is only available to entities without a subcategory.',
+            cls: 'setting-item-description',
+        });
+
+        let allChecked = this.options.length > 0 && this.options.every(o => this.selected.has(o));
+
+        const render = () => {
+            this.contentEl.querySelectorAll('.sl-scope-option').forEach(el => el.remove());
+            for (const opt of this.options) {
+                const item = new Setting(this.contentEl);
+                item.setClass('sl-scope-option');
+                item.setName(opt);
+                item.addToggle(toggle => {
+                    toggle.setValue(this.selected.has(opt));
+                    toggle.onChange(v => {
+                        if (v) this.selected.add(opt);
+                        else this.selected.delete(opt);
+                        allChecked = this.options.length > 0 && this.options.every(o => this.selected.has(o));
+                        render();
+                    });
+                });
+            }
+        };
+        render();
+
+        new Setting(this.contentEl)
+            .setName('All subcategories')
+            .addToggle(toggle => {
+                toggle.setValue(allChecked);
+                toggle.onChange(v => {
+                    this.selected = v ? new Set(this.options) : new Set<string>();
+                    allChecked = v;
+                    render();
+                });
+            });
+
+        new Setting(this.contentEl)
+            .addButton(btn => btn
+                .setButtonText('Apply')
+                .setCta()
+                .onClick(() => {
+                    this.close();
+                    this.callback([...this.selected]);
+                }))
+            .addButton(btn => btn
+                .setButtonText('Cancel')
+                .onClick(() => this.close()));
+    }
+}
 
 export class AddCustomSectionModal extends Modal {
     private callback: (title: string) => void;
@@ -945,6 +1159,7 @@ export class AddSectionFieldModal extends Modal {
         let placeholder = this.existing?.placeholder ?? '';
         let optionsCsv = (this.existing?.options ?? []).join(', ');
         let folderSource = this.existing?.folderSource ?? '';
+        let topLevelKey = this.existing?.topLevelKey ?? '';
         let nameInput: HTMLInputElement | null = null;
 
         new Setting(this.contentEl)
@@ -1016,6 +1231,15 @@ export class AddSectionFieldModal extends Modal {
         refreshOptionsRow();
 
         new Setting(this.contentEl)
+            .setName('Top-level key (optional)')
+            .setDesc('When set, the field value is also mirrored to this top-level YAML key so it shows up in Obsidian properties, bases, and dataview. Reserved StoryLine keys are skipped automatically.')
+            .addText(text => {
+                text.setPlaceholder('E.g. Importance');
+                text.setValue(topLevelKey);
+                text.onChange(v => { topLevelKey = v.trim(); });
+            });
+
+        new Setting(this.contentEl)
             .addButton(btn => btn
                 .setButtonText(isEdit ? 'Save' : 'Add')
                 .setCta()
@@ -1034,6 +1258,7 @@ export class AddSectionFieldModal extends Modal {
                 placeholder: placeholder.trim() || undefined,
                 options: opts && opts.length > 0 ? opts : undefined,
                 folderSource: source || undefined,
+                topLevelKey: topLevelKey.trim() || undefined,
             };
         }
         this.submit = () => {

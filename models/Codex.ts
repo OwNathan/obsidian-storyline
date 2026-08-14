@@ -28,11 +28,6 @@ export interface CodexEntry {
     modified?: string;
     /** User-defined custom fields */
     custom?: Record<string, string>;
-    /**
-     * Universal field template values (keyed by template id).
-     * `boolean` is supported for `checkbox`-type templates (1.10.43+).
-     */
-    universalFields?: Record<string, string | string[] | boolean>;
 
     // ── Series-ready fields ────────────────────────
     /** Which books (project titles) this entry appears in — for future series sharing */
@@ -49,6 +44,17 @@ export interface CodexEntry {
      *  even if they contain the entry's name (e.g. "Dawnguard Saint" excluded
      *  from a "Saint" entry). */
     excludeTerms?: string;
+
+    /** Generic "kind" field — the default Overview "Type" for codex entries
+     *  (mirrors the per-category type fields like `orgType` / `itemType`). */
+    kind?: string;
+
+    // ── Entity template subcategory ─────────────────
+    /**
+     * Value of the entity type's subcategory axis. Ignored when the entity
+     * type has no subcategory axis configured.
+     */
+    templateSubcategory?: string;
 
     /** All standard fields are stored as string values keyed by field key */
     [key: string]: unknown;
@@ -69,6 +75,9 @@ export interface CodexFieldDef {
     characterRef?: boolean;
     /** If true, render an on/off toggle (value stored as boolean) */
     toggle?: boolean;
+    /** When true, rendered by a dedicated widget in the view (never a plain
+     *  input) — used by the default catalogs. */
+    special?: boolean;
 }
 
 export interface CodexFieldCategory {
@@ -385,6 +394,18 @@ export const LINKING_CATEGORIES: CodexFieldCategory = {
 
 /** Field keys added by the Linking & Matching section. */
 export const LINKING_FIELD_KEYS: string[] = ['entryType', 'aliases', 'caseSensitive', 'excludeTerms'];
+
+/**
+ * Unified frontmatter key list for Codex entries under the entity-template
+ * system. Applies to every built-in AND custom category (replaces the old
+ * per-category `fieldKeys` lists). Drives serialization in CodexManager.
+ */
+export const CODEX_DEFAULT_FIELD_KEYS: string[] = [
+    'name', 'image', 'gallery',
+    'kind',
+    'entryType', 'aliases', 'caseSensitive', 'excludeTerms',
+    'templateSubcategory',
+];
 
 /**
  * Append the shared Linking & Matching section to a category definition,

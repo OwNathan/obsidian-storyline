@@ -1,9 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- Obsidian's API surface and several untyped third-party libraries force dynamic dispatch; floating promises are intentional in DOM/event handlers; matching enable at end of file */
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel } from './FieldTemplateService';
+import { hydrateCustomFromTopLevel, mirrorCustomToTopLevel } from './customTopLevelMirror';
 import { App, TFile, parseYaml, stringifyYaml } from 'obsidian';
 import { Scene, SceneStatus } from '../models/Scene';
 import { coerceString } from '../utils/narrow';
 import { DEFAULT_STORYLINE_LOCALE, type StoryLineLocale } from '../utils/locale';
+import { MirroredSection, buildMirroredBody, parseMirroredBody, MIRROR_SEPARATOR } from './CodexManager';
+import { ENTITY_TYPE_SCENE } from '../models/EntityTemplate';
+import type { EntityTemplateService } from './EntityTemplateService';
 
 /**
  * Issue #73 — frontmatter scene fields that point at other entities (characters,
@@ -29,6 +32,54 @@ export function toWikilink(name: string | undefined | null): string | undefined 
 let _writeSceneFieldsAsWikilinks = true;
 export function setWriteSceneFieldsAsWikilinks(on: boolean): void {
     _writeSceneFieldsAsWikilinks = !!on;
+}
+
+/**
+ * Provider for the entity template service, set from main.ts (same pattern as
+ * the universal-field templates provider). Used when writing scene files to
+ * rebuild the body's mirrored custom-field sections from the file's own
+ * frontmatter, so every scene write (updates, undo, settings) stays consistent.
+ */
+let _entityTemplatesProvider: () => EntityTemplateService | undefined = () => undefined;
+export function setEntityTemplatesProvider(fn: () => EntityTemplateService | undefined): void {
+    _entityTemplatesProvider = fn;
+}
+
+/** Resolve the active entity template service (best-effort). */
+export function getEntityTemplatesProvider(): EntityTemplateService | undefined {
+    try { return _entityTemplatesProvider(); } catch { return undefined; }
+}
+
+/**
+ * Build the {@link MirroredSection} list for a scene from its frontmatter.
+ *
+ * Per the unified mirroring rule (Issue #228 phase 2), every custom field of
+ * type Text or Text block is mirrored to the scene's note body automatically.
+ * Values are taken from `frontmatter.custom`; empty values are skipped so
+ * cleared fields drop out of the mirrored body.
+ */
+function buildSceneMirroredSections(frontmatter: Record<string, unknown>): MirroredSection[] {
+    const et = getEntityTemplatesProvider();
+    if (!et) return [];
+    const custom = frontmatter.custom;
+    if (!custom || typeof custom !== 'object') return [];
+    const sub = typeof frontmatter.templateSubcategory === 'string' ? frontmatter.templateSubcategory : undefined;
+    const keys = et.getMirroredFieldKeys(ENTITY_TYPE_SCENE, sub);
+    if (keys.length === 0) return [];
+    const sections: MirroredSection[] = [];
+    for (const key of keys) {
+        const found = et.findFieldByCompositeKey(ENTITY_TYPE_SCENE, key, sub);
+        if (!found) continue;
+        const value = (custom as Record<string, unknown>)[key];
+        if (typeof value !== 'string' || !value) continue;
+        sections.push({
+            sectionTitle: found.section.title,
+            fieldKey: key,
+            fieldLabel: found.field.name,
+            value,
+        });
+    }
+    return sections;
 }
 
 /**
@@ -114,6 +165,7 @@ export class MetadataParser {
             return null;
         }
         const frontmatter = fmRaw as Partial<Scene> & Record<string, unknown>;
+        const templateSubcategory = this.normalizeFrontmatterString(frontmatter.templateSubcategory);
 
         return {
             filePath,
@@ -141,12 +193,16 @@ export class MetadataParser {
             subtitle: frontmatter.subtitle,
             color: frontmatter.color,
             codexLinks: this.parseCodexLinks(frontmatter.codexLinks),
-            universalFields: hydrateUniversalFieldsFromTopLevel(
+            // Issue #71 — hydrate custom-field values from top-level YAML keys
+            custom: hydrateCustomFromTopLevel(
                 frontmatter,
-                frontmatter.universalFields && typeof frontmatter.universalFields === 'object'
-                    ? (frontmatter.universalFields as Record<string, string | string[]>)
+                frontmatter.custom && typeof frontmatter.custom === 'object'
+                    ? (frontmatter.custom as Record<string, string>)
                     : undefined,
-            ) as Record<string, string | string[]> | undefined,
+                ENTITY_TYPE_SCENE,
+                templateSubcategory,
+            ),
+            templateSubcategory,
             beatsheet: frontmatter.beatsheet,
             arcAnchor: this.parseBooleanFlag(frontmatter.arcAnchor ?? (frontmatter.arc_anchor as boolean | undefined)),
         };
@@ -247,14 +303,11 @@ export class MetadataParser {
                 }
                 continue;
             }
-            if (key === 'universalFields') {
+            if (key === 'custom') {
                 if (value && typeof value === 'object') {
-                    // Issue #175 — drop empty entries so emptied custom fields
-                    // don't linger as `fieldId: ''` in the frontmatter.
                     const cleaned: Record<string, unknown> = {};
                     for (const [fk, fv] of Object.entries(value as Record<string, unknown>)) {
                         if (fv === undefined || fv === null || fv === '') continue;
-                        if (Array.isArray(fv) && fv.length === 0) continue;
                         cleaned[fk] = fv;
                     }
                     if (Object.keys(cleaned).length > 0) {
@@ -265,6 +318,10 @@ export class MetadataParser {
                 } else {
                     delete frontmatter[key];
                 }
+                continue;
+            }
+            if (key === 'templateSubcategory' && !value) {
+                delete frontmatter[key];
                 continue;
             }
             if (value !== undefined) {
@@ -281,10 +338,29 @@ export class MetadataParser {
         // Update modified date
         frontmatter.modified = new Date().toISOString().split('T')[0];
 
-        // Issue #71 — mirror universal fields to top-level YAML keys
-        mirrorUniversalFieldsToTopLevel(frontmatter, frontmatter.universalFields as Record<string, unknown> | undefined);
+        // Issue #71 - mirror custom-field values to top-level YAML keys.
+        // Resolve against the merged subcategory (not `updates`), since most
+        // scene writes don't carry templateSubcategory and would otherwise
+        // fall back to the base template.
+        mirrorCustomToTopLevel(
+            frontmatter,
+            frontmatter.custom as Record<string, string> | undefined,
+            ENTITY_TYPE_SCENE,
+            typeof frontmatter.templateSubcategory === 'string' ? frontmatter.templateSubcategory : undefined,
+        );
 
-        const newContent = `---\n${stringifyYaml(frontmatter)}---\n\n${body}`;
+        // Rebuild the mirrored custom-field body sections from the merged
+        // frontmatter (Phase 2). Files without a mirror block stay untouched;
+        // existing blocks are regenerated from the current mirror keys so
+        // removed flags / cleared values drop out on the next write.
+        let finalBody = body;
+        const mirrored = buildSceneMirroredSections(frontmatter);
+        if (body.includes(MIRROR_SEPARATOR) || mirrored.length > 0) {
+            const { notes: existingNotes } = parseMirroredBody(body);
+            finalBody = buildMirroredBody(existingNotes, mirrored);
+        }
+
+        const newContent = `---\n${stringifyYaml(frontmatter)}---\n\n${finalBody}`;
         await app.vault.modify(file, newContent);
     }
 
@@ -329,11 +405,12 @@ export class MetadataParser {
         if (scene.codexLinks && Object.keys(scene.codexLinks).some(k => scene.codexLinks![k]?.length)) {
             fm.codexLinks = scene.codexLinks;
         }
-        if (scene.universalFields && Object.keys(scene.universalFields).length > 0) {
-            fm.universalFields = scene.universalFields;
+        // Issue #71 — mirror custom-field values to top-level YAML keys
+        mirrorCustomToTopLevel(fm, scene.custom, ENTITY_TYPE_SCENE, scene.templateSubcategory);
+        if (scene.custom && Object.keys(scene.custom).length > 0) {
+            fm.custom = scene.custom;
         }
-        // Issue #71 — mirror universal fields to top-level YAML keys
-        mirrorUniversalFieldsToTopLevel(fm, scene.universalFields);
+        if (scene.templateSubcategory) fm.templateSubcategory = scene.templateSubcategory;
         fm.created = new Date().toISOString().split('T')[0];
         fm.modified = new Date().toISOString().split('T')[0];
 

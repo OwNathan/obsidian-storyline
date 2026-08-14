@@ -8,16 +8,16 @@ import { StoryGraph } from '../components/StoryGraph';
 import { pickImage as pickImageModal, resolveImagePath } from '../components/ImagePicker';
 import { isMobile, DESKTOP_ONLY_CHARACTER_MODES, applyMobileClass } from '../components/MobileAdapter';
 import { RenameConfirmModal } from '../components/RenameConfirmModal';
-import { AddFieldModal } from '../components/AddFieldModal';
 import {
-    isCustomSectionKey,
     renderCustomSectionsAtSlot,
+    renderMergedSection,
     renderAddCustomSectionButton,
-    CUSTOM_SECTION_KEY_SEP,
+    syncLinkedSections,
     type CustomSectionsHost,
     type CustomSection,
 } from '../components/CustomSectionsRenderer';
-import type { UniversalFieldTemplate } from '../services/FieldTemplateService';
+import { ENTITY_TYPE_CHARACTER } from '../models/EntityTemplate';
+import { renderSubcategoryPicker } from '../components/SubcategoryPicker';
 import type { MirroredSection } from '../services/CodexManager';
 import { formatActChapterPrefix } from '../utils/actChapter';
 
@@ -26,7 +26,7 @@ import type SceneCardsPlugin from '../main';
 import { attachTooltip } from '../components/Tooltip';
 import { renderCodexCategoryTabs } from '../components/CodexCategoryTabs';
 import { ItemView, Modal, Notice, Setting, TFile, WorkspaceLeaf } from 'obsidian';
-import { CHARACTER_CATEGORIES, CHARACTER_ROLES, Character, CharacterFieldDef, CharacterRelation, CharacterRelationCategory, RELATION_CATEGORIES, RELATION_TYPES_BY_CATEGORY, RoleEntry, TagType, computeReciprocalUpdates, extractCharacterLocationTags, extractCharacterProps, getPrimaryRole, getRoleDisplay, getRoleList, normalizeCharacterRelations } from '../models/Character';
+import { CHARACTER_ROLES, Character, CharacterFieldDef, CharacterRelation, CharacterRelationCategory, RELATION_CATEGORIES, RELATION_TYPES_BY_CATEGORY, RoleEntry, TagType, computeReciprocalUpdates, extractCharacterLocationTags, extractCharacterProps, getPrimaryRole, getRoleDisplay, getRoleList, normalizeCharacterRelations } from '../models/Character';
 import { CHARACTER_VIEW_TYPE, COMMENTS_VIEW_TYPE } from '../constants';
 import { AddCommentModal } from '../components/AddCommentModal';
 import { renderCommentCapsule } from '../components/CommentCapsule';
@@ -56,6 +56,9 @@ export class CharacterView extends ItemView {
     private static readonly SAVE_REFRESH_GRACE_MS = 2000;
     /** Current sub-mode: 'grid' (default), 'map' (relationship map), or 'story-graph' */
     private viewMode: 'grid' | 'map' | 'story-graph' = 'grid';
+    /** Key of the last-rendered page — used to only restore scroll when
+     *  re-rendering the same entity (not on navigation). */
+    private _lastRenderKey: string = '';
     /** Active RelationshipMap instance (cleaned up on re-render) */
     private relationshipMap: RelationshipMap | null = null;
     /** Active StoryGraph instance (cleaned up on re-render) */
@@ -136,6 +139,13 @@ export class CharacterView extends ItemView {
     // ── Main render ────────────────────────────────────
 
     private renderView(container: HTMLElement): void {
+        // Preserve scroll position across the full DOM rebuild so collapsing /
+        // adding a section or saving the file doesn't jump the scrollbar. Only
+        // restore when re-rendering the same page — navigation resets to top.
+        const renderKey = this.selectedCharacter ?? `overview:${this.viewMode}`;
+        const samePage = renderKey === this._lastRenderKey;
+        const prevScrollTop = container.scrollTop;
+        const prevScrollLeft = container.scrollLeft;
         this.clearPortaledDropdowns(); // issue #102 — don't leak portaled popups across re-renders
         container.empty();
 
@@ -233,6 +243,10 @@ export class CharacterView extends ItemView {
         } else {
             this.renderCharacterOverview(content);
         }
+
+        container.scrollTop = samePage ? prevScrollTop : 0;
+        container.scrollLeft = samePage ? prevScrollLeft : 0;
+        this._lastRenderKey = renderKey;
     }
 
     // ── Overview Grid ──────────────────────────────────
@@ -374,7 +388,7 @@ export class CharacterView extends ItemView {
                 if (manualAliases[lower]) return false;
                 // Direct match
                 if (fileNames.has(lower)) return false;
-                // Auto-alias match (nickname or first name)
+                // Auto-alias match (alias or first name)
                 const canonical = aliasMap.get(lower);
                 if (canonical && fileNames.has(canonical.toLowerCase())) return false;
                 return true;
@@ -525,13 +539,12 @@ export class CharacterView extends ItemView {
         }
 
         // Completeness indicator
-        const filled = CHARACTER_CATEGORIES.reduce((acc, cat) =>
-            acc + cat.fields.filter(f => {
-                const val = char[f.key];
-                return val !== undefined && val !== null && val !== '';
-            }).length, 0);
-        const totalFields = CHARACTER_CATEGORIES.reduce((acc, cat) => acc + cat.fields.length, 0);
-        const pct = Math.round((filled / totalFields) * 100);
+        const completenessFields = this.characterCompletenessFields();
+        const filled = completenessFields.filter(f => {
+            const val = f.get(char);
+            return val !== undefined && val !== null && val !== '';
+        }).length;
+        const pct = completenessFields.length > 0 ? Math.round((filled / completenessFields.length) * 100) : 0;
         const completeness = card.createDiv('character-card-completeness');
         const bar = completeness.createDiv('character-completeness-bar');
         const fill = bar.createDiv('character-completeness-fill');
@@ -798,9 +811,9 @@ export class CharacterView extends ItemView {
         }
 
         // Working copy for editing
-        const draft: Character = { ...character, custom: { ...(character.custom || {}) }, universalFields: { ...(character.universalFields || {}) } };
+        const draft: Character = { ...character, custom: { ...(character.custom || {}) } };
         // Snapshot for undo — taken once when the detail view opens
-        this.undoSnapshot = { ...character, custom: { ...(character.custom || {}) }, universalFields: { ...(character.universalFields || {}) } };
+        this.undoSnapshot = { ...character, custom: { ...(character.custom || {}) } };
         // Track original name for cascade rename detection
         this.originalCharacterName = character.name;
         // Snapshot relations for reciprocal sync diffing
@@ -904,18 +917,36 @@ export class CharacterView extends ItemView {
         const formPanel = layout.createDiv('character-detail-form');
         const sidePanel = layout.createDiv('character-detail-side');
 
-        // ── Form sections + interleaved user-defined custom sections (#120) ──
-        const customHost = this.buildCustomSectionsHost(draft);
+        // Subcategory picker (only when an axis is defined for characters)
+        renderSubcategoryPicker({
+            container: formPanel,
+            entityTemplates: this.plugin.entityTemplates,
+            entityType: ENTITY_TYPE_CHARACTER,
+            current: draft.templateSubcategory,
+            onChange: async (value) => {
+                draft.templateSubcategory = value;
+                this.scheduleSave(draft);
+                // Flush the save so the in-memory cache reflects the new
+                // subcategory, then re-render immediately so the new
+                // subcategory's custom sections appear without a manual reload.
+                await this.flushPendingSave();
+                if (this.rootContainer) this.renderView(this.rootContainer);
+            },
+        });
+
+        // ── Entity-template sections + interleaved user-defined custom sections ──
+        const defaultSections = this.plugin.entityTemplates.getCharacterDefaultSections();
+        const customHost = this.buildCustomSectionsHost(draft, defaultSections.length);
         // Slot 0: any custom sections positioned above the first built-in.
         renderCustomSectionsAtSlot(formPanel, customHost, 0);
-        for (let i = 0; i < CHARACTER_CATEGORIES.length; i++) {
-            this.renderCategory(formPanel, CHARACTER_CATEGORIES[i], draft);
+        for (let i = 0; i < defaultSections.length; i++) {
+            this.renderCategory(formPanel, defaultSections[i], draft);
+            // Custom sections sharing this default section's title render
+            // inline (fields only, no duplicate header).
+            renderMergedSection(formPanel, customHost, defaultSections[i].title);
             // Slot i+1: any custom sections after the i-th built-in.
             renderCustomSectionsAtSlot(formPanel, customHost, i + 1);
         }
-
-        // ── Custom fields section ──
-        this.renderCustomFields(formPanel, draft);
 
         // ── "+ Add custom section" button at the bottom ──
         renderAddCustomSectionButton(formPanel, customHost);
@@ -928,6 +959,12 @@ export class CharacterView extends ItemView {
         this.renderCommentsSection(sidePanel, character);
     }
 
+    /**
+     * Render a locked default section: header + its immutable fields in
+     * order. Defaults cannot be hidden, reordered, or extended with
+     * universal fields — custom fields live in custom sections (which may
+     * share this section's title to merge inline via renderMergedSection).
+     */
     private renderCategory(
         parent: HTMLElement,
         category: { title: string; icon: string; fields: CharacterFieldDef[] },
@@ -944,53 +981,10 @@ export class CharacterView extends ItemView {
         obsidian.setIcon(icon, category.icon);
         sectionHeader.createSpan({ text: category.title });
 
-        // ── '+' button to add a universal field to this section ──
-        const addFieldBtn = sectionHeader.createEl('button', {
-            cls: 'character-section-add-field-btn',
-            attr: { title: 'Add universal field to this section', 'aria-label': 'Add universal field' },
-        });
-        obsidian.setIcon(addFieldBtn, 'plus');
-        addFieldBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // Don't toggle collapse
-            const existingSiblings = this.plugin.fieldTemplates
-                .getBySection(category.title, 'character')
-                .map(t => ({ id: t.id, label: t.label }));
-            // Snapshot the current built-in keys so moveAfter can resolve the
-            // merged order even before the new field is rendered (issue #197).
-            const builtInKeysForAdd = category.fields
-                .filter(f => !(this.plugin.settings.hiddenFields['character'] ?? []).includes(f.key))
-                .map(f => f.key);
-            const modal = new AddFieldModal(
-                this.app,
-                category.title,
-                null,
-                async (template, positionAfterId) => {
-                    template.category = 'character';
-                    await this.plugin.fieldTemplates.add(template);
-                    if (positionAfterId !== undefined) {
-                        await this.plugin.fieldTemplates.moveAfter(
-                            category.title, 'character', builtInKeysForAdd,
-                            template.id, positionAfterId,
-                        );
-                    }
-                    // Re-render the detail view to show the new field
-                    if (this.selectedCharacter && this.rootContainer) {
-                        this.renderCharacterDetail(this.rootContainer);
-                    }
-                },
-                undefined,
-                undefined,
-                existingSiblings,
-            );
-            modal.open();
-        });
-
         const sectionBody = section.createDiv('character-section-body');
         if (isCollapsed) sectionBody.setCssStyles({ display: 'none' });
 
-        sectionHeader.addEventListener('click', (e) => {
-            // Ignore clicks on the add-field button
-            if ((e.target as HTMLElement).closest('.character-section-add-field-btn')) return;
+        sectionHeader.addEventListener('click', () => {
             if (this.collapsedSections.has(category.title)) {
                 this.collapsedSections.delete(category.title);
                 sectionBody.setCssStyles({ display: '' });
@@ -1002,127 +996,14 @@ export class CharacterView extends ItemView {
             }
         });
 
-        // Built-in fields (skip hidden ones)
-        const hiddenKeys = this.plugin.settings.hiddenFields['character'] ?? [];
-        const visibleFields = category.fields.filter(f => !hiddenKeys.includes(f.key));
-        const hiddenFieldsInCat = category.fields.filter(f => hiddenKeys.includes(f.key));
-
-        // Render fields in user-defined merged order (built-in + universal).
-        const universalFields = this.plugin.fieldTemplates.getBySection(category.title, 'character');
-        const fieldMap = new Map(visibleFields.map(f => [f.key, f]));
-        const tplMap = new Map(universalFields.map(t => [t.id, t]));
-        const builtInKeys = visibleFields.map(f => f.key);
-        const merged = this.plugin.fieldTemplates.getMergedOrder(category.title, 'character', builtInKeys);
-        for (const entry of merged) {
-            if (entry.kind === 'builtin') {
-                const f = fieldMap.get(entry.key);
-                if (f) this.renderField(sectionBody, f, draft, category.title, builtInKeys);
-            } else {
-                const t = tplMap.get(entry.key);
-                if (t) this.renderUniversalField(sectionBody, t, draft, builtInKeys, 'character');
-            }
-        }
-
-        // Show toggle for hidden fields
-        if (hiddenFieldsInCat.length > 0) {
-            const toggleEl = sectionBody.createDiv('hidden-fields-toggle');
-            toggleEl.createEl('a', {
-                text: `Show ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`,
-                cls: 'hidden-fields-toggle-link',
-            });
-            const hiddenContainer = sectionBody.createDiv('hidden-fields-container');
-            hiddenContainer.setCssStyles({ display: 'none' });
-            for (const field of hiddenFieldsInCat) {
-                this.renderField(hiddenContainer, field, draft);
-            }
-            let showing = false;
-            toggleEl.addEventListener('click', () => {
-                showing = !showing;
-                hiddenContainer.setCssStyles({ display: showing ? '' : 'none' });
-                toggleEl.querySelector('a')!.textContent = showing
-                    ? `Hide ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`
-                    : `Show ${hiddenFieldsInCat.length} hidden field${hiddenFieldsInCat.length > 1 ? 's' : ''}`;
-            });
+        for (const field of category.fields) {
+            this.renderField(sectionBody, field, draft);
         }
     }
 
-    private renderField(parent: HTMLElement, field: CharacterFieldDef, draft: Character, sectionTitle?: string, builtInKeys?: string[]): void {
+    private renderField(parent: HTMLElement, field: CharacterFieldDef, draft: Character): void {
         const row = parent.createDiv('character-field-row');
         const labelEl = row.createEl('label', { cls: 'character-field-label', text: field.label });
-
-        // Up/down chevrons — reorder this built-in field within the section.
-        if (sectionTitle && builtInKeys) {
-            this.addBuiltInMoveChevrons(labelEl, sectionTitle, 'character', builtInKeys, field.key);
-        }
-
-        // Hide/unhide field button (skip for 'name' — always visible)
-        if (field.key !== 'name') {
-            const hiddenKeys = this.plugin.settings.hiddenFields['character'] ?? [];
-            const isHidden = hiddenKeys.includes(field.key);
-            const hideBtn = labelEl.createSpan({
-                cls: 'field-hide-btn',
-                attr: { 'aria-label': isHidden ? 'Show this field' : 'Hide this field' },
-            });
-            obsidian.setIcon(hideBtn, isHidden ? 'eye' : 'eye-off');
-            hideBtn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const settings = this.plugin.settings;
-                if (!settings.hiddenFields['character']) settings.hiddenFields['character'] = [];
-                const list = settings.hiddenFields['character'];
-                const idx = list.indexOf(field.key);
-                if (idx >= 0) {
-                    list.splice(idx, 1);
-                } else {
-                    list.push(field.key);
-                }
-                await this.plugin.saveSettings();
-                if (this.selectedCharacter && this.rootContainer) {
-                    this.renderCharacterDetail(this.rootContainer);
-                }
-            });
-
-            // Mirror toggle — only for multiline/textarea fields
-            if (field.multiline) {
-                const mirroredKeys = this.plugin.settings.mirroredFields['character'] ?? [];
-                const isMirrored = mirroredKeys.includes(field.key);
-                const mirrorBtn = labelEl.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to body' : 'Mirror to note body' },
-                });
-                obsidian.setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const settings = this.plugin.settings;
-                    if (!settings.mirroredFields['character']) settings.mirroredFields['character'] = [];
-                    const list = settings.mirroredFields['character'];
-                    const idx = list.indexOf(field.key);
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                    } else {
-                        list.push(field.key);
-                    }
-                    // Force-save entity so body reflects new mirror state immediately
-                    const allKeys = settings.mirroredFields['character'] ?? [];
-                    let mirrored: MirroredSection[] | undefined;
-                    if (allKeys.length > 0) {
-                        const sections: MirroredSection[] = [];
-                        for (const mk of allKeys) {
-                            const si = await this.resolveMirroredSectionInfo(mk, draft);
-                            if (si) sections.push(si);
-                        }
-                        if (sections.length > 0) mirrored = sections;
-                    }
-                    await this.characterManager.saveCharacter(draft, mirrored);
-                    this._lastSaveTime = Date.now();
-                    this.pendingSaveDraft = null;
-                    if (this.autoSaveTimer) { window.clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
-                    await this.plugin.saveSettings();
-                    if (this.selectedCharacter && this.rootContainer) {
-                        this.renderView(this.rootContainer);
-                    }
-                });
-            }
-        }
 
         // Coerce array shapes (e.g. role: string[]) to a comma-separated string
         // for input rendering. Issue #72 Tier 1.
@@ -1153,7 +1034,7 @@ export class CharacterView extends ItemView {
             const select = row.createEl('select', { cls: 'character-field-input dropdown' });
             select.createEl('option', { text: 'Auto (personality → occupation → role)', value: '' });
             const taglineOptions: { key: string; label: string }[] = [];
-            for (const cat of CHARACTER_CATEGORIES) {
+            for (const cat of this.plugin.entityTemplates.getCharacterDefaultSections()) {
                 for (const f of cat.fields) {
                     if (['name', 'tagline', 'relations', 'locations', 'image'].includes(f.key)) continue;
                     taglineOptions.push({ key: f.key, label: f.label });
@@ -1242,342 +1123,6 @@ export class CharacterView extends ItemView {
                     this.checkCharacterRename(draft, input);
                 });
             }
-        }
-    }
-
-    /** Shared helper — attach up/down chevron buttons to a built-in field's
-     *  label so it participates in the merged section ordering. */
-    private addBuiltInMoveChevrons(
-        labelEl: HTMLElement,
-        section: string,
-        category: string,
-        builtInKeys: string[],
-        fieldKey: string,
-    ): void {
-        const upBtn = labelEl.createSpan({
-            cls: 'field-move-btn',
-            attr: { title: 'Move field up', 'aria-label': 'Move field up' },
-        });
-        obsidian.setIcon(upBtn, 'chevron-up');
-        upBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryUp(section, category, builtInKeys, 'builtin', fieldKey);
-            if (this.selectedCharacter && this.rootContainer) this.renderCharacterDetail(this.rootContainer);
-        });
-
-        const downBtn = labelEl.createSpan({
-            cls: 'field-move-btn',
-            attr: { title: 'Move field down', 'aria-label': 'Move field down' },
-        });
-        obsidian.setIcon(downBtn, 'chevron-down');
-        downBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryDown(section, category, builtInKeys, 'builtin', fieldKey);
-            if (this.selectedCharacter && this.rootContainer) this.renderCharacterDetail(this.rootContainer);
-        });
-    }
-
-    /**
-     * Render a single universal (template-defined) field inside a section.
-     * Values are stored in `draft.universalFields[template.id]`.
-     */
-    private renderUniversalField(
-        parent: HTMLElement,
-        tpl: UniversalFieldTemplate,
-        draft: Character,
-        builtInKeys?: string[],
-        categoryId?: string,
-    ): void {
-        if (!draft.universalFields) draft.universalFields = {};
-        // 1.10.43: `universalFields` values can be string | string[] | boolean.
-        // `value` is the coerced string used by text / dropdown paths; the
-        // checkbox path reads `rawValue` to detect the actual boolean.
-        const rawValue = draft.universalFields[tpl.id];
-        const value: string = typeof rawValue === 'string' ? rawValue : '';
-
-        const row = parent.createDiv('character-field-row character-universal-field-row');
-
-        // Label with an edit icon
-        const labelWrap = row.createDiv('character-universal-label-wrap');
-        labelWrap.createEl('label', { cls: 'character-field-label', text: tpl.label });
-
-        const editBtn = labelWrap.createSpan({
-            cls: 'character-universal-edit-btn',
-            attr: { title: 'Edit or remove this universal field', 'aria-label': 'Edit field' },
-        });
-        obsidian.setIcon(editBtn, 'pencil');
-        editBtn.addEventListener('click', () => {
-            const siblings = this.plugin.fieldTemplates
-                .getBySection(tpl.section, tpl.category)
-                .map(t => ({ id: t.id, label: t.label }));
-            const modal = new AddFieldModal(
-                this.app,
-                tpl.section,
-                tpl,
-                async (updated, positionAfterId) => {
-                    await this.plugin.fieldTemplates.update(tpl.id, updated);
-                    if (positionAfterId !== undefined) {
-                        await this.plugin.fieldTemplates.moveAfter(
-                            tpl.section, tpl.category, builtInKeys ?? [],
-                            tpl.id, positionAfterId,
-                        );
-                    }
-                    if (this.selectedCharacter && this.rootContainer) {
-                        this.renderCharacterDetail(this.rootContainer);
-                    }
-                },
-                async () => {
-                    await this.plugin.fieldTemplates.remove(tpl.id);
-                    // Optionally clean up universalFields[tpl.id] from all characters
-                    if (this.selectedCharacter && this.rootContainer) {
-                        this.renderCharacterDetail(this.rootContainer);
-                    }
-                },
-                undefined,
-                siblings,
-            );
-            modal.open();
-        });
-
-        // Issue #92 — up/down move buttons (revealed on hover)
-        const moveUpBtn = labelWrap.createSpan({
-            cls: 'character-universal-move-btn',
-            attr: { title: 'Move field up', 'aria-label': 'Move field up' },
-        });
-        obsidian.setIcon(moveUpBtn, 'chevron-up');
-        moveUpBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryUp(
-                tpl.section, tpl.category, builtInKeys ?? [], 'universal', tpl.id,
-            );
-            if (this.selectedCharacter && this.rootContainer) this.renderCharacterDetail(this.rootContainer);
-        });
-
-        const moveDownBtn = labelWrap.createSpan({
-            cls: 'character-universal-move-btn',
-            attr: { title: 'Move field down', 'aria-label': 'Move field down' },
-        });
-        obsidian.setIcon(moveDownBtn, 'chevron-down');
-        moveDownBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await this.plugin.fieldTemplates.moveEntryDown(
-                tpl.section, tpl.category, builtInKeys ?? [], 'universal', tpl.id,
-            );
-            if (this.selectedCharacter && this.rootContainer) this.renderCharacterDetail(this.rootContainer);
-        });
-
-        // Input control based on template type
-        if (tpl.type === 'multi-select') {
-            const raw = draft.universalFields[tpl.id];
-            const selected: string[] = Array.isArray(raw) ? [...raw] : (typeof raw === 'string' && raw ? [raw] : []);
-
-            const allOptions = [...tpl.options];
-            if (tpl.folderSource) {
-                const folder = this.app.vault.getAbstractFileByPath(tpl.folderSource);
-                if (folder && 'children' in folder) {
-                    for (const child of (folder as obsidian.TFolder).children) {
-                        if (child instanceof obsidian.TFile && child.extension === 'md') {
-                            if (!allOptions.includes(child.basename)) allOptions.push(child.basename);
-                        }
-                    }
-                }
-            }
-            allOptions.sort((a, b) => a.localeCompare(b));
-
-            const msContainer = row.createDiv('universal-multi-select');
-            const pillsEl = msContainer.createDiv('universal-multi-pills');
-            const inputRow = msContainer.createDiv('universal-multi-input-row');
-            const msInput = inputRow.createEl('input', {
-                cls: 'universal-multi-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder || 'Type to add\u2026' },
-            });
-            // Issue #102 — portal dropdown to <body> so position:fixed coords are
-            // viewport-relative even when an ancestor uses transform/contain.
-            const msDropdown = activeDocument.body.createDiv('universal-multi-dropdown');
-            msDropdown.setCssStyles({ display: 'none' });
-            this._portaledDropdowns.push(msDropdown);
-
-            const renderPills = () => {
-                pillsEl.empty();
-                for (const item of selected) {
-                    const pill = pillsEl.createSpan({ cls: 'universal-multi-pill' });
-                    pill.createSpan({ text: item });
-                    const x = pill.createSpan({ cls: 'universal-multi-pill-x', text: '\u00d7' });
-                    x.addEventListener('click', () => {
-                        const idx = selected.indexOf(item);
-                        if (idx >= 0) selected.splice(idx, 1);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                    });
-                }
-            };
-            renderPills();
-
-            const updateMsDropdown = (filter: string) => {
-                msDropdown.empty();
-                const lf = filter.toLowerCase();
-                const available = allOptions.filter(o => !selected.includes(o) && o.toLowerCase().includes(lf));
-                if (available.length === 0) { msDropdown.setCssStyles({ display: 'none' }); return; }
-                msDropdown.setCssStyles({ display: '' });
-                // Issue #91 — reposition via fixed coords so the popup escapes section overflow
-                const r = msInput.getBoundingClientRect();
-                const spaceBelow = window.innerHeight - r.bottom;
-                const popupMax = 200;
-                const flipUp = spaceBelow < 120 && r.top > spaceBelow;
-                msDropdown.setCssStyles({
-                    position: 'fixed',
-                    left: r.left + 'px',
-                    width: r.width + 'px',
-                    top: flipUp ? '' : (r.bottom + 'px'),
-                    bottom: flipUp ? (window.innerHeight - r.top) + 'px' : '',
-                    maxHeight: Math.min(popupMax, flipUp ? r.top - 8 : spaceBelow - 8) + 'px',
-                    zIndex: '1000',
-                });
-                for (const opt of available) {
-                    const item = msDropdown.createDiv({ cls: 'universal-multi-dropdown-item', text: opt });
-                    item.addEventListener('mousedown', (e) => {
-                        e.preventDefault();
-                        selected.push(opt);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                        msInput.value = '';
-                        updateMsDropdown('');
-                    });
-                }
-            };
-
-            msInput.addEventListener('focus', () => updateMsDropdown(msInput.value));
-            msInput.addEventListener('input', () => updateMsDropdown(msInput.value));
-            msInput.addEventListener('blur', () => { window.setTimeout(() => { msDropdown.setCssStyles({ display: 'none' }); }, 200); });
-            msInput.addEventListener('keydown', (e: KeyboardEvent) => {
-                if (e.key === 'Enter' && msInput.value.trim()) {
-                    e.preventDefault();
-                    const val = msInput.value.trim();
-                    if (!selected.includes(val)) {
-                        selected.push(val);
-                        draft.universalFields![tpl.id] = [...selected];
-                        this.scheduleSave(draft);
-                        renderPills();
-                    }
-                    msInput.value = '';
-                    updateMsDropdown('');
-                }
-            });
-        } else if (tpl.type === 'dropdown') {
-            const select = row.createEl('select', { cls: 'character-field-input dropdown' });
-            select.createEl('option', { text: tpl.placeholder || 'Select…', value: '' });
-
-            const dropdownOptions = [...tpl.options];
-            if (tpl.folderSource) {
-                const folder = this.app.vault.getAbstractFileByPath(tpl.folderSource);
-                if (folder && 'children' in folder) {
-                    for (const child of (folder as obsidian.TFolder).children) {
-                        if (child instanceof obsidian.TFile && child.extension === 'md') {
-                            if (!dropdownOptions.includes(child.basename)) dropdownOptions.push(child.basename);
-                        }
-                    }
-                }
-                dropdownOptions.sort((a, b) => a.localeCompare(b));
-            }
-
-            for (const opt of dropdownOptions) {
-                const el = select.createEl('option', { text: opt, value: opt });
-                if (value === opt) el.selected = true;
-            }
-            // If current value isn't in the list, add it
-            if (value && !dropdownOptions.includes(value)) {
-                const el = select.createEl('option', { text: value, value });
-                el.selected = true;
-            }
-            select.addEventListener('change', () => {
-                draft.universalFields![tpl.id] = select.value;
-                this.scheduleSave(draft);
-            });
-        } else if (tpl.type === 'textarea') {
-            const textarea = row.createEl('textarea', {
-                cls: 'character-field-textarea',
-                attr: { placeholder: tpl.placeholder, rows: '2' },
-            });
-            textarea.value = value;
-            const autoGrow = () => {
-                textarea.setCssStyles({ height: 'auto' });
-                textarea.setCssStyles({ height: Math.max(textarea.scrollHeight, 48) + 'px' });
-            };
-            window.setTimeout(autoGrow, 0);
-            textarea.addEventListener('input', () => {
-                draft.universalFields![tpl.id] = textarea.value;
-                this.scheduleSave(draft);
-                autoGrow();
-            });
-
-            // Mirror-to-body toggle
-            if (categoryId) {
-                const mirroredKeys = this.plugin.settings.mirroredFields[categoryId] ?? [];
-                const isMirrored = mirroredKeys.includes(tpl.id);
-                const mirrorBtn = labelWrap.createEl('span', {
-                    cls: `field-mirror-btn${isMirrored ? ' field-mirror-btn-active' : ''}`,
-                    attr: { 'aria-label': isMirrored ? 'Stop mirroring to note body' : 'Mirror to note body' },
-                });
-                obsidian.setIcon(mirrorBtn, 'file-text');
-                mirrorBtn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const settings = this.plugin.settings;
-                    if (!settings.mirroredFields[categoryId]) settings.mirroredFields[categoryId] = [];
-                    const list = settings.mirroredFields[categoryId];
-                    const idx = list.indexOf(tpl.id);
-                    if (idx >= 0) {
-                        list.splice(idx, 1);
-                    } else {
-                        list.push(tpl.id);
-                    }
-                    // Force-save entity so body reflects new mirror state immediately
-                    const allKeys = settings.mirroredFields[categoryId] ?? [];
-                    let mirrored: MirroredSection[] | undefined;
-                    if (allKeys.length > 0) {
-                        const sections: MirroredSection[] = [];
-                        for (const mk of allKeys) {
-                            const si = await this.resolveMirroredSectionInfo(mk, draft);
-                            if (si) sections.push(si);
-                        }
-                        if (sections.length > 0) mirrored = sections;
-                    }
-                    await this.characterManager.saveCharacter(draft, mirrored);
-                    this._lastSaveTime = Date.now();
-                    this.pendingSaveDraft = null;
-                    if (this.autoSaveTimer) { window.clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
-                    await this.plugin.saveSettings();
-                    if (this.selectedCharacter && this.rootContainer) {
-                        this.renderView(this.rootContainer);
-                    }
-                });
-            }
-        } else if (tpl.type === 'checkbox') {
-            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
-            const wrap = row.createDiv('character-field-checkbox-wrap');
-            const cb = wrap.createEl('input', {
-                cls: 'character-field-checkbox',
-                type: 'checkbox',
-            });
-            cb.checked = checked;
-            cb.addEventListener('change', () => {
-                draft.universalFields![tpl.id] = cb.checked;
-                this.scheduleSave(draft);
-            });
-        } else {
-            // Default: single-line text
-            const input = row.createEl('input', {
-                cls: 'character-field-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder },
-            });
-            input.value = value;
-            input.addEventListener('input', () => {
-                draft.universalFields![tpl.id] = input.value;
-                this.scheduleSave(draft);
-            });
         }
     }
 
@@ -1940,157 +1485,45 @@ export class CharacterView extends ItemView {
         renderRows();
     }
 
-    private renderCustomFields(parent: HTMLElement, draft: Character): void {
-        const section = parent.createDiv('character-section');
-        const title = 'Custom Fields';
-        const isCollapsed = this.collapsedSections.has(title);
-
-        const sectionHeader = section.createDiv('character-section-header');
-        const chevron = sectionHeader.createSpan('character-section-chevron');
-        obsidian.setIcon(chevron, isCollapsed ? 'chevron-right' : 'chevron-down');
-        const icon = sectionHeader.createSpan('character-section-icon');
-        obsidian.setIcon(icon, 'plus-circle');
-        sectionHeader.createSpan({ text: title });
-
-        const sectionBody = section.createDiv('character-section-body');
-        if (isCollapsed) sectionBody.setCssStyles({ display: 'none' });
-
-        sectionHeader.addEventListener('click', () => {
-            if (this.collapsedSections.has(title)) {
-                this.collapsedSections.delete(title);
-                sectionBody.setCssStyles({ display: '' });
-                obsidian.setIcon(chevron, 'chevron-down');
-            } else {
-                this.collapsedSections.add(title);
-                sectionBody.setCssStyles({ display: 'none' });
-                obsidian.setIcon(chevron, 'chevron-right');
-            }
-        });
-
-        const renderAllCustomFields = () => {
-            sectionBody.empty();
-            const custom = draft.custom || {};
-
-            for (const [key, val] of Object.entries(custom)) {
-                // Skip composite keys belonging to user-defined custom sections (#120)
-                if (isCustomSectionKey(key)) continue;
-                const row = sectionBody.createDiv('character-field-row character-custom-row');
-                const keyInput = row.createEl('input', {
-                    cls: 'character-field-input character-custom-key',
-                    type: 'text',
-                    attr: { placeholder: 'Field name' },
-                });
-                keyInput.value = key;
-
-                const valInput = row.createEl('input', {
-                    cls: 'character-field-input character-custom-value',
-                    type: 'text',
-                    attr: { placeholder: 'Value' },
-                });
-                valInput.value = val;
-
-                const removeBtn = row.createEl('button', { cls: 'character-custom-remove', attr: { title: 'Remove field' } });
-                obsidian.setIcon(removeBtn, 'x');
-
-                keyInput.addEventListener('change', () => {
-                    delete draft.custom![key];
-                    const newKey = keyInput.value.trim();
-                    if (newKey) {
-                        draft.custom![newKey] = valInput.value;
-                    }
-                    this.scheduleSave(draft);
-                });
-
-                valInput.addEventListener('input', () => {
-                    const k = keyInput.value.trim();
-                    if (k) {
-                        draft.custom![k] = valInput.value;
-                        this.scheduleSave(draft);
-                    }
-                });
-
-                removeBtn.addEventListener('click', () => {
-                    delete draft.custom![key];
-                    row.remove();
-                    this.scheduleSave(draft);
-                });
-            }
-
-            // Add button
-            const addRow = sectionBody.createDiv('character-custom-add-row');
-            const addBtn = addRow.createEl('button', { cls: 'character-custom-add-btn', text: '+ add field' });
-            addBtn.addEventListener('click', () => {
-                if (!draft.custom) draft.custom = {};
-                const n = Object.keys(draft.custom).length + 1;
-                let newKey = `field_${n}`;
-                while (draft.custom[newKey]) newKey = `field_${n}_${Date.now()}`;
-                draft.custom[newKey] = '';
-                renderAllCustomFields();
-            });
-        };
-
-        renderAllCustomFields();
-    }
 
     // ── User-defined custom sections (#120) ────────────
 
     /**
      * Build the {@link CustomSectionsHost} used to interleave user-defined
-     * custom sections with the built-in `CHARACTER_CATEGORIES` in the detail
-     * form. The host is rebuilt per-render so it always reflects the latest
-     * settings array reference.
+     * custom sections with the entity-template default sections in the
+     * detail form. The host is rebuilt per-render so it always reflects the
+     * latest template state; structure changes persist via
+     * {@link EntityTemplateService}.
      */
-    private buildCustomSectionsHost(draft: Character): CustomSectionsHost<Character> {
-        if (!this.plugin.settings.characterCustomSections) {
-            this.plugin.settings.characterCustomSections = [];
-        }
-        // Settings store the loose JSON shape; CustomSectionsHost expects
-        // the narrower CustomSection[]. Cast at the boundary — the field
-        // renderers normalise unknown `type` values via `normalizeField()`.
-        const sections = this.plugin.settings.characterCustomSections as unknown as CustomSection[];
+    private buildCustomSectionsHost(
+        draft: Character,
+        builtinSectionCount: number,
+    ): CustomSectionsHost<Character> {
+        const entityType = ENTITY_TYPE_CHARACTER;
+        const subcategory = draft.templateSubcategory;
+        const sections = this.plugin.entityTemplates.getCustomSections(entityType, subcategory);
+        const defaultTitles = this.plugin.entityTemplates.getDefaultSectionTitles(entityType);
         return {
             app: this.app,
             draft,
             sections,
-            builtinSectionCount: CHARACTER_CATEGORIES.length,
+            entityType,
+            subcategory,
+            entityTemplates: this.plugin.entityTemplates,
+            remigrateLinkedKeys: (ops, subcats) => {
+                void this.plugin.customKeyMigrator.remigrateCustomKeys(entityType, ops, subcats, draft.filePath);
+            },
+            builtinSectionCount,
             collapsedSections: this.collapsedSections,
             collapseKeyPrefix: 'character',
             cssPrefix: 'character',
+            isMergedSectionTitle: (title: string) => defaultTitles.includes(title),
             scheduleSave: (d) => this.scheduleSave(d),
-            persistSections: () => { void this.plugin.saveSettings(); },
+            persistSections: () => {
+                void this.plugin.entityTemplates.setCustomSections(entityType, subcategory, sections);
+                void syncLinkedSections(this.plugin.entityTemplates, entityType, subcategory, sections);
+            },
             requestRerender: () => {
-                if (this.rootContainer) this.renderView(this.rootContainer);
-            },
-            isFieldMirrored: (compositeKey: string) => {
-                const list = this.plugin.settings.mirroredFields['character'] ?? [];
-                return list.includes(compositeKey);
-            },
-            toggleFieldMirror: async (compositeKey: string) => {
-                const settings = this.plugin.settings;
-                if (!settings.mirroredFields['character']) settings.mirroredFields['character'] = [];
-                const list = settings.mirroredFields['character'];
-                const idx = list.indexOf(compositeKey);
-                if (idx >= 0) {
-                    list.splice(idx, 1);
-                } else {
-                    list.push(compositeKey);
-                }
-                // Force-save entity so body reflects new mirror state immediately
-                const allKeys = settings.mirroredFields['character'] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (allKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const mk of allKeys) {
-                        const si = await this.resolveMirroredSectionInfo(mk, draft);
-                        if (si) sections.push(si);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
-                await this.characterManager.saveCharacter(draft, mirrored);
-                this._lastSaveTime = Date.now();
-                this.pendingSaveDraft = null;
-                if (this.autoSaveTimer) { window.clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
-                await this.plugin.saveSettings();
                 if (this.rootContainer) this.renderView(this.rootContainer);
             },
         };
@@ -2517,52 +1950,19 @@ export class CharacterView extends ItemView {
      * Supports built-in keys, universal template IDs (uf_*), and composite
      * custom-section keys (`sectionTitle :: fieldName`).
      */
-    private async resolveMirroredSectionInfo(
-        key: string,
-        draft: Character,
-    ): Promise<MirroredSection | null> {
-        // Custom-section composite key
-        if (key.includes(CUSTOM_SECTION_KEY_SEP)) {
-            const [sectionTitle, fieldName] = key.split(CUSTOM_SECTION_KEY_SEP);
-            const value = draft.custom?.[key] ?? '';
-            return {
-                sectionTitle: sectionTitle.trim(),
-                fieldKey: key,
-                fieldLabel: fieldName.trim(),
-                value: String(value),
-            };
-        }
-
-        // Universal field template ID
-        if (key.startsWith('uf_')) {
-            const tpl = this.plugin.fieldTemplates.getById(key);
-            if (!tpl) return null;
-            const value = draft.universalFields?.[key];
-            return {
-                sectionTitle: tpl.section,
-                fieldKey: key,
-                fieldLabel: tpl.label,
-                value: typeof value === 'string' ? value : (value ? String(value) : ''),
-            };
-        }
-
-        // Built-in field — find which category section contains this field
-        for (const cat of CHARACTER_CATEGORIES) {
-            const field = cat.fields.find(f => f.key === key);
-            if (field) {
-                const value = (draft as unknown as Record<string, unknown>)[key] != null
-                    ? String((draft as unknown as Record<string, unknown>)[key])
-                    : '';
-                return {
-                    sectionTitle: cat.title,
-                    fieldKey: key,
-                    fieldLabel: field.label,
-                    value,
-                };
-            }
-        }
-
-        return null;
+    /**
+     * Build the {@link MirroredSection} list for the current character.
+     *
+     * Per the unified mirroring rule (Issue #228 phase 2), every custom field
+     * of type Text or Text block is mirrored to the note body automatically —
+     * there is no per-field toggle. Default fields are never mirrored.
+     */
+    private buildMirroredSections(draft: Character): MirroredSection[] {
+        return this.plugin.entityTemplates.buildAutoMirroredSections(
+            ENTITY_TYPE_CHARACTER,
+            draft.templateSubcategory,
+            draft.custom,
+        );
     }
 
     // ── Auto-save ──────────────────────────────────────
@@ -2588,16 +1988,7 @@ export class CharacterView extends ItemView {
                 this._lastSaveTime = Date.now();
 
                 // Build mirrored section info for body mirroring
-                const mirroredKeys = this.plugin.settings.mirroredFields['character'] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (mirroredKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const key of mirroredKeys) {
-                        const sectionInfo = await this.resolveMirroredSectionInfo(key, draft);
-                        if (sectionInfo) sections.push(sectionInfo);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
+                const mirrored = this.buildMirroredSections(draft);
 
                 await this.characterManager.saveCharacter(draft, mirrored);
                 this.pendingSaveDraft = null;
@@ -2724,19 +2115,7 @@ export class CharacterView extends ItemView {
             try {
                 const draft = this.pendingSaveDraft;
                 this._lastSaveTime = Date.now();
-
-                const mirroredKeys = this.plugin.settings.mirroredFields['character'] ?? [];
-                let mirrored: MirroredSection[] | undefined;
-                if (mirroredKeys.length > 0) {
-                    const sections: MirroredSection[] = [];
-                    for (const key of mirroredKeys) {
-                        const sectionInfo = await this.resolveMirroredSectionInfo(key, draft);
-                        if (sectionInfo) sections.push(sectionInfo);
-                    }
-                    if (sections.length > 0) mirrored = sections;
-                }
-
-                await this.characterManager.saveCharacter(draft, mirrored);
+                await this.characterManager.saveCharacter(draft, this.buildMirroredSections(draft));
             } catch (e) {
                 console.error('StoryLine: failed to flush character save on close', e);
             }
@@ -2938,6 +2317,28 @@ export class CharacterView extends ItemView {
     }
 
     // ── Utility ────────────────────────────────────────
+
+    /**
+     * Field descriptors used by the overview-card completeness bar:
+     * default (locked) fields plus entity-template custom-section fields
+     * (composite keys into `draft.custom`).
+     */
+    private characterCompletenessFields(): { key: string; get: (c: Character) => unknown }[] {
+        const out: { key: string; get: (c: Character) => unknown }[] = [];
+        for (const cat of this.plugin.entityTemplates.getCharacterDefaultSections()) {
+            for (const f of cat.fields) {
+                out.push({
+                    key: f.key,
+                    get: c => (c as unknown as Record<string, unknown>)[f.key],
+                });
+            }
+        }
+        const customFields = this.plugin.entityTemplates.getAllCustomFields(ENTITY_TYPE_CHARACTER);
+        for (const { compositeKey } of customFields) {
+            out.push({ key: compositeKey, get: c => c.custom?.[compositeKey] });
+        }
+        return out;
+    }
 
     private roleClass(role: string): string {
         const r = role.toLowerCase().replace(/\s+/g, '-');
@@ -3346,8 +2747,8 @@ class LinkCharacterModal extends Modal {
         for (const char of this.characters) {
             const row = list.createDiv('link-character-row');
             row.createSpan({ text: char.name, cls: 'link-character-name' });
-            if (char.nickname) {
-                row.createSpan({ text: ` (${char.nickname})`, cls: 'link-character-nickname' });
+            if (char.aliases) {
+                row.createSpan({ text: ` (${char.aliases})`, cls: 'link-character-nickname' });
             }
             row.addEventListener('click', () => {
                 this.onSelect(char.name);

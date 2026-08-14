@@ -92,12 +92,13 @@ Rich character profile stored in `{project}/Codex/Characters/`.
 
 | Category | Fields |
 |---|---|
-| **Basic Info** | `name`, `tagline`, `image`, `gallery`, `nickname`, `age`, `role`, `roles` (structured), `occupation`, `residency`, `locations`, `family` |
+| **Basic Info** | `name`, `tagline`, `image`, `gallery`, `age`, `role`, `roles` (structured), `occupation`, `residency`, `locations`, `family` |
 | **Physical** | `appearance`, `distinguishingFeatures`, `style`, `quirks` |
 | **Personality** | `personality`, `internalMotivation`, `externalMotivation`, `strengths`, `flaws`, `fears`, `belief`, `misbelief` |
 | **Backstory** | `formativeMemories`, `accomplishments`, `secrets` |
 | **Relationships** | Typed arrays: `allies`, `enemies`, `romantic`, `mentors`, `siblings`, `parents`, `children`, `spouses`, `friends`, `rivals`, `colleagues`, etc. (40+ relationship types) |
 | **Character Arc** | `arcSummary`, `arcStages`, `want`, `need`, `ghost`, `lie`, `truth` |
+| **Linking & Matching** | `entryType` (sub-type badge), `aliases` (comma- or newline-separated alternative names), `caseSensitive` (bool), `excludeTerms` (comma-separated phrases) |
 | **Custom Fields** | `custom` (Record), `universalFields` (Record) |
 
 ### Structured Roles
@@ -145,6 +146,14 @@ Top-level worldbuilding container.
 | `economy` | `string` | Trade systems |
 | `history` | `string` | Key events |
 
+**Linking & Matching** (shared on every entity — see `models/defaults/world.ts`):
+| Field | Type | Description |
+|---|---|---|
+| `entryType` | `string` | Free-form sub-type badge (e.g. "Setting", "Realm") |
+| `aliases` | `string` | Comma- or newline-separated alternative names that the Link Scanner uses for plain-text matching |
+| `caseSensitive` | `boolean` | When true, name + aliases match only on exact case |
+| `excludeTerms` | `string` | Comma-separated phrases that should NOT link to this world |
+
 ### StoryLocation (`type: location`)
 
 Specific place, optionally nested under a world and/or parent location.
@@ -161,6 +170,14 @@ Specific place, optionally nested under a world and/or parent location.
 | `inhabitants` | `string` | Key inhabitants |
 | `connectedLocations` | `string` | Nearby locations |
 | `mapNotes` | `string` | Spatial info |
+
+**Linking & Matching** (shared on every entity — see `models/defaults/location.ts`):
+| Field | Type | Description |
+|---|---|---|
+| `entryType` | `string` | Free-form sub-type badge (e.g. "Stronghold", "Landmark") |
+| `aliases` | `string` | Comma- or newline-separated alternative names that the Link Scanner uses for plain-text matching |
+| `caseSensitive` | `boolean` | When true, name + aliases match only on exact case |
+| `excludeTerms` | `string` | Comma-separated phrases that should NOT link to this location |
 
 Built-in location types: `city`, `town`, `village`, `neighborhood`, `building`, `room`, `wilderness`, `forest`, `mountain`, `river`, `lake`, `sea`, `island`, `harbour`, `road`, `vehicle`, `region`, `country`, `other`. Users can add custom types.
 

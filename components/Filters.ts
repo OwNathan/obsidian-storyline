@@ -5,6 +5,7 @@ import { SceneManager } from '../services/SceneManager';
 import type SceneCardsPlugin from '../main';
 import type { SceneFilter, SortConfig, SortField, FilterPreset } from '../models/Scene';
 import { getStatusOrder } from '../models/Scene';
+import { ENTITY_TYPE_SCENE } from '../models/EntityTemplate';
 import { getActDisplayLabel } from '../utils/actChapter';
 
 type FocusModeCallback = (active: boolean) => void;
@@ -314,68 +315,71 @@ export class FiltersComponent {
             });
         }
 
-        // Custom (universal) scene field filters — one chip group per dropdown / multi-select template
-        if (this.plugin?.fieldTemplates) {
-            const sceneTpls = this.plugin.fieldTemplates.getAll()
-                .filter(t => (t.category || 'character') === 'scene')
-                .filter(t => t.type === 'dropdown' || t.type === 'multi-select');
+        // Custom scene field filters — one chip group per dropdown / multi-select custom field
+        const plugin = this.plugin;
+        const customFields = plugin?.entityTemplates?.getAllCustomFieldsByType(ENTITY_TYPE_SCENE, ['dropdown', 'multi-select']) ?? [];
 
-            for (const tpl of sceneTpls) {
-                // Collect all values actually used for this field across scenes,
-                // unioned with template-defined options and (for folder-sourced
-                // fields) the markdown files in the source folder.
-                const used = new Set<string>();
-                for (const scene of this.sceneManager.getAllScenes()) {
-                    const raw = scene.universalFields?.[tpl.id];
-                    if (Array.isArray(raw)) raw.forEach(v => v && used.add(String(v)));
-                    else if (typeof raw === 'string' && raw.trim()) used.add(raw);
+        for (const cf of customFields) {
+            // Collect all values actually used for this field across scenes,
+            // unioned with template-defined options and (for folder-sourced
+            // fields) the markdown files in the source folder.
+            const used = new Set<string>();
+            const isMulti = (cf.field.type ?? 'text') === 'multi-select';
+            for (const scene of this.sceneManager.getAllScenes()) {
+                const raw = scene.custom?.[cf.compositeKey];
+                if (!raw) continue;
+                if (isMulti) {
+                    raw.split(',').forEach(v => { v = v.trim(); if (v) used.add(v); });
+                } else {
+                    const v = raw.trim();
+                    if (v) used.add(v);
                 }
-                for (const opt of tpl.options) used.add(opt);
-                if (tpl.folderSource) {
-                    const folder = this.plugin.app.vault.getAbstractFileByPath(tpl.folderSource);
-                    if (folder && 'children' in folder) {
-                        for (const child of (folder as unknown as obsidian.TFolder).children) {
-                            if (child instanceof obsidian.TFile && child.extension === 'md') {
-                                used.add(child.basename);
-                            }
+            }
+            for (const opt of cf.field.options ?? []) used.add(opt);
+            if (cf.field.folderSource && plugin) {
+                const folder = plugin.app.vault.getAbstractFileByPath(cf.field.folderSource);
+                if (folder && 'children' in folder) {
+                    for (const child of (folder as unknown as obsidian.TFolder).children) {
+                        if (child instanceof obsidian.TFile && child.extension === 'md') {
+                            used.add(child.basename);
                         }
                     }
                 }
-
-                if (used.size === 0) continue;
-
-                new Setting(panel).setName(tpl.label);
-                const cfContainer = panel.createDiv('story-line-filter-chips');
-                const sorted = Array.from(used).sort((a, b) => a.localeCompare(b));
-                sorted.forEach(val => {
-                    const chip = cfContainer.createEl('button', {
-                        cls: 'story-line-chip',
-                        text: val,
-                    });
-                    if (this.currentFilter.customFields?.[tpl.id]?.includes(val)) chip.addClass('active');
-                    chip.addEventListener('click', () => {
-                        if (!this.currentFilter.customFields) this.currentFilter.customFields = {};
-                        const arr = this.currentFilter.customFields[tpl.id] ?? [];
-                        const idx = arr.indexOf(val);
-                        if (idx >= 0) {
-                            arr.splice(idx, 1);
-                            chip.removeClass('active');
-                        } else {
-                            arr.push(val);
-                            chip.addClass('active');
-                        }
-                        if (arr.length === 0) {
-                            delete this.currentFilter.customFields[tpl.id];
-                        } else {
-                            this.currentFilter.customFields[tpl.id] = arr;
-                        }
-                        if (Object.keys(this.currentFilter.customFields).length === 0) {
-                            delete this.currentFilter.customFields;
-                        }
-                        this.emitChange();
-                    });
-                });
             }
+
+            if (used.size === 0) continue;
+
+            new Setting(panel).setName(cf.field.name);
+            const cfContainer = panel.createDiv('story-line-filter-chips');
+            const sorted = Array.from(used).sort((a, b) => a.localeCompare(b));
+            sorted.forEach(val => {
+                const chip = cfContainer.createEl('button', {
+                    cls: 'story-line-chip',
+                    text: val,
+                });
+                if (this.currentFilter.customFields?.[cf.compositeKey]?.includes(val)) chip.addClass('active');
+                chip.addEventListener('click', () => {
+                    if (!this.currentFilter.customFields) this.currentFilter.customFields = {};
+                    const arr = this.currentFilter.customFields[cf.compositeKey] ?? [];
+                    const idx = arr.indexOf(val);
+                    if (idx >= 0) {
+                        arr.splice(idx, 1);
+                        chip.removeClass('active');
+                    } else {
+                        arr.push(val);
+                        chip.addClass('active');
+                    }
+                    if (arr.length === 0) {
+                        delete this.currentFilter.customFields[cf.compositeKey];
+                    } else {
+                        this.currentFilter.customFields[cf.compositeKey] = arr;
+                    }
+                    if (Object.keys(this.currentFilter.customFields).length === 0) {
+                        delete this.currentFilter.customFields;
+                    }
+                    this.emitChange();
+                });
+            });
         }
 
         // --- Filter Presets ---

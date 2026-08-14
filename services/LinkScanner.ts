@@ -68,8 +68,8 @@ export class LinkScanner {
     private codexNames: Set<string> = new Set();
 
     /**
-     * Maps a lowercased name/nickname to the canonical (display) character name.
-     * E.g. "anna" → "Anna Svensson" when nickname is "Anna".
+     * Maps a lowercased name/alias to the canonical (display) character name.
+     * E.g. "anna" → "Anna Svensson" when alias is "Anna".
      */
     private charCanonical: Map<string, string> = new Map();
 
@@ -224,17 +224,17 @@ export class LinkScanner {
                 if (cRule) registerRule(firstName, c.name, cRule);
             }
 
-            if ((c as unknown as Record<string, unknown>).nickname) {
-                // Support multiple comma-separated nicknames
-                const nicknames = String((c as unknown as Record<string, unknown>).nickname)
-                    .split(',')
+            if ((c as unknown as Record<string, unknown>).aliases) {
+                // Support multiple comma- or newline-separated aliases
+                const aliases = String((c as unknown as Record<string, unknown>).aliases)
+                    .split(/[,\n]/)
                     .map((n: string) => n.trim())
                     .filter(Boolean);
-                for (const nick of nicknames) {
-                    const nickLower = nick.toLowerCase();
-                    this.charNames.add(nickLower);
-                    this.charCanonical.set(nickLower, c.name);
-                    if (cRule) registerRule(nickLower, nick, cRule);
+                for (const alias of aliases) {
+                    const aliasLower = alias.toLowerCase();
+                    this.charNames.add(aliasLower);
+                    this.charCanonical.set(aliasLower, c.name);
+                    if (cRule) registerRule(aliasLower, alias, cRule);
                 }
             }
         }
@@ -253,13 +253,13 @@ export class LinkScanner {
             // Issue #228 — Linking & Matching rules for locations.
             const lRule = buildRule(l as unknown as Record<string, unknown>);
             registerRule(l.name.toLowerCase(), l.name, lRule);
-            // Support comma-separated nicknames for locations
-            if (l.nickname) {
-                const nicks = String(l.nickname).split(',').map(n => n.trim()).filter(Boolean);
-                for (const nick of nicks) {
-                    const nickLower = nick.toLowerCase();
-                    this.locNames.add(nickLower);
-                    if (lRule) registerRule(nickLower, nick, lRule);
+            // Support comma- or newline-separated aliases for locations
+            if (l.aliases) {
+                const al = String(l.aliases).split(/[,\n]/).map(n => n.trim()).filter(Boolean);
+                for (const alias of al) {
+                    const aliasLower = alias.toLowerCase();
+                    this.locNames.add(aliasLower);
+                    if (lRule) registerRule(aliasLower, alias, lRule);
                 }
             }
         }
@@ -269,13 +269,13 @@ export class LinkScanner {
             // Issue #228 — Linking & Matching rules for worlds.
             const wRule = buildRule(w as unknown as Record<string, unknown>);
             registerRule(w.name.toLowerCase(), w.name, wRule);
-            // Support comma-separated nicknames for worlds
-            if (w.nickname) {
-                const nicks = String(w.nickname).split(',').map(n => n.trim()).filter(Boolean);
-                for (const nick of nicks) {
-                    const nickLower = nick.toLowerCase();
-                    this.locNames.add(nickLower);
-                    if (wRule) registerRule(nickLower, nick, wRule);
+            // Support comma- or newline-separated aliases for worlds
+            if (w.aliases) {
+                const al = String(w.aliases).split(/[,\n]/).map(n => n.trim()).filter(Boolean);
+                for (const alias of al) {
+                    const aliasLower = alias.toLowerCase();
+                    this.locNames.add(aliasLower);
+                    if (wRule) registerRule(aliasLower, alias, wRule);
                 }
             }
         }
@@ -317,19 +317,6 @@ export class LinkScanner {
                         if (caseSensitive) this.codexCaseSensitiveNames.push(alias);
                     }
                 }
-                // Support comma-separated nicknames for codex entries
-                const nick = (entry as unknown as Record<string, unknown>).nickname;
-                if (nick && typeof nick === 'string') {
-                    const nicks = String(nick).split(',').map(n => n.trim()).filter(Boolean);
-                    for (const n of nicks) {
-                        const nLower = n.toLowerCase();
-                        if (!this.charNames.has(nLower) && !this.locNames.has(nLower)) {
-                            this.codexNames.add(nLower);
-                            this.codexEntryRules.set(nLower, rules);
-                            if (caseSensitive) this.codexCaseSensitiveNames.push(n);
-                        }
-                    }
-                }
             }
         }
 
@@ -362,7 +349,6 @@ export class LinkScanner {
         const plainTextMentions = this.extractPlainTextMentions(body);
         for (const name of plainTextMentions) {
             const key = name.toLowerCase();
-            // Use the canonical character name if available (maps nickname → full name)
             const canonical = this.charCanonical.get(key) || name;
             const canonKey = canonical.toLowerCase();
             if (!seen.has(canonKey)) seen.set(canonKey, canonical);
@@ -410,7 +396,7 @@ export class LinkScanner {
 
     /**
      * Scan plain text (excluding wikilinks) for known character names,
-     * nicknames, and location names. Returns matched names (lowercased).
+     * aliases, and location names. Returns matched names (lowercased).
      */
     private extractPlainTextMentions(text: string): string[] {
         if (this.plainTextNames.length === 0) return [];
@@ -463,7 +449,7 @@ export class LinkScanner {
                 foundKeys.add(nameLower);
                 results.push(nameLower);
                 // If this is a canonical (full) name, also mark its parts as found
-                // so the shorter nickname won't create a duplicate entry
+                // so the shorter alias won't create a duplicate entry
                 // (the canonical name is already in the result)
             }
         }

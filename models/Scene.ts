@@ -150,17 +150,18 @@ export interface Scene {
     color?: string;
     /** Linked Codex entries per category — e.g. { animals: ['Dogs', 'Cats'], factions: ['Rebels'] } */
     codexLinks?: Record<string, string[]>;
-    /**
-     * Custom universal field values (keyed by template id).
-     * `boolean` is supported for `checkbox`-type templates (1.10.43+).
-     */
-    universalFields?: Record<string, string | string[] | boolean>;
     /** Name of the beat sheet template used to create this scene */
     beatsheet?: string;
     /** Issue #89 — names of detected codex links the user explicitly ignored in this scene */
     ignored_detections?: string[];
     /** Issue #128 — marks this scene as an Arc Point (key turning point in the story) */
     arcAnchor?: boolean;
+    /** User-defined custom fields (composite keys `section :: field` for
+     *  entity-template custom sections). */
+    custom?: Record<string, string>;
+    /** Value of the entity type's subcategory axis. Ignored when the entity
+     *  type has no subcategory axis configured. */
+    templateSubcategory?: string;
 }
 
 /**

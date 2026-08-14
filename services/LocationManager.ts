@@ -6,7 +6,8 @@ import {
     WORLD_FIELD_KEYS, LOCATION_FIELD_KEYS,
     WORLD_CATEGORIES, LOCATION_CATEGORIES,
 } from '../models/Location';
-import { hydrateUniversalFieldsFromTopLevel, mirrorUniversalFieldsToTopLevel, UniversalFieldTemplate } from './FieldTemplateService';
+import { hydrateCustomFromTopLevel, mirrorCustomToTopLevel } from './customTopLevelMirror';
+import { ENTITY_TYPE_WORLD, ENTITY_TYPE_LOCATION } from '../models/EntityTemplate';
 import { MirroredSection, buildMirroredBody, parseMirroredBody, ParsedMirrorSection } from './CodexManager';
 
 /**
@@ -21,7 +22,6 @@ export class LocationManager {
     private worlds: Map<string, StoryWorld> = new Map();
     private locations: Map<string, StoryLocation> = new Map();
     private _isSaving = false;
-    private _fieldTemplates: UniversalFieldTemplate[] = [];
 
     constructor(app: App) {
         this.app = app;
@@ -30,11 +30,6 @@ export class LocationManager {
     /** Whether the manager is currently writing a file (prevents modify-loop). */
     isSelfWrite(): boolean {
         return this._isSaving;
-    }
-
-    /** Set field templates for resolving universal field mirror keys during body parsing. */
-    setFieldTemplates(templates: UniversalFieldTemplate[]): void {
-        this._fieldTemplates = templates;
     }
 
     // ── Loading ────────────────────────────────────────
@@ -116,7 +111,6 @@ export class LocationManager {
                 name: fmEff.name || basename,
                 image: fmEff.image,
                 gallery: this.parseGallery(fmEff.gallery),
-                nickname: fmEff.nickname,
                 description: fmEff.description,
                 geography: fmEff.geography,
                 culture: fmEff.culture,
@@ -126,15 +120,19 @@ export class LocationManager {
                 economy: fmEff.economy,
                 history: fmEff.history,
                 books: this.parseStringList(fmEff.books),
-                custom: fmEff.custom && typeof fmEff.custom === 'object'
-                    ? (fmEff.custom as Record<string, string>)
-                    : undefined,
-                universalFields: hydrateUniversalFieldsFromTopLevel(
+                entryType: typeof fmEff.entryType === 'string' ? fmEff.entryType : undefined,
+                aliases: typeof fmEff.aliases === 'string' ? fmEff.aliases : undefined,
+                caseSensitive: fmEff.caseSensitive === true,
+                excludeTerms: typeof fmEff.excludeTerms === 'string' ? fmEff.excludeTerms : undefined,
+                custom: hydrateCustomFromTopLevel(
                     fmEff,
-                    fmEff.universalFields && typeof fmEff.universalFields === 'object'
-                        ? (fmEff.universalFields as Record<string, string | string[]>)
+                    fmEff.custom && typeof fmEff.custom === 'object'
+                        ? (fmEff.custom as Record<string, string>)
                         : undefined,
-                ) as Record<string, string | string[]> | undefined,
+                    ENTITY_TYPE_WORLD,
+                    typeof fmEff.templateSubcategory === 'string' ? fmEff.templateSubcategory : undefined,
+                ),
+                templateSubcategory: typeof fmEff.templateSubcategory === 'string' ? fmEff.templateSubcategory : undefined,
                 created: fmEff.created,
                 modified: fmEff.modified,
                 notes: plainNotes || undefined,
@@ -142,7 +140,7 @@ export class LocationManager {
 
             // Apply mirrored body values — body is source of truth for mirrored fields
             if (sections.length > 0) {
-                applySectionsToWorld(sections, world, this._fieldTemplates);
+                applySectionsToWorld(sections, world);
             }
 
             this.worlds.set(filePath, world);
@@ -153,7 +151,6 @@ export class LocationManager {
                 name: fmEff.name || basename,
                 image: fmEff.image,
                 gallery: this.parseGallery(fmEff.gallery),
-                nickname: fmEff.nickname,
                 locationType: fmEff.locationType,
                 world: fmEff.world,
                 parent: fmEff.parent,
@@ -164,15 +161,19 @@ export class LocationManager {
                 connectedLocations: fmEff.connectedLocations,
                 mapNotes: fmEff.mapNotes,
                 books: this.parseStringList(fmEff.books),
-                custom: fmEff.custom && typeof fmEff.custom === 'object'
-                    ? (fmEff.custom as Record<string, string>)
-                    : undefined,
-                universalFields: hydrateUniversalFieldsFromTopLevel(
+                entryType: typeof fmEff.entryType === 'string' ? fmEff.entryType : undefined,
+                aliases: typeof fmEff.aliases === 'string' ? fmEff.aliases : undefined,
+                caseSensitive: fmEff.caseSensitive === true,
+                excludeTerms: typeof fmEff.excludeTerms === 'string' ? fmEff.excludeTerms : undefined,
+                custom: hydrateCustomFromTopLevel(
                     fmEff,
-                    fmEff.universalFields && typeof fmEff.universalFields === 'object'
-                        ? (fmEff.universalFields as Record<string, string | string[]>)
+                    fmEff.custom && typeof fmEff.custom === 'object'
+                        ? (fmEff.custom as Record<string, string>)
                         : undefined,
-                ) as Record<string, string | string[]> | undefined,
+                    ENTITY_TYPE_LOCATION,
+                    typeof fmEff.templateSubcategory === 'string' ? fmEff.templateSubcategory : undefined,
+                ),
+                templateSubcategory: typeof fmEff.templateSubcategory === 'string' ? fmEff.templateSubcategory : undefined,
                 created: fmEff.created,
                 modified: fmEff.modified,
                 notes: plainNotes || undefined,
@@ -180,7 +181,7 @@ export class LocationManager {
 
             // Apply mirrored body values — body is source of truth for mirrored fields
             if (sections.length > 0) {
-                applySectionsToLocation(sections, loc, this._fieldTemplates);
+                applySectionsToLocation(sections, loc);
             }
 
             this.locations.set(filePath, loc);
@@ -361,6 +362,10 @@ export class LocationManager {
         fm.modified = new Date().toISOString().split('T')[0];
         if (item.created) fm.created = item.created;
 
+        // Drop the legacy `nickname` field on save — replaced by `aliases`
+        // (Issue #228). Existing frontmatter is migrated away on next save.
+        delete fm['nickname'];
+
         for (const key of fieldKeys) {
             if (key === 'name') continue;
             const val = (item as unknown as Record<string, unknown>)[key];
@@ -377,13 +382,13 @@ export class LocationManager {
             delete fm.custom;
         }
 
-        if (item.universalFields && Object.keys(item.universalFields).length > 0) {
-            fm.universalFields = item.universalFields;
-        } else {
-            delete fm.universalFields;
-        }
-        // Issue #71 — mirror to top-level YAML keys for templates that opt in
-        mirrorUniversalFieldsToTopLevel(fm, item.universalFields);
+        // Issue #71 — mirror custom-field values to top-level YAML keys
+        mirrorCustomToTopLevel(
+            fm,
+            item.custom,
+            item.type === 'world' ? ENTITY_TYPE_WORLD : ENTITY_TYPE_LOCATION,
+            item.templateSubcategory,
+        );
 
         // Build body: strip old mirrored sections, then rebuild with notes + current mirrored fields
         const { notes: existingNotes } = parseMirroredBody(body);
@@ -507,10 +512,9 @@ export class LocationManager {
 function applySectionsToWorld(
     sections: ParsedMirrorSection[],
     world: StoryWorld,
-    fieldTemplates: UniversalFieldTemplate[],
 ): void {
     for (const sec of sections) {
-        const key = resolveLocationMirrorKey(sec.sectionTitle, sec.fieldLabel, fieldTemplates, WORLD_CATEGORIES);
+        const key = resolveLocationMirrorKey(sec.sectionTitle, sec.fieldLabel, WORLD_CATEGORIES);
         if (!key) continue;
         applyMirrorValue(world, key, sec.value);
     }
@@ -519,10 +523,9 @@ function applySectionsToWorld(
 function applySectionsToLocation(
     sections: ParsedMirrorSection[],
     loc: StoryLocation,
-    fieldTemplates: UniversalFieldTemplate[],
 ): void {
     for (const sec of sections) {
-        const key = resolveLocationMirrorKey(sec.sectionTitle, sec.fieldLabel, fieldTemplates, LOCATION_CATEGORIES);
+        const key = resolveLocationMirrorKey(sec.sectionTitle, sec.fieldLabel, LOCATION_CATEGORIES);
         if (!key) continue;
         applyMirrorValue(loc, key, sec.value);
     }
@@ -531,12 +534,8 @@ function applySectionsToLocation(
 function resolveLocationMirrorKey(
     sectionTitle: string,
     fieldLabel: string,
-    fieldTemplates: UniversalFieldTemplate[],
     categories: ReadonlyArray<{ title: string; fields: ReadonlyArray<{ key: string; label: string }> }>,
 ): string | null {
-    const tpl = fieldTemplates.find(t => t.section === sectionTitle && t.label === fieldLabel);
-    if (tpl) return tpl.id;
-
     for (const cat of categories) {
         if (cat.title !== sectionTitle) continue;
         const field = cat.fields.find(f => f.label === fieldLabel);
@@ -546,19 +545,16 @@ function resolveLocationMirrorKey(
     return `${sectionTitle} :: ${fieldLabel}`;
 }
 
-function applyMirrorValue<T extends { custom?: Record<string, string>; universalFields?: Record<string, string | string[]> }>(
+function applyMirrorValue<T extends { custom?: Record<string, string> }>(
     obj: T,
     key: string,
     value: string,
 ): void {
-    if (key.startsWith('uf_')) {
-        if (!obj.universalFields) obj.universalFields = {};
-        obj.universalFields[key] = value;
-    } else if (key.includes(' :: ')) {
+    if (key.includes(' :: ')) {
         if (!obj.custom) obj.custom = {};
         obj.custom[key] = value;
     } else {
         (obj as unknown as Record<string, unknown>)[key] = value;
     }
 }
-/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-floating-promises, @typescript-eslint/no-misused-promises, @typescript-eslint/no-unnecessary-type-assertion, @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-unused-vars, no-unused-vars, no-useless-escape, no-control-regex, no-empty -- end of file-wide suppression block opened at line 1 */
+/* eslint-enable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion -- end of file-wide suppression block opened at line 1 */

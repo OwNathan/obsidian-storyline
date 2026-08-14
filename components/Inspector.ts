@@ -8,10 +8,17 @@ import { WikilinkSuggest } from './WikilinkSuggest';
 import { SceneManager } from '../services/SceneManager';
 import type SceneCardsPlugin from '../main';
 import { renderTagPillInput } from './InlineSuggest';
-import { AddFieldModal } from './AddFieldModal';
 import { AddCommentModal } from './AddCommentModal';
 import { renderCommentCapsule } from './CommentCapsule';
-import { UniversalFieldTemplate } from '../services/FieldTemplateService';
+import {
+    renderCustomSectionsAtSlot,
+    renderMergedSection,
+    renderAddCustomSectionButton,
+    syncLinkedSections,
+    type CustomSectionsHost,
+} from './CustomSectionsRenderer';
+import { ENTITY_TYPE_SCENE } from '../models/EntityTemplate';
+import { renderSubcategoryPicker } from './SubcategoryPicker';
 import { parseActChapterInput, actChapterHasIllegalPathChars, isPrologueAct, isEpilogueAct, PROLOGUE_ACT, EPILOGUE_ACT } from '../utils/actChapter';
 import { Scene, SceneStatus, getStatusOrder, resolveStatusCfg, SceneCategory, getSceneCategoryOrder, resolveSceneCategoryCfg } from '../models/Scene';
 
@@ -30,6 +37,11 @@ export class InspectorComponent {
     private onCategoryChange: (scene: Scene, newCategory: SceneCategory) => void;
     private onShow: (() => void) | undefined;
     private onHide: (() => void) | undefined;
+    private collapsedSections = new Set<string>();
+    private customSaveTimer: number | null = null;
+    /** Key of the last-rendered scene — used to only restore scroll when
+     *  re-rendering the same scene (not when switching scenes). */
+    private lastRenderKey = '';
 
     constructor(
         container: HTMLElement,
@@ -105,6 +117,14 @@ export class InspectorComponent {
         const scene = this.currentScene;
         if (!scene) return;
 
+        // Preserve scroll position across the full DOM rebuild so collapsing /
+        // adding a section or saving the file doesn't jump the scrollbar. Only
+        // restore when re-rendering the same scene — switching scenes resets.
+        const renderKey = scene.filePath;
+        const samePage = renderKey === this.lastRenderKey;
+        const prevScrollTop = this.container.scrollTop;
+        const prevScrollLeft = this.container.scrollLeft;
+
         this.container.empty();
         this.container.addClass('story-line-inspector');
 
@@ -138,6 +158,10 @@ export class InspectorComponent {
                 boxSizing: 'border-box',
             });
         };
+
+        // ── Custom sections (entity template) — slot above title ──
+        const customHost = this.buildCustomSectionsHost(scene);
+        renderCustomSectionsAtSlot(this.container, customHost, 0);
 
         // ── Title (editable) ──
         const titleSection = this.container.createDiv('inspector-title-section');
@@ -186,6 +210,21 @@ export class InspectorComponent {
             const val = subtitleInput.value.trim() || undefined;
             await this.sceneManager.updateScene(scene.filePath, { subtitle: val });
             scene.subtitle = val;
+        });
+
+        // Subcategory picker (only when the scene entity type has an axis)
+        renderSubcategoryPicker({
+            container: this.container,
+            entityTemplates: this.plugin.entityTemplates,
+            entityType: ENTITY_TYPE_SCENE,
+            current: scene.templateSubcategory,
+            onChange: async (value) => {
+                scene.templateSubcategory = value;
+                await this.sceneManager.updateScene(scene.filePath, { templateSubcategory: value });
+                // Re-render immediately so the new subcategory's custom
+                // sections show without waiting for the next refresh.
+                this.render();
+            },
         });
 
         // ── Act / Chapter / Sequence row ──
@@ -464,6 +503,10 @@ export class InspectorComponent {
         // ── Dynamic Codex sections (categories with showInSidebar) ──
         this.renderCodexSections(scene);
 
+        // ── Custom sections (entity template) — slot after Connected Entities ──
+        renderCustomSectionsAtSlot(this.container, customHost, 1);
+        renderMergedSection(this.container, customHost, 'Connected Entities');
+
         // ── Arc Point toggle ──
         const arcRow = this.container.createDiv('inspector-section');
         arcRow.addClass('inspector-arc-row');
@@ -506,11 +549,13 @@ export class InspectorComponent {
             placeholder: 'Add plotline…',
         });
 
+        // ── Custom sections (entity template) — slot after General ──
+        renderCustomSectionsAtSlot(this.container, customHost, 2);
+        renderMergedSection(this.container, customHost, 'General');
+        renderAddCustomSectionButton(this.container, customHost);
+
         // ── Detected in text (LinkScanner results) ──
         this.renderDetectedLinks(scene);
-
-        // ── Custom (universal) fields for scenes ──
-        this.renderUniversalFields(scene);
 
         // Editorial Notes / Revision Comments
         this.renderNotes(scene);
@@ -553,219 +598,55 @@ export class InspectorComponent {
                 },
             });
         });
+
+        this.container.scrollTop = samePage ? prevScrollTop : 0;
+        this.container.scrollLeft = samePage ? prevScrollLeft : 0;
+        this.lastRenderKey = renderKey;
     }
 
     /**
-     * Render custom (universal) fields for scenes.
+     * Build the {@link CustomSectionsHost} used to render entity-template
+     * custom sections for the current scene. Structure changes persist via
+     * {@link EntityTemplateService}; values live in scene.custom and are
+     * saved through the normal scene update path.
      */
-    private renderUniversalFields(scene: Scene): void {
-        // Also gather templates from any section that targets scenes
-        const allTemplates = this.plugin.fieldTemplates.getAll().filter(t => (t.category || 'character') === 'scene');
-
-        if (allTemplates.length === 0 && !this.plugin.fieldTemplates) return;
-
-        const section = this.container.createDiv('inspector-section inspector-universal-fields');
-        const header = section.createDiv('inspector-universal-header');
-        header.createSpan({ cls: 'inspector-label', text: 'Custom Fields' });
-
-        const addBtn = header.createEl('button', {
-            cls: 'inspector-universal-add-btn clickable-icon',
-            attr: { title: 'Add custom field', 'aria-label': 'Add custom field' },
-        });
-        obsidian.setIcon(addBtn, 'plus');
-        addBtn.addEventListener('click', () => {
-            const modal = new AddFieldModal(
-                this.plugin.app,
-                'Scene',
-                null,
-                async (template) => {
-                    template.category = 'scene';
-                    await this.plugin.fieldTemplates.add(template);
-                    const fresh = this.sceneManager.getAllScenes().find(s => s.filePath === scene.filePath);
-                    if (fresh) this.show(fresh);
-                },
-                undefined,
-                ['Scene'],
-            );
-            modal.open();
-        });
-
-        if (!scene.universalFields) scene.universalFields = {};
-
-        for (const tpl of allTemplates) {
-            this.renderSingleUniversalField(section, tpl, scene);
-        }
+    private buildCustomSectionsHost(scene: Scene): CustomSectionsHost<Scene> {
+        const subcategory = scene.templateSubcategory;
+        const sections = this.plugin.entityTemplates.getCustomSections(ENTITY_TYPE_SCENE, subcategory);
+        const defaultTitles = this.plugin.entityTemplates.getDefaultSectionTitles(ENTITY_TYPE_SCENE);
+        return {
+            app: this.plugin.app,
+            draft: scene,
+            sections,
+            entityType: ENTITY_TYPE_SCENE,
+            subcategory,
+            entityTemplates: this.plugin.entityTemplates,
+            remigrateLinkedKeys: (ops, subcats) => {
+                void this.plugin.customKeyMigrator.remigrateCustomKeys(ENTITY_TYPE_SCENE, ops, subcats, scene.filePath);
+            },
+            builtinSectionCount: defaultTitles.length,
+            collapsedSections: this.collapsedSections,
+            collapseKeyPrefix: 'scene',
+            cssPrefix: 'codex',
+            isMergedSectionTitle: (title) => defaultTitles.includes(title),
+            scheduleSave: (d) => this.scheduleSceneCustomSave(d),
+            persistSections: () => {
+                void this.plugin.entityTemplates.setCustomSections(ENTITY_TYPE_SCENE, subcategory, sections);
+                void syncLinkedSections(this.plugin.entityTemplates, ENTITY_TYPE_SCENE, subcategory, sections);
+            },
+            requestRerender: () => {
+                if (this.currentScene) this.render();
+            },
+        };
     }
 
-    /**
-     * Render a single universal field input in the inspector.
-     */
-    private renderSingleUniversalField(
-        parent: HTMLElement,
-        tpl: UniversalFieldTemplate,
-        scene: Scene,
-    ): void {
-        if (!scene.universalFields) scene.universalFields = {};
-        // 1.10.43: `universalFields` values can be string | string[] | boolean.
-        // `value` is the coerced string used by text / dropdown paths; the
-        // checkbox path reads `rawValue` to detect the actual boolean.
-        const rawValue = scene.universalFields[tpl.id];
-        const value: string = typeof rawValue === 'string' ? rawValue : '';
-
-        const row = parent.createDiv('inspector-universal-field-row');
-
-        const labelWrap = row.createDiv('inspector-universal-label-wrap');
-        labelWrap.createEl('label', { cls: 'inspector-label', text: tpl.label });
-
-        const editBtn = labelWrap.createEl('button', {
-            cls: 'inspector-universal-edit-btn clickable-icon',
-            attr: { title: 'Edit or remove this field', 'aria-label': 'Edit field' },
-        });
-        obsidian.setIcon(editBtn, 'pencil');
-        editBtn.addEventListener('click', () => {
-            const modal = new AddFieldModal(
-                this.plugin.app,
-                tpl.section,
-                tpl,
-                async (updated) => {
-                    await this.plugin.fieldTemplates.update(tpl.id, updated);
-                    const fresh = this.sceneManager.getAllScenes().find(s => s.filePath === scene.filePath);
-                    if (fresh) this.show(fresh);
-                },
-                async () => {
-                    await this.plugin.fieldTemplates.remove(tpl.id);
-                    const fresh = this.sceneManager.getAllScenes().find(s => s.filePath === scene.filePath);
-                    if (fresh) this.show(fresh);
-                },
-                ['Scene'],
-            );
-            modal.open();
-        });
-
-        if (tpl.type === 'textarea') {
-            const ta = row.createEl('textarea', {
-                cls: 'inspector-universal-textarea',
-                attr: { placeholder: tpl.placeholder || '', rows: '4' },
-            });
-            ta.value = String(value);
-            ta.addEventListener('change', async () => {
-                scene.universalFields![tpl.id] = ta.value.trim() || '';
-                await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
-            });
-        } else if (tpl.type === 'dropdown') {
-            const sel = row.createEl('select', { cls: 'inspector-universal-select' });
-            sel.createEl('option', { text: tpl.placeholder || '— Select —', value: '' });
-            const options = this.buildFieldOptions(tpl);
-            for (const opt of options) {
-                const o = sel.createEl('option', { text: opt, value: opt });
-                if (value === opt) o.selected = true;
-            }
-            // Keep the current value selectable even if it comes from a
-            // template option or folder entry that was since removed.
-            if (value && !options.includes(value)) {
-                const o = sel.createEl('option', { text: value, value });
-                o.selected = true;
-            }
-            sel.addEventListener('change', async () => {
-                scene.universalFields![tpl.id] = sel.value;
-                await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
-            });
-        } else if (tpl.type === 'multi-select') {
-            const raw = scene.universalFields[tpl.id];
-            const selected: string[] = Array.isArray(raw) ? [...raw] : (typeof raw === 'string' && raw ? [raw] : []);
-
-            const msContainer = row.createDiv('inspector-universal-multi');
-            const pillsEl = msContainer.createDiv('inspector-universal-pills');
-
-            const renderPills = () => {
-                pillsEl.empty();
-                for (const item of selected) {
-                    const pill = pillsEl.createSpan({ cls: 'story-line-chip' });
-                    pill.createSpan({ text: item });
-                    const x = pill.createSpan({ cls: 'inspector-sp-remove', text: '×' });
-                    x.addEventListener('click', async () => {
-                        const idx = selected.indexOf(item);
-                        if (idx >= 0) selected.splice(idx, 1);
-                        scene.universalFields![tpl.id] = [...selected];
-                        await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
-                        renderPills();
-                    });
-                }
-            };
-            renderPills();
-
-            const inputRow = msContainer.createDiv('inspector-universal-input-row');
-            const msInput = inputRow.createEl('input', {
-                cls: 'inspector-universal-input',
-                type: 'text',
-                attr: {
-                    placeholder: tpl.placeholder || 'Type to add…',
-                    list: `inspector-uf-options-${tpl.id}`,
-                },
-            });
-            // Suggest template options + folder-sourced entries via datalist.
-            const dl = msContainer.createEl('datalist', { attr: { id: `inspector-uf-options-${tpl.id}` } });
-            for (const opt of this.buildFieldOptions(tpl)) {
-                dl.createEl('option', { value: opt });
-            }
-            msInput.addEventListener('keydown', async (e: KeyboardEvent) => {
-                if (e.key === 'Enter' && msInput.value.trim()) {
-                    e.preventDefault();
-                    const val = msInput.value.trim();
-                    if (!selected.includes(val)) {
-                        selected.push(val);
-                        scene.universalFields![tpl.id] = [...selected];
-                        await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
-                        renderPills();
-                    }
-                    msInput.value = '';
-                }
-            });
-        } else if (tpl.type === 'checkbox') {
-            const checked = rawValue === true || rawValue === 'true' || rawValue === 'yes';
-            const wrap = row.createDiv('inspector-universal-checkbox-wrap');
-            const cb = wrap.createEl('input', {
-                cls: 'inspector-universal-checkbox',
-                type: 'checkbox',
-            });
-            cb.checked = checked;
-            cb.addEventListener('change', async () => {
-                scene.universalFields![tpl.id] = cb.checked;
-                await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
-            });
-        } else {
-            // Default: text input
-            const input = row.createEl('input', {
-                cls: 'inspector-universal-input',
-                type: 'text',
-                attr: { placeholder: tpl.placeholder || '' },
-            });
-            input.value = String(value);
-            input.addEventListener('change', async () => {
-                scene.universalFields![tpl.id] = input.value.trim();
-                await this.sceneManager.updateScene(scene.filePath, { universalFields: { ...scene.universalFields } });
-            });
-        }
-    }
-
-    /**
-     * Build the selectable options for a dropdown / multi-select template:
-     * template-defined options plus (when `folderSource` is set) the base
-     * names of every markdown file in that folder, sorted alphabetically.
-     */
-    private buildFieldOptions(tpl: UniversalFieldTemplate): string[] {
-        const opts = [...(tpl.options || [])];
-        if (tpl.folderSource) {
-            const folder = this.plugin.app.vault.getAbstractFileByPath(tpl.folderSource);
-            if (folder && 'children' in folder) {
-                for (const child of (folder as obsidian.TFolder).children) {
-                    if (child instanceof obsidian.TFile && child.extension === 'md') {
-                        if (!opts.includes(child.basename)) opts.push(child.basename);
-                    }
-                }
-            }
-        }
-        return opts.sort((a, b) => a.localeCompare(b));
+    /** Debounced persistence of scene.custom after custom-field edits. */
+    private scheduleSceneCustomSave(scene: Scene): void {
+        if (this.customSaveTimer) window.clearTimeout(this.customSaveTimer);
+        this.customSaveTimer = window.setTimeout(() => {
+            this.customSaveTimer = null;
+            void this.sceneManager.updateScene(scene.filePath, { custom: scene.custom });
+        }, 400);
     }
 
     /**
